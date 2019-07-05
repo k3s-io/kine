@@ -1,4 +1,4 @@
-module github.com/rancher/kes
+module github.com/rancher/kine
 
 go 1.12
 

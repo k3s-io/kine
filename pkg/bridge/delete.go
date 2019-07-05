@@ -22,7 +22,7 @@ func isDelete(txn *etcdserverpb.TxnRequest) (int64, string, bool) {
 		txn.Failure[0].GetRequestRange() != nil &&
 		len(txn.Success) == 1 &&
 		txn.Success[0].GetRequestDeleteRange() != nil {
-		return txn.Compare[0].GetModRevision(), string(txn.Success[1].GetRequestDeleteRange().Key), true
+		return txn.Compare[0].GetModRevision(), string(txn.Success[0].GetRequestDeleteRange().Key), true
 	}
 	return 0, "", false
 }

@@ -106,10 +106,11 @@ func toKV(kv *backend.KeyValue) *mvccpb.KeyValue {
 		return nil
 	}
 	return &mvccpb.KeyValue{
-		Key:         []byte(kv.Key),
-		Value:       kv.Value,
-		Lease:       kv.Lease,
-		ModRevision: kv.ModRevision,
+		Key:            []byte(kv.Key),
+		Value:          kv.Value,
+		Lease:          kv.Lease,
+		CreateRevision: kv.CreateRevision,
+		ModRevision:    kv.ModRevision,
 	}
 }
 

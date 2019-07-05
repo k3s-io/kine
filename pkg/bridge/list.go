@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -10,14 +11,14 @@ import (
 
 func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) (*RangeResponse, error) {
 	if len(r.RangeEnd) == 0 {
-		return nil, fmt.Errorf("invalid rangeend length of 0")
+		return nil, fmt.Errorf("invalid range end length of 0")
 	}
 
 	prefix := string(append(r.RangeEnd[:len(r.RangeEnd)-1], r.RangeEnd[len(r.RangeEnd)-1]-1))
 	if !strings.HasSuffix(prefix, "/") {
 		prefix = prefix + "/"
 	}
-	start := string(r.Key)
+	start := string(bytes.TrimRight(r.Key, "\x00"))
 
 	if r.CountOnly {
 		rev, count, err := l.backend.Count(ctx, prefix)

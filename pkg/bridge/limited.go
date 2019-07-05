@@ -35,7 +35,10 @@ func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (
 	if rev, key, value, lease, ok := isUpdate(txn); ok {
 		return l.update(ctx, rev, key, value, lease)
 	}
-	return nil, fmt.Errorf("unsupported transaction")
+	if isCompact(txn) {
+		return l.compact(ctx)
+	}
+	return nil, fmt.Errorf("unsupported transaction: %v", txn)
 }
 
 type ResponseHeader struct {

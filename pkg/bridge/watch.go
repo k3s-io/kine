@@ -7,6 +7,7 @@ import (
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/rancher/kine/pkg/backend"
+	"github.com/sirupsen/logrus"
 )
 
 func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
@@ -53,22 +54,41 @@ func (w *watcher) Start(r *etcdserverpb.WatchCreateRequest) {
 	w.wg.Add(1)
 
 	key := string(r.Key)
-	end := string(r.RangeEnd)
-	if len(end) > 0 && end[len(end)-1] == '0' {
-		key = string(append(r.RangeEnd[:len(r.RangeEnd)-1], r.RangeEnd[len(r.RangeEnd)-1]-1)) + "/"
-	}
+
+	logrus.Debugf("WATCH START id=%d, key=%s, revision=%d", id, key, r.StartRevision)
 
 	go func() {
 		defer w.wg.Done()
-		for e := range w.backend.Watch(ctx, key) {
-			err := w.server.Send(&etcdserverpb.WatchResponse{
+		if err := w.server.Send(&etcdserverpb.WatchResponse{
+			Header:  &etcdserverpb.ResponseHeader{},
+			Created: true,
+			WatchId: id,
+		}); err != nil {
+			w.Cancel(id)
+			return
+		}
+
+		for events := range w.backend.Watch(ctx, key, r.StartRevision) {
+			if len(events) == 0 {
+				continue
+			}
+
+			if logrus.IsLevelEnabled(logrus.DebugLevel) {
+				for _, event := range events {
+					logrus.Debugf("WATCH READ id=%d, key=%s, revision=%d", id, event.KV.Key, event.KV.ModRevision)
+				}
+			}
+
+			if err := w.server.Send(&etcdserverpb.WatchResponse{
+				Header:  txnHeader(events[len(events)-1].KV.ModRevision),
 				WatchId: id,
-				Events:  toEvents(e...),
-			})
-			if err != nil {
-				cancel()
+				Events:  toEvents(events...),
+			}); err != nil {
+				w.Cancel(id)
+				return
 			}
 		}
+		logrus.Debugf("WATCH CLOSE id=%d, key=%s", id, key)
 	}()
 }
 
@@ -100,6 +120,14 @@ func (w *watcher) Cancel(watchID int64) {
 	if cancel, ok := w.watches[watchID]; ok {
 		cancel()
 		delete(w.watches, watchID)
+	}
+	err := w.server.Send(&etcdserverpb.WatchResponse{
+		Header:   &etcdserverpb.ResponseHeader{},
+		Canceled: true,
+		WatchId:  watchID,
+	})
+	if err != nil {
+		logrus.Errorf("Failed to send cancel response for watchID %d: %v", watchID, err)
 	}
 }
 

@@ -34,11 +34,17 @@ func run() error {
 		return err
 	}
 
-	s := sql.New(ctx, d)
+	s := sql.New(d)
+	s.Start(ctx)
 	l := log.New(s)
+	l.Start(ctx)
+
+	l.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0)
+
 	b := bridge.New(l)
 
 	server := grpc.NewServer()
+	etcdserverpb.RegisterLeaseServer(server, b)
 	etcdserverpb.RegisterWatchServer(server, b)
 	etcdserverpb.RegisterKVServer(server, b)
 

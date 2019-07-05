@@ -16,25 +16,24 @@ type Log struct {
 	d           Driver
 	broadcaster broadcaster.Broadcaster
 	ctx         context.Context
-	//notify      chan int64
+	notify      chan int64
 }
 
-func New(ctx context.Context, d Driver) *Log {
+func New(d Driver) *Log {
 	l := &Log{
-		d: d,
-		//notify: make(chan int64, 1024),
+		d:      d,
+		notify: make(chan int64, 1024),
 	}
-	l.Start(ctx)
 	return l
 }
 
 type Driver interface {
-	ListCurrent(ctx context.Context, prefix string, limit int64) (*sql.Rows, error)
-	List(ctx context.Context, prefix, startKey string, limit, revision int64) (*sql.Rows, error)
+	ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error)
+	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error)
 	Count(ctx context.Context, prefix string) (int64, int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
-	Since(ctx context.Context, rev int64) (*sql.Rows, error)
-	Insert(ctx context.Context, key string, create, delete bool, previousRevision int64, ttl int64, value, prevValue []byte) (int64, error)
+	After(ctx context.Context, prefix string, rev int64) (*sql.Rows, error)
+	Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (int64, error)
 	GetRevision(ctx context.Context, revision int64) (*sql.Rows, error)
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
@@ -43,7 +42,7 @@ type Driver interface {
 
 func (s *Log) Start(ctx context.Context) {
 	s.ctx = ctx
-	go s.compact()
+	//go s.compact()
 }
 
 func (s *Log) compact() {
@@ -57,7 +56,7 @@ outer:
 			continue
 		}
 
-		//end -= 100
+		//end -= 1000
 
 		cursor, err := s.d.GetCompactRevision(s.ctx)
 		if err != nil {
@@ -121,20 +120,38 @@ outer:
 	}
 }
 
-func (s *Log) List(ctx context.Context, prefix, startKey string, limit, revision int64) (int64, []*backend.Event, error) {
+func (s *Log) CurrentRevision(ctx context.Context) (int64, error) {
+	return s.d.CurrentRevision(ctx)
+}
+
+func (s *Log) After(ctx context.Context, prefix string, revision int64) (int64, []*backend.Event, error) {
+	if strings.HasSuffix(prefix, "/") {
+		prefix += "%"
+	}
+
+	rows, err := s.d.After(ctx, prefix, revision)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	rev, _, result, err := RowsToEvents(rows)
+	return rev, result, err
+}
+
+func (s *Log) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (int64, []*backend.Event, error) {
 	var (
 		rows *sql.Rows
 		err  error
 	)
 
 	if strings.HasSuffix(prefix, "/") {
-		prefix = prefix[:len(prefix)-1] + "%"
+		prefix += "%"
 	}
 
 	if revision == 0 {
-		rows, err = s.d.ListCurrent(ctx, prefix, limit)
+		rows, err = s.d.ListCurrent(ctx, prefix, limit, includeDeleted)
 	} else {
-		rows, err = s.d.List(ctx, prefix, startKey, limit, revision)
+		rows, err = s.d.List(ctx, prefix, startKey, limit, revision, includeDeleted)
 	}
 	if err != nil {
 		return 0, nil, err
@@ -144,12 +161,12 @@ func (s *Log) List(ctx context.Context, prefix, startKey string, limit, revision
 	if revision > 0 && revision <= compact {
 		return 0, nil, backend.ErrCompacted
 	}
-	//if err == nil {
-	//	select {
-	//	case s.notify <- rev:
-	//	default:
-	//	}
-	//}
+	if err == nil {
+		select {
+		case s.notify <- rev:
+		default:
+		}
+	}
 	return rev, result, err
 }
 
@@ -216,7 +233,6 @@ func (s *Log) start() (chan interface{}, error) {
 func (s *Log) poll(result chan interface{}) {
 	var (
 		last int64
-		err  error
 	)
 
 	wait := time.NewTicker(time.Second)
@@ -224,28 +240,19 @@ func (s *Log) poll(result chan interface{}) {
 	defer close(result)
 
 	for {
-		if last == 0 {
-			last, err = s.d.CurrentRevision(s.ctx)
-			if err != nil {
-				log.Errorf("failed to get current revision: %v", err)
-				time.Sleep(2 * time.Second)
-				continue
-			}
-		}
-
 		select {
 		case <-s.ctx.Done():
 			return
-		//case check := <-s.notify:
-		//	if check <= last {
-		//		continue
-		//	}
+		case check := <-s.notify:
+			if check <= last {
+				continue
+			}
 		case <-wait.C:
 		}
 
-		rows, err := s.d.Since(s.ctx, last)
+		rows, err := s.d.After(s.ctx, "%", last)
 		if err != nil {
-			log.Errorf("fail to list lastest changes: %v", err)
+			log.Errorf("fail to list latest changes: %v", err)
 			continue
 		}
 
@@ -255,6 +262,14 @@ func (s *Log) poll(result chan interface{}) {
 			continue
 		}
 
+		if len(events) == 0 {
+			continue
+		}
+
+		for _, event := range events {
+			logrus.Debugf("TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+		}
+
 		result <- events
 		last = rev
 	}
@@ -262,7 +277,7 @@ func (s *Log) poll(result chan interface{}) {
 
 func (s *Log) Count(ctx context.Context, prefix string) (int64, int64, error) {
 	if strings.HasSuffix(prefix, "/") {
-		prefix = prefix[:len(prefix)-2] + "%"
+		prefix += "%"
 	}
 	return s.d.Count(ctx, prefix)
 }
@@ -276,21 +291,22 @@ func (s *Log) Append(ctx context.Context, event *backend.Event) (int64, error) {
 		e.PrevKV = &backend.KeyValue{}
 	}
 
-	rev, err := s.d.Insert(ctx, event.KV.Key,
-		event.Create,
-		event.Delete,
-		event.PrevKV.ModRevision,
-		event.KV.Lease,
-		event.KV.Value,
-		event.PrevKV.Value,
+	rev, err := s.d.Insert(ctx, e.KV.Key,
+		e.Create,
+		e.Delete,
+		e.KV.CreateRevision,
+		e.PrevKV.ModRevision,
+		e.KV.Lease,
+		e.KV.Value,
+		e.PrevKV.Value,
 	)
 	if err != nil {
 		return 0, err
 	}
-	//select {
-	//case s.notify <- rev:
-	//default:
-	//}
+	select {
+	case s.notify <- rev:
+	default:
+	}
 	return rev, nil
 }
 
@@ -307,6 +323,7 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *backend.Event) erro
 		&event.KV.Key,
 		&event.Create,
 		&event.Delete,
+		&event.KV.CreateRevision,
 		&event.PrevKV.ModRevision,
 		&event.KV.Lease,
 		&event.KV.Value,
@@ -317,6 +334,7 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *backend.Event) erro
 	}
 
 	if event.Create {
+		event.KV.CreateRevision = event.KV.ModRevision
 		event.PrevKV = nil
 	}
 

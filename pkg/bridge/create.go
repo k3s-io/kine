@@ -3,6 +3,8 @@ package bridge
 import (
 	"context"
 
+	"github.com/rancher/kine/pkg/backend"
+
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 )
 
@@ -29,7 +31,12 @@ func (l *LimitedServer) create(ctx context.Context, put *etcdserverpb.PutRequest
 	}
 
 	rev, err := l.backend.Create(ctx, string(put.Key), put.Value, put.Lease)
-	if err != nil {
+	if err == backend.ErrKeyExists {
+		return &etcdserverpb.TxnResponse{
+			Header:    txnHeader(rev),
+			Succeeded: false,
+		}, nil
+	} else if err != nil {
 		return nil, err
 	}
 
