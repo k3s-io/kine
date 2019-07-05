@@ -1,11 +1,10 @@
-package bridge
+package server
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
-	"github.com/rancher/kine/pkg/backend"
 )
 
 func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (*RangeResponse, error) {
@@ -22,7 +21,7 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		Header: txnHeader(rev),
 	}
 	if kv != nil {
-		resp.Kvs = []*backend.KeyValue{kv}
+		resp.Kvs = []*KeyValue{kv}
 	}
 	return resp, nil
 }

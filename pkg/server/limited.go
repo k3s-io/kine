@@ -1,15 +1,14 @@
-package bridge
+package server
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
-	"github.com/rancher/kine/pkg/backend"
 )
 
 type LimitedServer struct {
-	backend backend.Backend
+	backend Backend
 }
 
 func (l *LimitedServer) Range(ctx context.Context, r *etcdserverpb.RangeRequest) (*RangeResponse, error) {
@@ -47,7 +46,7 @@ type ResponseHeader struct {
 
 type RangeResponse struct {
 	Header *etcdserverpb.ResponseHeader
-	Kvs    []*backend.KeyValue
+	Kvs    []*KeyValue
 	More   bool
 	Count  int64
 }

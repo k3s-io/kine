@@ -4,19 +4,11 @@ import (
 	"context"
 	"net"
 
-	"github.com/coreos/etcd/etcdserver/etcdserverpb"
-	"github.com/rancher/kine/pkg/bridge"
-	"github.com/rancher/kine/pkg/log"
-	"github.com/rancher/kine/pkg/sql"
-	"github.com/rancher/kine/pkg/sqlite"
+	"github.com/rancher/kine/pkg/drivers/sqlite"
+	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/health"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-
-	// sqlite
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
@@ -29,28 +21,15 @@ func run() error {
 	logrus.SetLevel(logrus.TraceLevel)
 
 	ctx := signals.SetupSignalHandler(context.Background())
-	d, err := sqlite.Open("")
+	backend, err := sqlite.New("")
 	if err != nil {
 		return err
 	}
 
-	s := sql.New(d)
-	s.Start(ctx)
-	l := log.New(s)
-	l.Start(ctx)
+	b := server.New(backend)
 
-	l.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0)
-
-	b := bridge.New(l)
-
-	server := grpc.NewServer()
-	etcdserverpb.RegisterLeaseServer(server, b)
-	etcdserverpb.RegisterWatchServer(server, b)
-	etcdserverpb.RegisterKVServer(server, b)
-
-	hsrv := health.NewServer()
-	hsrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
-	healthpb.RegisterHealthServer(server, hsrv)
+	grpcServer := grpc.NewServer()
+	b.Register(grpcServer)
 
 	lis, err := net.Listen("tcp", ":2379")
 	if err != nil {
@@ -59,8 +38,8 @@ func run() error {
 
 	go func() {
 		<-ctx.Done()
-		server.Stop()
+		grpcServer.Stop()
 	}()
 
-	return server.Serve(lis)
+	return grpcServer.Serve(lis)
 }

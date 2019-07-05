@@ -1,4 +1,4 @@
-package bridge
+package server
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/rancher/kine/pkg/backend"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,7 +35,7 @@ type watcher struct {
 	sync.Mutex
 
 	wg      sync.WaitGroup
-	backend backend.Backend
+	backend Backend
 	server  etcdserverpb.Watch_WatchServer
 	ids     int64
 	watches map[int64]func()
@@ -92,7 +91,7 @@ func (w *watcher) Start(r *etcdserverpb.WatchCreateRequest) {
 	}()
 }
 
-func toEvents(events ...*backend.Event) []*mvccpb.Event {
+func toEvents(events ...*Event) []*mvccpb.Event {
 	ret := make([]*mvccpb.Event, 0, len(events))
 	for _, e := range events {
 		ret = append(ret, toEvent(e))
@@ -100,7 +99,7 @@ func toEvents(events ...*backend.Event) []*mvccpb.Event {
 	return ret
 }
 
-func toEvent(event *backend.Event) *mvccpb.Event {
+func toEvent(event *Event) *mvccpb.Event {
 	e := &mvccpb.Event{
 		Kv:     toKV(event.KV),
 		PrevKv: toKV(event.PrevKV),

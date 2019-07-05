@@ -8,7 +8,14 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/rancher/kine/pkg/logstructured"
+	"github.com/rancher/kine/pkg/logstructured/sqllog"
+	"github.com/rancher/kine/pkg/server"
+
 	"github.com/sirupsen/logrus"
+
+	// sqlite db driver
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -125,11 +132,20 @@ func (s Stripped) String() string {
 	return regexp.MustCompile("[\t ]+").ReplaceAllString(str, " ")
 }
 
-type Driver struct {
+type dialect struct {
 	db *sql.DB
 }
 
-func Open(dataSourceName string) (*Driver, error) {
+func New(dataSourceName string) (server.Backend, error) {
+	dialect, err := open(dataSourceName)
+	if err != nil {
+		return nil, err
+	}
+
+	return logstructured.New(sqllog.New(dialect)), nil
+}
+
+func open(dataSourceName string) (*dialect, error) {
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, err
@@ -148,27 +164,27 @@ func Open(dataSourceName string) (*Driver, error) {
 		}
 	}
 
-	return &Driver{
+	return &dialect{
 		db: db,
 	}, nil
 }
 
-func (d *Driver) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
+func (d *dialect) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
 	logrus.Tracef("QUERY %v : %s", args, Stripped(sql))
 	return d.db.QueryContext(ctx, sql, args...)
 }
 
-func (d *Driver) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
+func (d *dialect) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
 	logrus.Tracef("QUERY ROW %v : %s", args, Stripped(sql))
 	return d.db.QueryRowContext(ctx, sql, args...)
 }
 
-func (d *Driver) execute(ctx context.Context, sql string, args ...interface{}) (sql.Result, error) {
+func (d *dialect) execute(ctx context.Context, sql string, args ...interface{}) (sql.Result, error) {
 	logrus.Tracef("EXEC %v : %s", args, Stripped(sql))
 	return d.db.ExecContext(ctx, sql, args...)
 }
 
-func (d *Driver) GetCompactRevision(ctx context.Context) (int64, error) {
+func (d *dialect) GetCompactRevision(ctx context.Context) (int64, error) {
 	var id int64
 	row := d.queryRow(ctx, compactRevSQL)
 	err := row.Scan(&id)
@@ -178,7 +194,7 @@ func (d *Driver) GetCompactRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (d *Driver) SetCompactRevision(ctx context.Context, revision int64) error {
+func (d *dialect) SetCompactRevision(ctx context.Context, revision int64) error {
 	result, err := d.execute(ctx, updateCompactSQL, revision)
 	if err != nil {
 		return err
@@ -194,16 +210,16 @@ func (d *Driver) SetCompactRevision(ctx context.Context, revision int64) error {
 	return err
 }
 
-func (d *Driver) GetRevision(ctx context.Context, revision int64) (*sql.Rows, error) {
+func (d *dialect) GetRevision(ctx context.Context, revision int64) (*sql.Rows, error) {
 	return d.query(ctx, getRevisionSQL, revision)
 }
 
-func (d *Driver) DeleteRevision(ctx context.Context, revision int64) error {
+func (d *dialect) DeleteRevision(ctx context.Context, revision int64) error {
 	_, err := d.execute(ctx, deleteSQL, revision)
 	return err
 }
 
-func (d *Driver) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
+func (d *dialect) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
 	sql := getCurrentSQL
 	if limit > 0 {
 		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
@@ -211,7 +227,7 @@ func (d *Driver) ListCurrent(ctx context.Context, prefix string, limit int64, in
 	return d.query(ctx, sql, prefix, includeDeleted)
 }
 
-func (d *Driver) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error) {
+func (d *dialect) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error) {
 	if startKey == "" {
 		sql := revisionSQL
 		if limit > 0 {
@@ -227,7 +243,7 @@ func (d *Driver) List(ctx context.Context, prefix, startKey string, limit, revis
 	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
 }
 
-func (d *Driver) Count(ctx context.Context, prefix string) (int64, int64, error) {
+func (d *dialect) Count(ctx context.Context, prefix string) (int64, int64, error) {
 	var (
 		rev sql.NullInt64
 		id  int64
@@ -238,7 +254,7 @@ func (d *Driver) Count(ctx context.Context, prefix string) (int64, int64, error)
 	return rev.Int64, id, err
 }
 
-func (d *Driver) CurrentRevision(ctx context.Context) (int64, error) {
+func (d *dialect) CurrentRevision(ctx context.Context) (int64, error) {
 	var id int64
 	row := d.queryRow(ctx, revSQL)
 	err := row.Scan(&id)
@@ -248,12 +264,12 @@ func (d *Driver) CurrentRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (d *Driver) After(ctx context.Context, prefix string, rev int64) (*sql.Rows, error) {
+func (d *dialect) After(ctx context.Context, prefix string, rev int64) (*sql.Rows, error) {
 	sql := sinceSQL
 	return d.query(ctx, sql, prefix, rev)
 }
 
-func (d *Driver) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (int64, error) {
+func (d *dialect) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (int64, error) {
 	result, err := d.execute(ctx,
 		`insert into key_value(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?,?, ?, ?, ?, ?, ?, ?)`, key, create, delete, createRevision, previousRevision, ttl, value, prevValue)

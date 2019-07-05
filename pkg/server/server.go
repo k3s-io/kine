@@ -1,4 +1,4 @@
-package bridge
+package server
 
 import (
 	"context"
@@ -6,8 +6,10 @@ import (
 
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/rancher/kine/pkg/backend"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 var (
@@ -19,12 +21,22 @@ type KVServerBridge struct {
 	limited *LimitedServer
 }
 
-func New(backend backend.Backend) *KVServerBridge {
+func New(backend Backend) *KVServerBridge {
 	return &KVServerBridge{
 		limited: &LimitedServer{
 			backend: backend,
 		},
 	}
+}
+
+func (k *KVServerBridge) Register(server *grpc.Server) {
+	etcdserverpb.RegisterLeaseServer(server, k)
+	etcdserverpb.RegisterWatchServer(server, k)
+	etcdserverpb.RegisterKVServer(server, k)
+
+	hsrv := health.NewServer()
+	hsrv.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	healthpb.RegisterHealthServer(server, hsrv)
 }
 
 func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest) (*etcdserverpb.RangeResponse, error) {
@@ -84,7 +96,7 @@ func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest
 	return rangeResponse, nil
 }
 
-func toKVs(kvs ...*backend.KeyValue) []*mvccpb.KeyValue {
+func toKVs(kvs ...*KeyValue) []*mvccpb.KeyValue {
 	if len(kvs) == 0 || kvs[0] == nil {
 		return nil
 	}
@@ -101,7 +113,7 @@ func toKVs(kvs ...*backend.KeyValue) []*mvccpb.KeyValue {
 	return ret
 }
 
-func toKV(kv *backend.KeyValue) *mvccpb.KeyValue {
+func toKV(kv *KeyValue) *mvccpb.KeyValue {
 	if kv == nil {
 		return nil
 	}

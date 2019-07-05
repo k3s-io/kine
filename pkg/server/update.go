@@ -1,9 +1,7 @@
-package bridge
+package server
 
 import (
 	"context"
-
-	"github.com/rancher/kine/pkg/backend"
 
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 )
@@ -27,7 +25,7 @@ func isUpdate(txn *etcdserverpb.TxnRequest) (int64, string, []byte, int64, bool)
 
 func (l *LimitedServer) update(ctx context.Context, rev int64, key string, value []byte, lease int64) (*etcdserverpb.TxnResponse, error) {
 	var (
-		kv  *backend.KeyValue
+		kv  *KeyValue
 		ok  bool
 		err error
 	)

@@ -1,4 +1,4 @@
-package sql
+package sqllog
 
 import (
 	"context"
@@ -6,28 +6,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/common/log"
-	"github.com/rancher/kine/pkg/backend"
 	"github.com/rancher/kine/pkg/broadcaster"
+	"github.com/rancher/kine/pkg/server"
 	"github.com/sirupsen/logrus"
 )
 
-type Log struct {
-	d           Driver
+type SQLLog struct {
+	d           Dialect
 	broadcaster broadcaster.Broadcaster
 	ctx         context.Context
 	notify      chan int64
 }
 
-func New(d Driver) *Log {
-	l := &Log{
+func New(d Dialect) *SQLLog {
+	l := &SQLLog{
 		d:      d,
 		notify: make(chan int64, 1024),
 	}
 	return l
 }
 
-type Driver interface {
+type Dialect interface {
 	ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error)
 	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error)
 	Count(ctx context.Context, prefix string) (int64, int64, error)
@@ -40,12 +39,13 @@ type Driver interface {
 	SetCompactRevision(ctx context.Context, revision int64) error
 }
 
-func (s *Log) Start(ctx context.Context) {
+func (s *SQLLog) Start(ctx context.Context) error {
 	s.ctx = ctx
 	//go s.compact()
+	return nil
 }
 
-func (s *Log) compact() {
+func (s *SQLLog) compact(ctx context.Context) {
 	t := time.NewTicker(2 * time.Second)
 
 outer:
@@ -120,11 +120,11 @@ outer:
 	}
 }
 
-func (s *Log) CurrentRevision(ctx context.Context) (int64, error) {
+func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
 	return s.d.CurrentRevision(ctx)
 }
 
-func (s *Log) After(ctx context.Context, prefix string, revision int64) (int64, []*backend.Event, error) {
+func (s *SQLLog) After(ctx context.Context, prefix string, revision int64) (int64, []*server.Event, error) {
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
 	}
@@ -138,7 +138,7 @@ func (s *Log) After(ctx context.Context, prefix string, revision int64) (int64, 
 	return rev, result, err
 }
 
-func (s *Log) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (int64, []*backend.Event, error) {
+func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (int64, []*server.Event, error) {
 	var (
 		rows *sql.Rows
 		err  error
@@ -159,7 +159,7 @@ func (s *Log) List(ctx context.Context, prefix, startKey string, limit, revision
 
 	rev, compact, result, err := RowsToEvents(rows)
 	if revision > 0 && revision <= compact {
-		return 0, nil, backend.ErrCompacted
+		return 0, nil, server.ErrCompacted
 	}
 	if err == nil {
 		select {
@@ -170,16 +170,16 @@ func (s *Log) List(ctx context.Context, prefix, startKey string, limit, revision
 	return rev, result, err
 }
 
-func RowsToEvents(rows *sql.Rows) (int64, int64, []*backend.Event, error) {
+func RowsToEvents(rows *sql.Rows) (int64, int64, []*server.Event, error) {
 	var (
-		result  []*backend.Event
+		result  []*server.Event
 		rev     int64
 		compact int64
 	)
 	defer rows.Close()
 
 	for rows.Next() {
-		event := &backend.Event{}
+		event := &server.Event{}
 		if err := scan(rows, &rev, &compact, event); err != nil {
 			return 0, 0, nil, err
 		}
@@ -189,8 +189,8 @@ func RowsToEvents(rows *sql.Rows) (int64, int64, []*backend.Event, error) {
 	return rev, compact, result, nil
 }
 
-func (s *Log) Watch(ctx context.Context, prefix string) <-chan []*backend.Event {
-	res := make(chan []*backend.Event)
+func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan []*server.Event {
+	res := make(chan []*server.Event)
 	values, err := s.broadcaster.Subscribe(ctx, s.start)
 	if err != nil {
 		return nil
@@ -211,9 +211,9 @@ func (s *Log) Watch(ctx context.Context, prefix string) <-chan []*backend.Event 
 	return res
 }
 
-func filter(events interface{}, checkPrefix bool, prefix string) ([]*backend.Event, bool) {
-	eventList := events.([]*backend.Event)
-	filteredEventList := make([]*backend.Event, 0, len(eventList))
+func filter(events interface{}, checkPrefix bool, prefix string) ([]*server.Event, bool) {
+	eventList := events.([]*server.Event)
+	filteredEventList := make([]*server.Event, 0, len(eventList))
 
 	for _, event := range eventList {
 		if (checkPrefix && strings.HasPrefix(event.KV.Key, prefix)) || event.KV.Key == prefix {
@@ -224,13 +224,13 @@ func filter(events interface{}, checkPrefix bool, prefix string) ([]*backend.Eve
 	return filteredEventList, len(filteredEventList) > 0
 }
 
-func (s *Log) start() (chan interface{}, error) {
+func (s *SQLLog) start() (chan interface{}, error) {
 	c := make(chan interface{})
 	go s.poll(c)
 	return c, nil
 }
 
-func (s *Log) poll(result chan interface{}) {
+func (s *SQLLog) poll(result chan interface{}) {
 	var (
 		last int64
 	)
@@ -252,13 +252,13 @@ func (s *Log) poll(result chan interface{}) {
 
 		rows, err := s.d.After(s.ctx, "%", last)
 		if err != nil {
-			log.Errorf("fail to list latest changes: %v", err)
+			logrus.Errorf("fail to list latest changes: %v", err)
 			continue
 		}
 
 		rev, _, events, err := RowsToEvents(rows)
 		if err != nil {
-			log.Errorf("fail to convert rows changes: %v", err)
+			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
 		}
 
@@ -275,20 +275,20 @@ func (s *Log) poll(result chan interface{}) {
 	}
 }
 
-func (s *Log) Count(ctx context.Context, prefix string) (int64, int64, error) {
+func (s *SQLLog) Count(ctx context.Context, prefix string) (int64, int64, error) {
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
 	}
 	return s.d.Count(ctx, prefix)
 }
 
-func (s *Log) Append(ctx context.Context, event *backend.Event) (int64, error) {
+func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error) {
 	e := *event
 	if e.KV == nil {
-		e.KV = &backend.KeyValue{}
+		e.KV = &server.KeyValue{}
 	}
 	if e.PrevKV == nil {
-		e.PrevKV = &backend.KeyValue{}
+		e.PrevKV = &server.KeyValue{}
 	}
 
 	rev, err := s.d.Insert(ctx, e.KV.Key,
@@ -310,9 +310,9 @@ func (s *Log) Append(ctx context.Context, event *backend.Event) (int64, error) {
 	return rev, nil
 }
 
-func scan(rows *sql.Rows, rev *int64, compact *int64, event *backend.Event) error {
-	event.KV = &backend.KeyValue{}
-	event.PrevKV = &backend.KeyValue{}
+func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event) error {
+	event.KV = &server.KeyValue{}
+	event.PrevKV = &server.KeyValue{}
 
 	c := &sql.NullInt64{}
 
