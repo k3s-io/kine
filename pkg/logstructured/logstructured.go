@@ -213,14 +213,14 @@ func (l *LogStructured) ttl(ctx context.Context) {
 			if event.KV.Lease <= 0 {
 				continue
 			}
-			go func() {
+			go func(event *server.Event) {
 				select {
 				case <-ctx.Done():
 					return
 				case <-time.After(time.Duration(event.KV.Lease) * time.Second):
 				}
 				l.Delete(ctx, event.KV.Key, event.KV.ModRevision)
-			}()
+			}(event)
 		}
 	}
 }
@@ -238,7 +238,7 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	rev, kvs, err := l.log.After(ctx, prefix, revision)
 	lastRevision = rev
 	if err != nil {
-		logrus.Error("failed to list %s for revision %s", prefix, revision)
+		logrus.Errorf("failed to list %s for revision %d", prefix, revision)
 		cancel()
 	}
 	if len(kvs) > 0 {
@@ -252,6 +252,7 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 			result <- filter(i, lastRevision)
 		}
 		close(result)
+		cancel()
 	}()
 
 	return result

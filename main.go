@@ -6,7 +6,6 @@ import (
 
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/rancher/kine/pkg/drivers/pgsql"
-
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
