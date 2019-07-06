@@ -52,6 +52,10 @@ func (l *LogStructured) Get(ctx context.Context, key string, revision int64) (re
 
 func (l *LogStructured) get(ctx context.Context, key string, revision int64, includeDeletes bool) (int64, *server.Event, error) {
 	rev, events, err := l.log.List(ctx, key, "", 1, revision, includeDeletes)
+	if err == server.ErrCompacted {
+		// ignore compacted when getting by revision
+		err = nil
+	}
 	if err != nil {
 		return 0, nil, err
 	}

@@ -41,22 +41,26 @@ type Dialect interface {
 
 func (s *SQLLog) Start(ctx context.Context) error {
 	s.ctx = ctx
-	//go s.compact()
+	go s.compact()
 	return nil
 }
 
-func (s *SQLLog) compact(ctx context.Context) {
+func (s *SQLLog) compact() {
 	t := time.NewTicker(2 * time.Second)
 
 outer:
 	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-t.C:
+		}
+
 		end, err := s.d.CurrentRevision(s.ctx)
 		if err != nil {
 			logrus.Errorf("failed to get current revision: %v", err)
 			continue
 		}
-
-		//end -= 1000
 
 		cursor, err := s.d.GetCompactRevision(s.ctx)
 		if err != nil {
@@ -64,11 +68,15 @@ outer:
 			continue
 		}
 
+		if end-cursor < 100 {
+			// Only run if we have at least 100 rows to process
+			continue
+		}
+
 		// Purposefully start at the current and redo the current as
 		// it could have failed before actually compacting
-
 		for ; cursor <= end; cursor++ {
-			rows, err := s.d.GetRevision(s.ctx, cursor+1)
+			rows, err := s.d.GetRevision(s.ctx, cursor)
 			if err != nil {
 				logrus.Errorf("failed to get revision %d: %v", cursor, err)
 				continue outer
@@ -91,7 +99,14 @@ outer:
 				continue
 			}
 
+			setRev := false
 			if event.PrevKV != nil && event.PrevKV.ModRevision != 0 {
+				if err := s.d.SetCompactRevision(s.ctx, cursor); err != nil {
+					logrus.Errorf("failed to record compact revision: %v", err)
+					continue outer
+				}
+				setRev = true
+
 				if err := s.d.DeleteRevision(s.ctx, event.PrevKV.ModRevision); err != nil {
 					logrus.Errorf("failed to delete revision %d: %v", event.PrevKV.ModRevision, err)
 					continue outer
@@ -99,24 +114,24 @@ outer:
 			}
 
 			if event.Delete {
+				if !setRev {
+					if err := s.d.SetCompactRevision(s.ctx, cursor); err != nil {
+						logrus.Errorf("failed to record compact revision: %v", err)
+						continue outer
+					}
+				}
+
 				if err := s.d.DeleteRevision(s.ctx, cursor); err != nil {
 					logrus.Errorf("failed to delete current revision %d: %v", cursor, err)
 					continue outer
 				}
 			}
-
-			if err := s.d.SetCompactRevision(s.ctx, cursor+1); err != nil {
-				logrus.Errorf("failed to record compact revision: %v", err)
-				continue outer
-			}
 		}
 
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-t.C:
+		if err := s.d.SetCompactRevision(s.ctx, cursor-1); err != nil {
+			logrus.Errorf("failed to record compact revision: %v", err)
+			continue outer
 		}
-
 	}
 }
 
@@ -158,8 +173,8 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 	}
 
 	rev, compact, result, err := RowsToEvents(rows)
-	if revision > 0 && revision <= compact {
-		return 0, nil, server.ErrCompacted
+	if revision > 0 && revision < compact {
+		return rev, result, server.ErrCompacted
 	}
 	if err == nil {
 		select {
@@ -191,7 +206,7 @@ func RowsToEvents(rows *sql.Rows) (int64, int64, []*server.Event, error) {
 
 func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan []*server.Event {
 	res := make(chan []*server.Event)
-	values, err := s.broadcaster.Subscribe(ctx, s.start)
+	values, err := s.broadcaster.Subscribe(ctx, s.startWatch)
 	if err != nil {
 		return nil
 	}
@@ -224,7 +239,7 @@ func filter(events interface{}, checkPrefix bool, prefix string) ([]*server.Even
 	return filteredEventList, len(filteredEventList) > 0
 }
 
-func (s *SQLLog) start() (chan interface{}, error) {
+func (s *SQLLog) startWatch() (chan interface{}, error) {
 	c := make(chan interface{})
 	go s.poll(c)
 	return c, nil
@@ -235,7 +250,7 @@ func (s *SQLLog) poll(result chan interface{}) {
 		last int64
 	)
 
-	wait := time.NewTicker(time.Second)
+	wait := time.NewTicker(120 * time.Second)
 	defer wait.Stop()
 	defer close(result)
 

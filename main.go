@@ -4,7 +4,9 @@ import (
 	"context"
 	"net"
 
-	"github.com/rancher/kine/pkg/drivers/sqlite"
+	"github.com/coreos/etcd/pkg/transport"
+	"github.com/rancher/kine/pkg/drivers/pgsql"
+
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
@@ -21,8 +23,13 @@ func run() error {
 	logrus.SetLevel(logrus.TraceLevel)
 
 	ctx := signals.SetupSignalHandler(context.Background())
-	backend, err := sqlite.New("")
+	//backend, err := sqlite.New("")
+	backend, err := pgsql.New("", &transport.TLSInfo{})
 	if err != nil {
+		return err
+	}
+
+	if err := backend.Start(ctx); err != nil {
 		return err
 	}
 

@@ -7,9 +7,8 @@ import (
 )
 
 var (
-	ErrKeyExists    = errors.New("key exists")
-	ErrKeyNotExists = errors.New("key does not exists")
-	ErrCompacted    = errors.New("revision has been compact")
+	ErrKeyExists = errors.New("key exists")
+	ErrCompacted = errors.New("revision has been compact")
 )
 
 type Backend interface {

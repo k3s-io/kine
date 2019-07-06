@@ -10,8 +10,8 @@ import (
 func (s *KVServerBridge) LeaseGrant(ctx context.Context, req *etcdserverpb.LeaseGrantRequest) (*etcdserverpb.LeaseGrantResponse, error) {
 	return &etcdserverpb.LeaseGrantResponse{
 		Header: &etcdserverpb.ResponseHeader{},
-		ID:     req.ID,
-		TTL:    req.ID,
+		ID:     req.TTL,
+		TTL:    req.TTL,
 	}, nil
 }
 
