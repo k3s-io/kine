@@ -58,17 +58,19 @@ func (s Stripped) String() string {
 }
 
 type Generic struct {
-	DB                   *sql.DB
-	GetCurrentSQL        string
-	GetRevisionSQL       string
-	RevisionSQL          string
-	ListRevisionStartSQL string
-	GetRevisionAfterSQL  string
-	CountSQL             string
-	AfterSQL             string
-	DeleteSQL            string
-	UpdateCompactSQL     string
-	InsertSQL            string
+	LastInsertID          bool
+	DB                    *sql.DB
+	GetCurrentSQL         string
+	GetRevisionSQL        string
+	RevisionSQL           string
+	ListRevisionStartSQL  string
+	GetRevisionAfterSQL   string
+	CountSQL              string
+	AfterSQL              string
+	DeleteSQL             string
+	UpdateCompactSQL      string
+	InsertSQL             string
+	InsertLastInsertIDSQL string
 }
 
 func q(sql, param string, numbered bool) string {
@@ -121,13 +123,16 @@ func Open(driverName, dataSourceName string, paramCharacter string, numbered boo
 			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns), paramCharacter, numbered),
 
 		DeleteSQL: q(`
-			DELETE FROM key_value kv
-			WHERE kv.id = ?`, paramCharacter, numbered),
+			DELETE FROM key_value
+			WHERE id = ?`, paramCharacter, numbered),
 
 		UpdateCompactSQL: q(`
 			UPDATE key_value
 			SET prev_revision = ?
 			WHERE name = 'compact_rev_key'`, paramCharacter, numbered),
+
+		InsertLastInsertIDSQL: q(`INSERT INTO key_value(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
 
 		InsertSQL: q(`INSERT INTO key_value(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, paramCharacter, numbered),
@@ -243,6 +248,15 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	if delete {
 		dVal = 1
 	}
+
+	if d.LastInsertID {
+		row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
+		if err != nil {
+			return 00, err
+		}
+		return row.LastInsertId()
+	}
+
 	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 	err = row.Scan(&id)
 	return id, err

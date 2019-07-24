@@ -44,6 +44,8 @@ func New(dataSourceName string) (server.Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	dialect.LastInsertID = true
+
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
 	}
