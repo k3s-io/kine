@@ -115,13 +115,17 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 		logrus.Debugf("DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v", key, revision, revRet, kvRet != nil, deletedRet, errRet)
 	}()
 
-	rev, event, err := l.get(ctx, key, revision, true)
+	rev, event, err := l.get(ctx, key, 0, true)
 	if err != nil {
 		return 0, nil, false, err
 	}
 
-	if event == nil || event.Delete {
+	if event == nil {
 		return rev, nil, true, nil
+	}
+
+	if event.Delete {
+		return rev, event.KV, true, nil
 	}
 
 	if revision != 0 && event.KV.ModRevision != revision {
@@ -198,7 +202,10 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 
 	rev, err = l.log.Append(ctx, updateEvent)
 	if err != nil {
-		rev, event, err := l.get(ctx, key, revision, false)
+		rev, event, err := l.get(ctx, key, 0, false)
+		if event == nil {
+			return rev, nil, false, err
+		}
 		return rev, event.KV, false, err
 	}
 
@@ -232,14 +239,21 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	ctx, cancel := context.WithCancel(ctx)
 	readChan := l.log.Watch(ctx, prefix)
 
+	// include the current revision in list
+	if revision > 0 {
+		revision -= 1
+	}
+
 	result := make(chan []*server.Event)
-	lastRevision := int64(0)
+	lastRevision := revision
 
 	rev, kvs, err := l.log.After(ctx, prefix, revision)
-	lastRevision = rev
 	if err != nil {
 		logrus.Errorf("failed to list %s for revision %d", prefix, revision)
 		cancel()
+	}
+	if len(kvs) > 0 {
+		lastRevision = rev
 	}
 	if len(kvs) > 0 {
 		result <- kvs
@@ -248,7 +262,6 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	go func() {
 		// always ensure we fully read the channel
 		for i := range readChan {
-			i = filter(i, lastRevision)
 			result <- filter(i, lastRevision)
 		}
 		close(result)
