@@ -1,18 +1,15 @@
 package mysql
 
 import (
-	"crypto/tls"
+	cryptotls "crypto/tls"
 	"database/sql"
-	"fmt"
-	"regexp"
-	"strconv"
 
-	"github.com/coreos/etcd/pkg/transport"
 	"github.com/go-sql-driver/mysql"
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/logstructured"
 	"github.com/rancher/kine/pkg/logstructured/sqllog"
 	"github.com/rancher/kine/pkg/server"
+	"github.com/rancher/kine/pkg/tls"
 )
 
 const (
@@ -41,20 +38,21 @@ var (
 	createDB    = "create database if not exists "
 )
 
-func New(dataSourceName string, tlsInfo *transport.TLSInfo) (server.Backend, error) {
+func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 	tlsConfig, err := tlsInfo.ClientConfig()
 	if err != nil {
 		return nil, err
 	}
-	tlsConfig.MinVersion = tls.VersionTLS11
-	if len(tlsInfo.CertFile) == 0 && len(tlsInfo.KeyFile) == 0 && len(tlsInfo.CAFile) == 0 {
-		tlsConfig = nil
+
+	if tlsConfig != nil {
+		tlsConfig.MinVersion = cryptotls.VersionTLS11
 	}
+
 	parsedDSN, err := prepareDSN(dataSourceName, tlsConfig)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("here")
+
 	if err := createDBIfNotExist(parsedDSN); err != nil {
 		return nil, err
 	}
@@ -64,14 +62,14 @@ func New(dataSourceName string, tlsInfo *transport.TLSInfo) (server.Backend, err
 		return nil, err
 	}
 	dialect.LastInsertID = true
-	if err := setup(dialect.DB, parsedDSN, tlsInfo); err != nil {
+	if err := setup(dialect.DB); err != nil {
 		return nil, err
 	}
 
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
-func setup(db *sql.DB, parsedDSN string, tlsInfo *transport.TLSInfo) error {
+func setup(db *sql.DB) error {
 	for _, stmt := range schema {
 		_, err := db.Exec(stmt)
 		if err != nil {
@@ -121,17 +119,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	return nil
 }
 
-func q(sql string) string {
-	regex := regexp.MustCompile(`\?`)
-	pref := "$"
-	n := 0
-	return regex.ReplaceAllStringFunc(sql, func(string) string {
-		n++
-		return pref + strconv.Itoa(n)
-	})
-}
-
-func prepareDSN(dataSourceName string, tlsConfig *tls.Config) (string, error) {
+func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultUnixDSN
 		if tlsConfig != nil {
@@ -144,8 +132,10 @@ func prepareDSN(dataSourceName string, tlsConfig *tls.Config) (string, error) {
 	}
 	// setting up tlsConfig
 	if tlsConfig != nil {
-		mysql.RegisterTLSConfig("custom", tlsConfig)
-		config.TLSConfig = "custom"
+		if err := mysql.RegisterTLSConfig("kine", tlsConfig); err != nil {
+			return "", err
+		}
+		config.TLSConfig = "kine"
 	}
 	dbName := "kubernetes"
 	if len(config.DBName) > 0 {

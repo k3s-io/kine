@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/coreos/etcd/pkg/transport"
 	"github.com/lib/pq"
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/logstructured"
 	"github.com/rancher/kine/pkg/logstructured/sqllog"
 	"github.com/rancher/kine/pkg/server"
+	"github.com/rancher/kine/pkg/tls"
 )
 
 const (
@@ -39,7 +39,7 @@ var (
 	createDB = "create database "
 )
 
-func New(dataSourceName string, tlsInfo *transport.TLSInfo) (server.Backend, error) {
+func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -54,14 +54,14 @@ func New(dataSourceName string, tlsInfo *transport.TLSInfo) (server.Backend, err
 		return nil, err
 	}
 
-	if err := setup(dialect.DB, parsedDSN, tlsInfo); err != nil {
+	if err := setup(dialect.DB); err != nil {
 		return nil, err
 	}
 
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
-func setup(db *sql.DB, parsedDSN string, tlsInfo *transport.TLSInfo) error {
+func setup(db *sql.DB) error {
 	for _, stmt := range schema {
 		_, err := db.Exec(stmt)
 		if err != nil {
@@ -119,7 +119,7 @@ func q(sql string) string {
 	})
 }
 
-func prepareDSN(dataSourceName string, tlsInfo *transport.TLSInfo) (string, error) {
+func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultDSN
 	} else {
