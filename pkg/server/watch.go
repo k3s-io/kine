@@ -3,10 +3,15 @@ package server
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	watchID int64
 )
 
 func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
@@ -37,7 +42,6 @@ type watcher struct {
 	wg      sync.WaitGroup
 	backend Backend
 	server  etcdserverpb.Watch_WatchServer
-	ids     int64
 	watches map[int64]func()
 }
 
@@ -46,9 +50,8 @@ func (w *watcher) Start(r *etcdserverpb.WatchCreateRequest) {
 	defer w.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	w.ids++
 
-	id := w.ids
+	id := atomic.AddInt64(&watchID, 1)
 	w.watches[id] = cancel
 	w.wg.Add(1)
 

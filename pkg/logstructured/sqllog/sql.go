@@ -73,6 +73,7 @@ outer:
 			continue
 		}
 
+		savedCursor := cursor
 		// Purposefully start at the current and redo the current as
 		// it could have failed before actually compacting
 		for ; cursor <= end; cursor++ {
@@ -101,11 +102,14 @@ outer:
 
 			setRev := false
 			if event.PrevKV != nil && event.PrevKV.ModRevision != 0 {
-				if err := s.d.SetCompactRevision(s.ctx, cursor); err != nil {
-					logrus.Errorf("failed to record compact revision: %v", err)
-					continue outer
+				if savedCursor != cursor {
+					if err := s.d.SetCompactRevision(s.ctx, cursor); err != nil {
+						logrus.Errorf("failed to record compact revision: %v", err)
+						continue outer
+					}
+					savedCursor = cursor
+					setRev = true
 				}
-				setRev = true
 
 				if err := s.d.DeleteRevision(s.ctx, event.PrevKV.ModRevision); err != nil {
 					logrus.Errorf("failed to delete revision %d: %v", event.PrevKV.ModRevision, err)
@@ -114,11 +118,12 @@ outer:
 			}
 
 			if event.Delete {
-				if !setRev {
+				if !setRev && savedCursor != cursor {
 					if err := s.d.SetCompactRevision(s.ctx, cursor); err != nil {
 						logrus.Errorf("failed to record compact revision: %v", err)
 						continue outer
 					}
+					savedCursor = cursor
 				}
 
 				if err := s.d.DeleteRevision(s.ctx, cursor); err != nil {
@@ -128,9 +133,11 @@ outer:
 			}
 		}
 
-		if err := s.d.SetCompactRevision(s.ctx, cursor-1); err != nil {
-			logrus.Errorf("failed to record compact revision: %v", err)
-			continue outer
+		if savedCursor != cursor {
+			if err := s.d.SetCompactRevision(s.ctx, cursor); err != nil {
+				logrus.Errorf("failed to record compact revision: %v", err)
+				continue outer
+			}
 		}
 	}
 }
@@ -173,15 +180,27 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 	}
 
 	rev, compact, result, err := RowsToEvents(rows)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if revision > 0 && len(result) == 0 {
+		// a zero length result won't have the compact revision so get it manually
+		compact, err = s.d.GetCompactRevision(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+	}
+
 	if revision > 0 && revision < compact {
 		return rev, result, server.ErrCompacted
 	}
-	if err == nil {
-		select {
-		case s.notify <- rev:
-		default:
-		}
+
+	select {
+	case s.notify <- rev:
+	default:
 	}
+
 	return rev, result, err
 }
 

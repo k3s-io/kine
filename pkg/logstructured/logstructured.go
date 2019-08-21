@@ -245,21 +245,25 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	}
 
 	result := make(chan []*server.Event)
-	lastRevision := revision
 
 	rev, kvs, err := l.log.After(ctx, prefix, revision)
 	if err != nil {
 		logrus.Errorf("failed to list %s for revision %d", prefix, revision)
 		cancel()
 	}
-	if len(kvs) > 0 {
-		lastRevision = rev
-	}
-	if len(kvs) > 0 {
-		result <- kvs
-	}
+
+	logrus.Debugf("WATCH LIST key=%s rev=%d => rev=%d kvs=%d", prefix, revision, rev, len(kvs))
 
 	go func() {
+		lastRevision := revision
+		if len(kvs) > 0 {
+			lastRevision = rev
+		}
+
+		if len(kvs) > 0 {
+			result <- kvs
+		}
+
 		// always ensure we fully read the channel
 		for i := range readChan {
 			result <- filter(i, lastRevision)
