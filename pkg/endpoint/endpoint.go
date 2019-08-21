@@ -36,7 +36,6 @@ type ETCDConfig struct {
 	Endpoints   []string
 	TLSConfig   tls.Config
 	LeaderElect bool
-	WatchCache  bool
 }
 
 func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
@@ -46,7 +45,6 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 			Endpoints:   strings.Split(config.Endpoint, ","),
 			TLSConfig:   config.Config,
 			LeaderElect: true,
-			WatchCache:  true,
 		}, nil
 	}
 
