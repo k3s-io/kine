@@ -15,30 +15,30 @@ var (
 	columns = "kv.id as theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
 	revSQL  = `
 		SELECT rkv.id
-		FROM key_value rkv
+		FROM kine rkv
 		ORDER BY rkv.id
 		DESC LIMIT 1`
 
 	compactRevSQL = `
 		SELECT crkv.prev_revision
-		FROM key_value crkv
+		FROM kine crkv
 		WHERE crkv.name = 'compact_rev_key'
 		ORDER BY crkv.id DESC LIMIT 1`
 
 	idOfKey = `
 		AND mkv.id <= ? AND mkv.id > (
 			SELECT ikv.id
-			FROM key_value ikv
+			FROM kine ikv
 			WHERE
 				ikv.name = ? AND
 				ikv.id <= ?
 			ORDER BY ikv.id DESC LIMIT 1)`
 
 	listSQL = fmt.Sprintf(`SELECT (%s), (%s), %s
-		FROM key_value kv
+		FROM kine kv
 		JOIN (
 			SELECT MAX(mkv.id) as id
-			FROM key_value mkv
+			FROM kine mkv
 			WHERE
 				mkv.name LIKE ?
 				%%s
@@ -101,7 +101,7 @@ func Open(driverName, dataSourceName string, paramCharacter string, numbered boo
 		GetRevisionSQL: q(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
-			FROM key_value kv
+			FROM kine kv
 			WHERE kv.id = ?`, columns), paramCharacter, numbered),
 
 		GetCurrentSQL:        q(fmt.Sprintf(listSQL, ""), paramCharacter, numbered),
@@ -116,25 +116,25 @@ func Open(driverName, dataSourceName string, paramCharacter string, numbered boo
 
 		AfterSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
-			FROM key_value kv
+			FROM kine kv
 			WHERE
 				kv.name LIKE ? AND
 				kv.id > ?
 			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns), paramCharacter, numbered),
 
 		DeleteSQL: q(`
-			DELETE FROM key_value
+			DELETE FROM kine
 			WHERE id = ?`, paramCharacter, numbered),
 
 		UpdateCompactSQL: q(`
-			UPDATE key_value
+			UPDATE kine
 			SET prev_revision = ?
 			WHERE name = 'compact_rev_key'`, paramCharacter, numbered),
 
-		InsertLastInsertIDSQL: q(`INSERT INTO key_value(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+		InsertLastInsertIDSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
 
-		InsertSQL: q(`INSERT INTO key_value(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+		InsertSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, paramCharacter, numbered),
 	}, nil
 }

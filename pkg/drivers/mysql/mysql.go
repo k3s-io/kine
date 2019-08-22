@@ -19,7 +19,7 @@ const (
 
 var (
 	schema = []string{
-		`create table if not exists key_value
+		`create table if not exists kine
 			(
 				id INTEGER AUTO_INCREMENT,
 				name TEXT,
@@ -33,8 +33,8 @@ var (
 				PRIMARY KEY (id)
 			);`,
 	}
-	nameIdx     = "create index key_value_name_index on key_value (name(100))"
-	revisionIdx = "create index key_value_name_prev_revision_uindex on key_value (name(100), prev_revision)"
+	nameIdx     = "create index kine_name_index on kine (name(100))"
+	revisionIdx = "create index kine_name_prev_revision_uindex on kine (name(100), prev_revision)"
 	createDB    = "create database if not exists "
 )
 

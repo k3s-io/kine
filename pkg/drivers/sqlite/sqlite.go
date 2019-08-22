@@ -15,7 +15,7 @@ import (
 
 var (
 	schema = []string{
-		`CREATE TABLE IF NOT EXISTS key_value
+		`CREATE TABLE IF NOT EXISTS kine
 			(
 				id INTEGER primary key autoincrement,
 				name INTEGER,
@@ -27,8 +27,8 @@ var (
 				value BLOB,
 				old_value BLOB
 			)`,
-		`CREATE INDEX IF NOT EXISTS key_value_name_index ON key_value (name)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS key_value_name_prev_revision_uindex ON key_value (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
 )
 
