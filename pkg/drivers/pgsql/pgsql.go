@@ -1,6 +1,7 @@
 package pgsql
 
 import (
+	"context"
 	"database/sql"
 	"net/url"
 	"regexp"
@@ -58,6 +59,7 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 		return nil, err
 	}
 
+	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 

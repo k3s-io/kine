@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"os"
 
@@ -50,6 +51,7 @@ func New(dataSourceName string) (server.Backend, error) {
 		return nil, err
 	}
 
+	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 

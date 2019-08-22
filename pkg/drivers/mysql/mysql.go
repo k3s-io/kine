@@ -1,6 +1,7 @@
 package mysql
 
 import (
+	"context"
 	cryptotls "crypto/tls"
 	"database/sql"
 
@@ -66,6 +67,7 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 		return nil, err
 	}
 
+	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
