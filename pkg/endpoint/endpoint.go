@@ -28,6 +28,7 @@ type Config struct {
 	GRPCServer *grpc.Server
 	Listener   string
 	Endpoint   string
+	TableName  string
 
 	tls.Config
 }
@@ -117,15 +118,21 @@ func getKineStorageBackend(driver, dsn string, cfg Config) (bool, server.Backend
 		backend     server.Backend
 		leaderElect = true
 		err         error
+		tableName   = "kine"
 	)
+	if len(cfg.TableName) > 0 {
+		// override the table name
+		tableName = cfg.TableName
+	}
+
 	switch driver {
 	case SQLiteBackend:
 		leaderElect = false
-		backend, err = sqlite.New(dsn)
+		backend, err = sqlite.New(dsn, tableName)
 	case PostgresBackend:
-		backend, err = pgsql.New(dsn, cfg.Config)
+		backend, err = pgsql.New(dsn, tableName, cfg.Config)
 	case MySQLBackend:
-		backend, err = mysql.New(dsn, cfg.Config)
+		backend, err = mysql.New(dsn, tableName, cfg.Config)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
 	}

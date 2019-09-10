@@ -1,53 +1,98 @@
 package generic
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/sirupsen/logrus"
 )
 
 var (
 	columns = "kv.id as theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
-	revSQL  = `
+
+	revSQL = `
 		SELECT rkv.id
-		FROM kine rkv
+		FROM {{ .TableName }} rkv
 		ORDER BY rkv.id
 		DESC LIMIT 1`
 
+	getByRevSQL = `
+		SELECT
+		({{ .Rev }}), ({{ .CompactRev }}), {{ .Columns }}
+		FROM {{ .TableName }} kv
+		WHERE kv.id = ?`
+
 	compactRevSQL = `
 		SELECT crkv.prev_revision
-		FROM kine crkv
+		FROM {{ .TableName }} crkv
 		WHERE crkv.name = 'compact_rev_key'
 		ORDER BY crkv.id DESC LIMIT 1`
 
 	idOfKey = `
 		AND mkv.id <= ? AND mkv.id > (
 			SELECT ikv.id
-			FROM kine ikv
+			FROM {{ .TableName }} ikv
 			WHERE
 				ikv.name = ? AND
 				ikv.id <= ?
 			ORDER BY ikv.id DESC LIMIT 1)`
 
-	listSQL = fmt.Sprintf(`SELECT (%s), (%s), %s
-		FROM kine kv
+	listSQL = `SELECT ({{ .Rev }}), ({{ .CompactRev }}), {{ .Columns }}
+		FROM {{ .TableName }} kv
 		JOIN (
 			SELECT MAX(mkv.id) as id
-			FROM kine mkv
+			FROM {{ .TableName }} mkv
 			WHERE
 				mkv.name LIKE ?
-				%%s
+				{{ .OptionalWhereClause }}
 			GROUP BY mkv.name) maxkv
 	    ON maxkv.id = kv.id
 		WHERE
 			  (kv.deleted = 0 OR ?)
 		ORDER BY kv.id ASC
-		`, revSQL, compactRevSQL, columns)
+		`
+
+	countSQL = `
+		SELECT ({{ .Rev }}), COUNT(c.theid)
+		FROM (
+			` + listSQL + `
+		) c`
+
+	afterSQL = `
+		SELECT ({{ .Rev }}), ({{ .CompactRev }}), {{ .Columns }}
+		FROM {{ .TableName }} kv
+		WHERE
+			kv.name LIKE ? AND
+			kv.id > ?
+		ORDER BY kv.id ASC`
+
+	deleteSQL = `
+		DELETE FROM {{ .TableName }}
+		WHERE id = ?`
+
+	updateCompactSQL = `
+		UPDATE {{ .TableName }}
+		SET prev_revision = ?
+		WHERE name = 'compact_rev_key'`
+
+	insertLastInsertIDSQL = `INSERT INTO {{ .TableName }}(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?)`
+
+	insertSQL = `INSERT INTO {{ .TableName }}(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+
+	migrateCountKineSQL = `SELECT COUNT(*) FROM {{ .TableName }}`
+
+	migrateDataSQL = `INSERT INTO {{ .TableName }}(deleted, create_revision, prev_revision, name, value, created, lease)
+		SELECT 0, 0, 0, kv.name, kv.value, 1, CASE WHEN kv.ttl > 0 THEN 15 ELSE 0 END
+		FROM key_value kv
+			WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`
 )
 
 type Stripped string
@@ -58,19 +103,29 @@ func (s Stripped) String() string {
 }
 
 type Generic struct {
-	LastInsertID          bool
-	DB                    *sql.DB
-	GetCurrentSQL         string
-	GetRevisionSQL        string
-	RevisionSQL           string
-	ListRevisionStartSQL  string
-	GetRevisionAfterSQL   string
-	CountSQL              string
-	AfterSQL              string
-	DeleteSQL             string
-	UpdateCompactSQL      string
+	LastInsertID bool
+	DB           *sql.DB
+
+	GetCurrentSQL        string
+	GetRevisionSQL       string
+	RevisionSQL          string
+	ListRevisionStartSQL string
+	GetRevisionAfterSQL  string
+	CountSQL             string
+	AfterSQL             string
+	DeleteSQL            string
+
+	// compact SQLs
+	UpdateCompactSQL string
+	GetCompactRevSQL string
+
+	// insertion SQLs
 	InsertSQL             string
 	InsertLastInsertIDSQL string
+
+	// migration SQLs
+	MigrateCountKineSQL string
+	MigrateDataKineSQL  string
 }
 
 func q(sql, param string, numbered bool) string {
@@ -93,7 +148,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 	var (
 		count     = 0
 		countKV   = d.queryRow(ctx, "SELECT COUNT(*) FROM key_value")
-		countKine = d.queryRow(ctx, "SELECT COUNT(*) FROM kine")
+		countKine = d.queryRow(ctx, d.MigrateCountKineSQL)
 	)
 
 	if err := countKV.Scan(&count); err != nil || count == 0 {
@@ -105,18 +160,128 @@ func (d *Generic) Migrate(ctx context.Context) {
 	}
 
 	logrus.Infof("Migrating content from old table")
-	_, err := d.execute(ctx,
-		`INSERT INTO kine(deleted, create_revision, prev_revision, name, value, created, lease)
-					SELECT 0, 0, 0, kv.name, kv.value, 1, CASE WHEN kv.ttl > 0 THEN 15 ELSE 0 END
-					FROM key_value kv
-						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`)
+	_, err := d.execute(ctx, d.MigrateDataKineSQL)
 	if err != nil {
 		logrus.Errorf("Migration failed: %v", err)
 	}
 }
 
-func Open(driverName, dataSourceName string, paramCharacter string, numbered bool) (*Generic, error) {
+func Open(driverName, dataSourceName, tableName string, paramCharacter string, numbered bool) (*Generic, error) {
 	db, err := sql.Open(driverName, dataSourceName)
+	if err != nil {
+		return nil, err
+	}
+
+	renderedRevisionSQL, err := RenderSQLFromTemplate("revision-SQL", q(revSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName: tableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedGetCompactRevSQL, err := RenderSQLFromTemplate("get-compact-revision-SQL", q(compactRevSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName: tableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedGetRevisionSQL, err := RenderSQLFromTemplate("get-revision-SQL", q(getByRevSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName:  tableName,
+		Rev:        "0",
+		CompactRev: "0",
+		Columns:    columns,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedGetCurrentSQL, err := RenderSQLFromTemplate("get-current-SQL", q(listSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName:           tableName,
+		Rev:                 renderedRevisionSQL,
+		CompactRev:          renderedGetCompactRevSQL,
+		Columns:             columns,
+		OptionalWhereClause: "",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedListRevisionStartSQL, err := RenderSQLFromTemplate("list-revision-start-SQL", q(listSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName:           tableName,
+		Rev:                 renderedRevisionSQL,
+		CompactRev:          renderedGetCompactRevSQL,
+		Columns:             columns,
+		OptionalWhereClause: "AND mkv.id <= ?",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedGetRevisionAfterSQL, err := RenderSQLFromTemplate("get-revision-after-SQL", q(listSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName:           tableName,
+		Rev:                 renderedRevisionSQL,
+		CompactRev:          renderedGetCompactRevSQL,
+		Columns:             columns,
+		OptionalWhereClause: idOfKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedCountSQL, err := RenderSQLFromTemplate("count-SQL", q(countSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName:           tableName,
+		Rev:                 renderedRevisionSQL,
+		CompactRev:          renderedGetCompactRevSQL,
+		Columns:             columns,
+		OptionalWhereClause: "",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedAfterSQL, err := RenderSQLFromTemplate("after-SQL", q(afterSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName:  tableName,
+		Rev:        renderedRevisionSQL,
+		CompactRev: renderedGetCompactRevSQL,
+		Columns:    columns,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedDeleteSQL, err := RenderSQLFromTemplate("delete-SQL", q(deleteSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName: tableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedUpdateCompactSQL, err := RenderSQLFromTemplate("update-compact-SQL", q(updateCompactSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName: tableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedInsertLastInsertIDSQL, err := RenderSQLFromTemplate("insert-last-insert-id-SQL", q(insertLastInsertIDSQL, paramCharacter, numbered), SQLTemplateParameter{
+		TableName: tableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedInsertSQL, err := RenderSQLFromTemplate("insert-SQL", q(insertSQL, paramCharacter, numbered), SQLTemplateParameter{TableName: tableName})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedMigrateCountKineSQL, err := RenderSQLFromTemplate("migrate-count-SQL", migrateCountKineSQL, SQLTemplateParameter{TableName: tableName})
+	if err != nil {
+		return nil, err
+	}
+
+	renderedMigrateDataKineSQL, err := RenderSQLFromTemplate("migrate-data-SQL", migrateDataSQL, SQLTemplateParameter{TableName: tableName})
 	if err != nil {
 		return nil, err
 	}
@@ -124,44 +289,23 @@ func Open(driverName, dataSourceName string, paramCharacter string, numbered boo
 	return &Generic{
 		DB: db,
 
-		GetRevisionSQL: q(fmt.Sprintf(`
-			SELECT
-			0, 0, %s
-			FROM kine kv
-			WHERE kv.id = ?`, columns), paramCharacter, numbered),
+		RevisionSQL:          renderedRevisionSQL,
+		GetRevisionSQL:       renderedGetRevisionSQL,
+		GetCurrentSQL:        renderedGetCurrentSQL,
+		ListRevisionStartSQL: renderedListRevisionStartSQL,
+		GetRevisionAfterSQL:  renderedGetRevisionAfterSQL,
+		CountSQL:             renderedCountSQL,
+		AfterSQL:             renderedAfterSQL,
+		DeleteSQL:            renderedDeleteSQL,
 
-		GetCurrentSQL:        q(fmt.Sprintf(listSQL, ""), paramCharacter, numbered),
-		ListRevisionStartSQL: q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterSQL:  q(fmt.Sprintf(listSQL, idOfKey), paramCharacter, numbered),
+		UpdateCompactSQL: renderedUpdateCompactSQL,
+		GetCompactRevSQL: renderedGetCompactRevSQL,
 
-		CountSQL: q(fmt.Sprintf(`
-			SELECT (%s), COUNT(c.theid)
-			FROM (
-				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "")), paramCharacter, numbered),
+		InsertLastInsertIDSQL: renderedInsertLastInsertIDSQL,
+		InsertSQL:             renderedInsertSQL,
 
-		AfterSQL: q(fmt.Sprintf(`
-			SELECT (%s), (%s), %s
-			FROM kine kv
-			WHERE
-				kv.name LIKE ? AND
-				kv.id > ?
-			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns), paramCharacter, numbered),
-
-		DeleteSQL: q(`
-			DELETE FROM kine
-			WHERE id = ?`, paramCharacter, numbered),
-
-		UpdateCompactSQL: q(`
-			UPDATE kine
-			SET prev_revision = ?
-			WHERE name = 'compact_rev_key'`, paramCharacter, numbered),
-
-		InsertLastInsertIDSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
-
-		InsertSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, paramCharacter, numbered),
+		MigrateCountKineSQL: renderedMigrateCountKineSQL,
+		MigrateDataKineSQL:  renderedMigrateDataKineSQL,
 	}, nil
 }
 
@@ -182,7 +326,7 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 
 func (d *Generic) GetCompactRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := d.queryRow(ctx, compactRevSQL)
+	row := d.queryRow(ctx, d.GetCompactRevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -252,7 +396,7 @@ func (d *Generic) Count(ctx context.Context, prefix string) (int64, int64, error
 
 func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := d.queryRow(ctx, revSQL)
+	row := d.queryRow(ctx, d.RevisionSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -286,4 +430,46 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 	err = row.Scan(&id)
 	return id, err
+}
+
+type SQLTemplateParameter struct {
+	TableName           string
+	Rev                 string
+	CompactRev          string
+	Columns             string
+	OptionalWhereClause string
+}
+
+type SQLSchemaTemplateParameter struct {
+	TableName string
+}
+
+func MustParseTemplate(templateName, templateBody string) *template.Template {
+	t, err := template.New(templateName).Parse(templateBody)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func RenderSQLFromTemplate(templateName string, templateBody string, parameter SQLTemplateParameter) (string, error) {
+	sqlStatement := &bytes.Buffer{}
+	if err := MustParseTemplate(templateName, templateBody).Execute(
+		sqlStatement,
+		parameter,
+	); err != nil {
+		return "", fmt.Errorf("failed rendering SQL statement %s: %v", templateName, err)
+	}
+	return sqlStatement.String(), nil
+}
+
+func RenderSchemaSQLFromTemplate(templateName string, templateBody string, parameter SQLSchemaTemplateParameter) (string, error) {
+	sqlStatement := &bytes.Buffer{}
+	if err := MustParseTemplate(templateName, templateBody).Execute(
+		sqlStatement,
+		parameter,
+	); err != nil {
+		return "", fmt.Errorf("failed rendering SQL statement %s: %v", templateName, err)
+	}
+	return sqlStatement.String(), nil
 }

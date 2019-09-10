@@ -22,7 +22,7 @@ const (
 
 var (
 	schema = []string{
-		`create table if not exists kine
+		`create table if not exists {{ .TableName }} 
  			(
  				id SERIAL PRIMARY KEY,
  				name TEXT,
@@ -34,13 +34,13 @@ var (
  				value bytea,
  				old_value bytea
  			);`,
-		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS kine_name_index ON {{ .TableName }} (name)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON {{ .TableName }} (name, prev_revision)`,
 	}
 	createDB = "create database "
 )
 
-func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
+func New(dataSourceName, tableName string, tlsInfo tls.Config) (server.Backend, error) {
 	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -50,12 +50,12 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 		return nil, err
 	}
 
-	dialect, err := generic.Open("postgres", parsedDSN, "$", true)
+	dialect, err := generic.Open("postgres", parsedDSN, tableName, "$", true)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := setup(dialect.DB); err != nil {
+	if err := setup(dialect.DB, tableName); err != nil {
 		return nil, err
 	}
 
@@ -63,9 +63,15 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
-func setup(db *sql.DB) error {
+func setup(db *sql.DB, tableName string) error {
 	for _, stmt := range schema {
-		_, err := db.Exec(stmt)
+		renderedSchemaSQL, err := generic.RenderSchemaSQLFromTemplate("schema", stmt, generic.SQLSchemaTemplateParameter{
+			TableName: tableName,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = db.Exec(renderedSchemaSQL)
 		if err != nil {
 			return err
 		}

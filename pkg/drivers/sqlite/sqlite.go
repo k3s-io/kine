@@ -16,7 +16,7 @@ import (
 
 var (
 	schema = []string{
-		`CREATE TABLE IF NOT EXISTS kine
+		`CREATE TABLE IF NOT EXISTS {{ .TableName }}  
 			(
 				id INTEGER primary key autoincrement,
 				name INTEGER,
@@ -28,12 +28,12 @@ var (
 				value BLOB,
 				old_value BLOB
 			)`,
-		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS kine_name_index ON {{ .TableName }} (name)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON {{ .TableName }} (name, prev_revision)`,
 	}
 )
 
-func New(dataSourceName string) (server.Backend, error) {
+func New(dataSourceName, tableName string) (server.Backend, error) {
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, err
@@ -41,13 +41,13 @@ func New(dataSourceName string) (server.Backend, error) {
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared"
 	}
 
-	dialect, err := generic.Open("sqlite3", dataSourceName, "?", false)
+	dialect, err := generic.Open("sqlite3", dataSourceName, tableName, "?", false)
 	if err != nil {
 		return nil, err
 	}
 	dialect.LastInsertID = true
 
-	if err := setup(dialect.DB); err != nil {
+	if err := setup(dialect.DB, tableName); err != nil {
 		return nil, err
 	}
 
@@ -55,9 +55,15 @@ func New(dataSourceName string) (server.Backend, error) {
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
-func setup(db *sql.DB) error {
+func setup(db *sql.DB, tableName string) error {
 	for _, stmt := range schema {
-		_, err := db.Exec(stmt)
+		renderedSchemaSQL, err := generic.RenderSchemaSQLFromTemplate("schema", stmt, generic.SQLSchemaTemplateParameter{
+			TableName: tableName,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = db.Exec(renderedSchemaSQL)
 		if err != nil {
 			return err
 		}

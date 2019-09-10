@@ -4,7 +4,6 @@ import (
 	"context"
 	cryptotls "crypto/tls"
 	"database/sql"
-
 	"github.com/go-sql-driver/mysql"
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/logstructured"
@@ -20,7 +19,7 @@ const (
 
 var (
 	schema = []string{
-		`create table if not exists kine
+		`create table if not exists {{ .TableName }}
 			(
 				id INTEGER AUTO_INCREMENT,
 				name TEXT,
@@ -34,12 +33,12 @@ var (
 				PRIMARY KEY (id)
 			);`,
 	}
-	nameIdx     = "create index kine_name_index on kine (name(100))"
-	revisionIdx = "create index kine_name_prev_revision_uindex on kine (name(100), prev_revision)"
+	nameIdx     = "create index kine_name_index on {{ .TableName }} (name(100))"
+	revisionIdx = "create index kine_name_prev_revision_uindex on {{ .TableName }} (name(100), prev_revision)"
 	createDB    = "create database if not exists "
 )
 
-func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
+func New(dataSourceName, tableName string, tlsInfo tls.Config) (server.Backend, error) {
 	tlsConfig, err := tlsInfo.ClientConfig()
 	if err != nil {
 		return nil, err
@@ -58,12 +57,12 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 		return nil, err
 	}
 
-	dialect, err := generic.Open("mysql", parsedDSN, "?", false)
+	dialect, err := generic.Open("mysql", parsedDSN, tableName, "?", false)
 	if err != nil {
 		return nil, err
 	}
 	dialect.LastInsertID = true
-	if err := setup(dialect.DB); err != nil {
+	if err := setup(dialect.DB, tableName); err != nil {
 		return nil, err
 	}
 
@@ -71,17 +70,33 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
-func setup(db *sql.DB) error {
+func setup(db *sql.DB, tableName string) error {
 	for _, stmt := range schema {
-		_, err := db.Exec(stmt)
+		renderedSchemaSQL, err := generic.RenderSchemaSQLFromTemplate("schema", stmt, generic.SQLSchemaTemplateParameter{
+			TableName: tableName,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = db.Exec(renderedSchemaSQL)
 		if err != nil {
 			return err
 		}
 	}
+
 	// check if duplicate indexes
 	indexes := []string{
 		nameIdx,
 		revisionIdx}
+	for i, idx := range indexes {
+		renderedIndexSQL, err := generic.RenderSchemaSQLFromTemplate("index", idx, generic.SQLSchemaTemplateParameter{
+			TableName: tableName,
+		})
+		if err != nil {
+			return err
+		}
+		indexes[i] = renderedIndexSQL
+	}
 
 	for _, idx := range indexes {
 		err := createIndex(db, idx)

@@ -45,6 +45,12 @@ func main() {
 			Usage:       "Key file for DB connection",
 			Destination: &config.KeyFile,
 		},
+		cli.StringFlag{
+			Name:        "table-name",
+			Usage:       "Table name for DB connection",
+			Value:       "kine",
+			Destination: &config.TableName,
+		},
 		cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run
