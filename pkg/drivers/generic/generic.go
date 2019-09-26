@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -58,6 +59,9 @@ func (s Stripped) String() string {
 }
 
 type Generic struct {
+	sync.Mutex
+
+	LockWrites            bool
 	LastInsertID          bool
 	DB                    *sql.DB
 	GetCurrentSQL         string
@@ -175,11 +179,11 @@ func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{})
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
-//var lock sync.Mutex
-
 func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) (sql.Result, error) {
-	//lock.Lock()
-	//defer lock.Unlock()
+	if d.LockWrites {
+		d.Lock()
+		defer d.Unlock()
+	}
 
 	logrus.Tracef("EXEC %v : %s", args, Stripped(sql))
 	return d.DB.ExecContext(ctx, sql, args...)

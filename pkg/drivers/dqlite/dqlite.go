@@ -8,11 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/canonical/go-dqlite/driver"
-	"github.com/rancher/kine/pkg/drivers/sqlite"
-
 	"github.com/canonical/go-dqlite/client"
+	"github.com/canonical/go-dqlite/driver"
 	"github.com/pkg/errors"
+	"github.com/rancher/kine/pkg/drivers/sqlite"
 	"github.com/rancher/kine/pkg/server"
 )
 
@@ -62,7 +61,13 @@ func New(ctx context.Context, datasourceName string) (server.Backend, error) {
 	}
 
 	sql.Register("dqlite", d)
-	return sqlite.NewVariant("dqlite", opts.dsn)
+	backend, dialect, err := sqlite.NewVariant("dqlite", opts.dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	dialect.LockWrites = true
+	return backend, nil
 }
 
 func parseOpts(dsn string) (opts, error) {

@@ -37,26 +37,26 @@ func New(dataSourceName string) (server.Backend, error) {
 	return NewVariant("sqlite3", dataSourceName)
 }
 
-func NewVariant(driverName, dataSourceName string) (server.Backend, error) {
+func NewVariant(driverName, dataSourceName string) (server.Backend, *generic.Generic, error) {
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared"
 	}
 
 	dialect, err := generic.Open(driverName, dataSourceName, "?", false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dialect.LastInsertID = true
 
 	if err := setup(dialect.DB); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	dialect.Migrate(context.Background())
-	return logstructured.New(sqllog.New(dialect)), nil
+	return logstructured.New(sqllog.New(dialect)), dialect, nil
 }
 
 func setup(db *sql.DB) error {
