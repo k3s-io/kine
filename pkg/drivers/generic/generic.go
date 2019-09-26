@@ -175,7 +175,12 @@ func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{})
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
+//var lock sync.Mutex
+
 func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) (sql.Result, error) {
+	//lock.Lock()
+	//defer lock.Unlock()
+
 	logrus.Tracef("EXEC %v : %s", args, Stripped(sql))
 	return d.DB.ExecContext(ctx, sql, args...)
 }

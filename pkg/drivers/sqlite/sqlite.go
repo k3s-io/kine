@@ -34,6 +34,10 @@ var (
 )
 
 func New(dataSourceName string) (server.Backend, error) {
+	return NewVariant("sqlite3", dataSourceName)
+}
+
+func NewVariant(driverName, dataSourceName string) (server.Backend, error) {
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, err
@@ -41,7 +45,7 @@ func New(dataSourceName string) (server.Backend, error) {
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared"
 	}
 
-	dialect, err := generic.Open("sqlite3", dataSourceName, "?", false)
+	dialect, err := generic.Open(driverName, dataSourceName, "?", false)
 	if err != nil {
 		return nil, err
 	}
