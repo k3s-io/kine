@@ -106,7 +106,13 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		createEvent.PrevKV = prevEvent.KV
 	}
 
-	return l.log.Append(ctx, createEvent)
+	revRet, errRet = l.log.Append(ctx, createEvent)
+	if errRet != nil {
+		if _, prevEvent, err := l.get(ctx, key, 0, true); err == nil && prevEvent != nil && !prevEvent.Delete {
+			return 0, server.ErrKeyExists
+		}
+	}
+	return
 }
 
 func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, deletedRet bool, errRet error) {
