@@ -2,6 +2,7 @@ package logstructured
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/rancher/kine/pkg/server"
@@ -228,22 +229,60 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 	return rev, updateEvent.KV, true, err
 }
 
-func (l *LogStructured) ttl(ctx context.Context) {
-	// very naive TTL support
-	for events := range l.log.Watch(ctx, "/") {
-		for _, event := range events {
-			if event.KV.Lease <= 0 {
-				continue
+func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
+	result := make(chan *server.Event)
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		wg.Wait()
+		close(result)
+	}()
+
+	go func() {
+		defer wg.Done()
+		rev, events, err := l.log.List(ctx, "/", "", 1000, 0, false)
+		for len(events) > 0 {
+			if err != nil {
+				logrus.Errorf("failed to read old events for ttl")
+				return
 			}
-			go func(event *server.Event) {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(time.Duration(event.KV.Lease) * time.Second):
+
+			for _, event := range events {
+				if event.KV.Lease > 0 {
+					result <- event
 				}
-				l.Delete(ctx, event.KV.Key, event.KV.ModRevision)
-			}(event)
+			}
+
+			_, events, err = l.log.List(ctx, "/", events[len(events)-1].KV.Key, 1000, rev, false)
 		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for events := range l.log.Watch(ctx, "/") {
+			for _, event := range events {
+				if event.KV.Lease > 0 {
+					result <- event
+				}
+			}
+		}
+	}()
+
+	return result
+}
+
+func (l *LogStructured) ttl(ctx context.Context) {
+	// vary naive TTL support
+	for event := range l.ttlEvents(ctx) {
+		go func(event *server.Event) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(event.KV.Lease) * time.Second):
+			}
+			l.Delete(ctx, event.KV.Key, event.KV.ModRevision)
+		}(event)
 	}
 }
 

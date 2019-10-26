@@ -37,6 +37,8 @@ type Dialect interface {
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
 	SetCompactRevision(ctx context.Context, revision int64) error
+	Fill(ctx context.Context, revision int64) error
+	IsFill(key string) bool
 }
 
 func (s *SQLLog) Start(ctx context.Context) error {
@@ -266,10 +268,12 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 
 func (s *SQLLog) poll(result chan interface{}) {
 	var (
-		last int64
+		last     int64
+		skip     int64
+		skipTime time.Time
 	)
 
-	wait := time.NewTicker(120 * time.Second)
+	wait := time.NewTicker(time.Second)
 	defer wait.Stop()
 	defer close(result)
 
@@ -284,13 +288,22 @@ func (s *SQLLog) poll(result chan interface{}) {
 		case <-wait.C:
 		}
 
+		if last == 0 {
+			if currentRev, err := s.CurrentRevision(s.ctx); err != nil {
+				logrus.Error("failed to find current revision")
+				return
+			} else {
+				last = currentRev
+			}
+		}
+
 		rows, err := s.d.After(s.ctx, "%", last)
 		if err != nil {
 			logrus.Errorf("fail to list latest changes: %v", err)
 			continue
 		}
 
-		rev, _, events, err := RowsToEvents(rows)
+		_, _, events, err := RowsToEvents(rows)
 		if err != nil {
 			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
@@ -300,13 +313,65 @@ func (s *SQLLog) poll(result chan interface{}) {
 			continue
 		}
 
+		rev := last
+		var (
+			sequential []*server.Event
+			saveLast   bool
+		)
+
 		for _, event := range events {
-			logrus.Debugf("TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+			next := rev + 1
+			// Ensure that we are notifying events in a sequential fashion. For example if we find row 4 before 3
+			// we don't want to notify row 4 because 3 is essentially dropped forever.
+			if event.KV.ModRevision != next {
+				if canSkipRevision(next, skip, skipTime) {
+					// This situation should never happen, but we have it here as a fallback just for unknown reasons
+					// we don't want to pause all watches forever
+					logrus.Errorf("GAP %s, revision=%d, delete=%v, next=%d", event.KV.Key, event.KV.ModRevision, event.Delete, next)
+				} else if skip != next {
+					// This is the first time we have encountered this missing revision, so record time start
+					// and trigger a quick retry for simple out of order events
+					skip = next
+					skipTime = time.Now()
+					s.notify <- next
+					break
+				} else {
+					if err := s.d.Fill(s.ctx, next); err == nil {
+						logrus.Debugf("FILL, revision=%d, err=%v", next, err)
+						s.notify <- next
+					} else {
+						logrus.Debugf("FILL FAILED, revision=%d, err=%v", next, err)
+					}
+					break
+				}
+			}
+
+			// we have done something now that we should save the last revision.  We don't save here now because
+			// the next loop could fail leading to saving the reported revision without reporting it.  In practice this
+			// loop right now has no error exit so the next loop shouldn't fail, but if we for some reason add a method
+			// that returns error, that would be a tricky bug to find.  So instead we only save the last revision at
+			// the same time we write to the channel.
+			saveLast = true
+			rev = event.KV.ModRevision
+			if s.d.IsFill(event.KV.Key) {
+				logrus.Debugf("NOT TRIGGER FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+			} else {
+				sequential = append(sequential, event)
+				logrus.Debugf("TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+			}
 		}
 
-		result <- events
-		last = rev
+		if saveLast {
+			last = rev
+			if len(sequential) > 0 {
+				result <- sequential
+			}
+		}
 	}
+}
+
+func canSkipRevision(rev, skip int64, skipTime time.Time) bool {
+	return rev == skip && time.Now().Sub(skipTime) > time.Second
 }
 
 func (s *SQLLog) Count(ctx context.Context, prefix string) (int64, int64, error) {
