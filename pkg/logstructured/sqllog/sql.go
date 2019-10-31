@@ -295,8 +295,8 @@ func (s *SQLLog) poll(result chan interface{}) {
 
 		if last == 0 {
 			if currentRev, err := s.CurrentRevision(s.ctx); err != nil {
-				logrus.Error("failed to find current revision")
-				return
+				logrus.Errorf("failed to find current revision: %v", err)
+				continue
 			} else {
 				last = currentRev
 			}
@@ -338,12 +338,18 @@ func (s *SQLLog) poll(result chan interface{}) {
 					// and trigger a quick retry for simple out of order events
 					skip = next
 					skipTime = time.Now()
-					s.notify <- next
+					select {
+					case s.notify <- next:
+					default:
+					}
 					break
 				} else {
 					if err := s.d.Fill(s.ctx, next); err == nil {
 						logrus.Debugf("FILL, revision=%d, err=%v", next, err)
-						s.notify <- next
+						select {
+						case s.notify <- next:
+						default:
+						}
 					} else {
 						logrus.Debugf("FILL FAILED, revision=%d, err=%v", next, err)
 					}
