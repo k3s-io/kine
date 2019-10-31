@@ -48,7 +48,11 @@ func (s *SQLLog) Start(ctx context.Context) error {
 }
 
 func (s *SQLLog) compact() {
-	t := time.NewTicker(2 * time.Second)
+	var (
+		nextEnd int64
+	)
+	t := time.NewTicker(5 * time.Minute)
+	nextEnd, _ = s.d.CurrentRevision(s.ctx)
 
 outer:
 	for {
@@ -58,11 +62,14 @@ outer:
 		case <-t.C:
 		}
 
-		end, err := s.d.CurrentRevision(s.ctx)
+		currentRev, err := s.d.CurrentRevision(s.ctx)
 		if err != nil {
 			logrus.Errorf("failed to get current revision: %v", err)
 			continue
 		}
+
+		end := nextEnd
+		nextEnd = currentRev
 
 		cursor, err := s.d.GetCompactRevision(s.ctx)
 		if err != nil {
@@ -70,10 +77,8 @@ outer:
 			continue
 		}
 
-		if end-cursor < 100 {
-			// Only run if we have at least 100 rows to process
-			continue
-		}
+		// leave the last 1000
+		end = end - 1000
 
 		savedCursor := cursor
 		// Purposefully start at the current and redo the current as
