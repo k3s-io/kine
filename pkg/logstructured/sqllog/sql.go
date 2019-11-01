@@ -231,7 +231,7 @@ func RowsToEvents(rows *sql.Rows) (int64, int64, []*server.Event, error) {
 }
 
 func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan []*server.Event {
-	res := make(chan []*server.Event)
+	res := make(chan []*server.Event, 100)
 	values, err := s.broadcaster.Subscribe(ctx, s.startWatch)
 	if err != nil {
 		return nil

@@ -298,7 +298,7 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 		revision -= 1
 	}
 
-	result := make(chan []*server.Event)
+	result := make(chan []*server.Event, 100)
 
 	rev, kvs, err := l.log.After(ctx, prefix, revision)
 	if err != nil {
