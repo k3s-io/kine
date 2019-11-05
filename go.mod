@@ -1,4 +1,4 @@
-module github.com/rancher/kine
+module github.com/ibuildthecloud/kine
 
 go 1.12
 
