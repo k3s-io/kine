@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,6 +14,10 @@ type Value struct {
 	Data     []byte
 	Modified int64
 }
+
+var (
+	ErrNotFound = errors.New("etcdwrapper: key not found")
+)
 
 type Client interface {
 	Get(ctx context.Context, key string) (Value, error)
@@ -59,7 +64,7 @@ func (c *client) Get(ctx context.Context, key string) (Value, error) {
 		}, nil
 	}
 
-	return Value{}, nil
+	return Value{}, ErrNotFound
 }
 
 func (c *client) Put(ctx context.Context, key string, value []byte) error {
