@@ -25,7 +25,7 @@ var (
 		`create table if not exists kine
  			(
  				id SERIAL PRIMARY KEY,
- 				name TEXT,
+				name VARCHAR(630),
 				created INTEGER,
 				deleted INTEGER,
  				create_revision INTEGER,
