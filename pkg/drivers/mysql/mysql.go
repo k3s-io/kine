@@ -63,6 +63,12 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 		return nil, err
 	}
 	dialect.LastInsertID = true
+	dialect.TranslateErr = func(err error) error {
+		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1062 {
+			return server.ErrKeyExists
+		}
+		return err
+	}
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
 	}

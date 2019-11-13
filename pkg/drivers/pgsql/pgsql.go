@@ -54,6 +54,12 @@ func New(dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
 	if err != nil {
 		return nil, err
 	}
+	dialect.TranslateErr = func(err error) error {
+		if err, ok := err.(*pq.Error); ok && err.Code == "23505" {
+			return server.ErrKeyExists
+		}
+		return err
+	}
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
