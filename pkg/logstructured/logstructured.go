@@ -188,7 +188,7 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 		logrus.Debugf("UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kv=%v, updated=%v, err=%v", key, len(value), revision, lease, revRet, kvRet != nil, updateRet, errRet)
 	}()
 
-	rev, event, err := l.get(ctx, key, revision, false)
+	rev, event, err := l.get(ctx, key, 0, false)
 	if err != nil {
 		return 0, nil, false, err
 	}
