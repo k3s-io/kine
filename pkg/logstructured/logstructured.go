@@ -185,7 +185,11 @@ func (l *LogStructured) Count(ctx context.Context, prefix string) (revRet int64,
 func (l *LogStructured) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {
 	defer func() {
 		l.adjustRevision(ctx, &revRet)
-		logrus.Debugf("UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kv=%v, updated=%v, err=%v", key, len(value), revision, lease, revRet, kvRet != nil, updateRet, errRet)
+		kvRev := int64(0)
+		if kvRet != nil {
+			kvRev = kvRet.ModRevision
+		}
+		logrus.Debugf("UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v", key, len(value), revision, lease, revRet, kvRev, updateRet, errRet)
 	}()
 
 	rev, event, err := l.get(ctx, key, 0, false)
