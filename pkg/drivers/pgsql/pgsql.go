@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"net/url"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/lib/pq"
@@ -117,15 +115,6 @@ func createDBIfNotExist(dataSourceName string) error {
 	return nil
 }
 
-func q(sql string) string {
-	regex := regexp.MustCompile(`\?`)
-	pref := "$"
-	n := 0
-	return regex.ReplaceAllStringFunc(sql, func(string) string {
-		n++
-		return pref + strconv.Itoa(n)
-	})
-}
 
 func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	if len(dataSourceName) == 0 {

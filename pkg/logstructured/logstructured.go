@@ -33,7 +33,9 @@ func (l *LogStructured) Start(ctx context.Context) error {
 	if err := l.log.Start(ctx); err != nil {
 		return err
 	}
-	l.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0)
+	if _,err := l.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
+		return err
+	}
 	go l.ttl(ctx)
 	return nil
 }
@@ -302,7 +304,8 @@ func (l *LogStructured) ttl(ctx context.Context) {
 				return
 			case <-time.After(time.Duration(event.KV.Lease) * time.Second):
 			}
-			l.Delete(ctx, event.KV.Key, event.KV.ModRevision)
+			_,_,_,err := l.Delete(ctx, event.KV.Key, event.KV.ModRevision)
+			logrus.Errorf("ttl expired; encountered error during deletion: %v",err)
 		}(event)
 	}
 }

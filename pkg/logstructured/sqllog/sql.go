@@ -398,7 +398,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 }
 
 func canSkipRevision(rev, skip int64, skipTime time.Time) bool {
-	return rev == skip && time.Now().Sub(skipTime) > time.Second
+	return rev == skip && time.Since(skipTime) > time.Second
 }
 
 func (s *SQLLog) Count(ctx context.Context, prefix string) (int64, int64, error) {
