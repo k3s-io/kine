@@ -16,8 +16,6 @@ import (
 	"github.com/rancher/kine/pkg/tls"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-
-	crypto "crypto/tls"
 )
 
 const (
@@ -70,12 +68,8 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	b := server.New(backend)
 	grpcServer := grpcServer(config)
 	b.Register(grpcServer)
-	// Extra logic to handle tls on endpoint
-	tlsConfig, err := config.ClientConfig()
-	if err != nil {
-		logrus.Warn("Kine endpoint is not secured by tls")
-	}
-	listener, err := createListener(listen, tlsConfig)
+
+	listener, err := createListener(listen)
 	if err != nil {
 		return ETCDConfig{}, err
 	}
@@ -96,7 +90,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}, nil
 }
 
-func createListener(listen string, tlsConfig *crypto.Config) (ret net.Listener, rerr error) {
+func createListener(listen string) (ret net.Listener, rerr error) {
 	network, address := networkAndAddress(listen)
 
 	if network == "unix" {
@@ -111,9 +105,6 @@ func createListener(listen string, tlsConfig *crypto.Config) (ret net.Listener, 
 	}
 
 	logrus.Infof("Kine listening on %s://%s", network, address)
-	if tlsConfig != nil {
-		return crypto.Listen(network, address, tlsConfig)
-	}
 	return net.Listen(network, address)
 }
 
