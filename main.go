@@ -46,6 +46,11 @@ func main() {
 			Destination: &config.KeyFile,
 		},
 		cli.BoolFlag{Name: "debug"},
+		cli.BoolFlag{
+			Name:        "enable-tls",
+			Usage:       "Enable tls on kine endpoint (default is disabled)",
+			Destination: &config.EnableTLS,
+		},
 	}
 	app.Action = run
 

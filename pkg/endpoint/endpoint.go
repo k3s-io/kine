@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	crypto "crypto/tls"
+
 	"github.com/pkg/errors"
 	"github.com/rancher/kine/pkg/drivers/dqlite"
 	"github.com/rancher/kine/pkg/drivers/mysql"
@@ -31,7 +33,7 @@ type Config struct {
 	GRPCServer *grpc.Server
 	Listener   string
 	Endpoint   string
-
+	EnableTLS  bool
 	tls.Config
 }
 
@@ -62,14 +64,14 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 
 	listen := config.Listener
 	if listen == "" {
-		listen = KineSocket
+		listen = "KineSocket"
 	}
 
 	b := server.New(backend)
 	grpcServer := grpcServer(config)
 	b.Register(grpcServer)
 
-	listener, err := createListener(listen)
+	listener, err := createListener(listen, config)
 	if err != nil {
 		return ETCDConfig{}, err
 	}
@@ -90,7 +92,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}, nil
 }
 
-func createListener(listen string) (ret net.Listener, rerr error) {
+func createListener(listen string, config Config) (ret net.Listener, rerr error) {
 	network, address := networkAndAddress(listen)
 
 	if network == "unix" {
@@ -105,6 +107,12 @@ func createListener(listen string) (ret net.Listener, rerr error) {
 	}
 
 	logrus.Infof("Kine listening on %s://%s", network, address)
+	tlsConfig, err := config.ClientConfig()
+	if config.EnableTLS && err == nil {
+		logrus.Infof("TLS enabled on kine endpoint")
+		return crypto.Listen(network, address, tlsConfig)
+	}
+
 	return net.Listen(network, address)
 }
 
