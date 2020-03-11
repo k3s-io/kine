@@ -46,6 +46,52 @@ func (s *SQLLog) Start(ctx context.Context) (err error) {
 	return
 }
 
+func (s *SQLLog) compactStart(ctx context.Context) error {
+	rows, err := s.d.After(ctx, "compact_rev_key", 0, 0)
+	if err != nil {
+		return err
+	}
+
+	_, _, events, err := RowsToEvents(rows)
+	if err != nil {
+		return err
+	}
+
+	if len(events) == 0 {
+		_, err := s.Append(ctx, &server.Event{
+			Create: true,
+			KV: &server.KeyValue{
+				Key:   "compact_rev_key",
+				Value: []byte(""),
+			},
+		})
+		return err
+	} else if len(events) == 1 {
+		return nil
+	}
+
+	// this is to work around a bug in which we ended up with two compact_rev_key rows
+	maxRev := int64(0)
+	maxID := int64(0)
+	for _, event := range events {
+		if event.PrevKV != nil && event.PrevKV.ModRevision > maxRev {
+			maxRev = event.PrevKV.ModRevision
+			maxID = event.KV.ModRevision
+		}
+	}
+
+	for _, event := range events {
+		if event.KV.ModRevision == maxID {
+			continue
+		}
+		if err := s.d.DeleteRevision(ctx, event.KV.ModRevision); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *SQLLog) compact() {
 	var (
 		nextEnd int64
@@ -162,7 +208,11 @@ func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64
 		return 0, nil, err
 	}
 
-	rev, _, result, err := RowsToEvents(rows)
+	rev, compact, result, err := RowsToEvents(rows)
+	if revision > 0 && revision < compact {
+		return rev, result, server.ErrCompacted
+	}
+
 	return rev, result, err
 }
 
@@ -172,8 +222,16 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 		err  error
 	)
 
+	// It's assumed that when there is a start key that that key exists.
 	if strings.HasSuffix(prefix, "/") {
+		// In the situation of a list start the startKey will not exist so set to ""
+		if prefix == startKey {
+			startKey = ""
+		}
 		prefix += "%"
+	} else {
+		// Also if this isn't a list there is no reason to pass startKey
+		startKey = ""
 	}
 
 	if revision == 0 {
@@ -265,6 +323,10 @@ func filter(events interface{}, checkPrefix bool, prefix string) ([]*server.Even
 }
 
 func (s *SQLLog) startWatch() (chan interface{}, error) {
+	if err := s.compactStart(s.ctx); err != nil {
+		return nil, err
+	}
+
 	pollStart, err := s.d.GetCompactRevision(s.ctx)
 	if err != nil {
 		return nil, err
