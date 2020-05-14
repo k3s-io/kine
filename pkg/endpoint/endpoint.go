@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/rancher/kine/pkg/drivers/dqlite"
@@ -34,7 +35,6 @@ type Config struct {
 
 	tls.Config
 }
-
 type ETCDConfig struct {
 	Endpoints   []string
 	TLSConfig   tls.Config
@@ -42,7 +42,7 @@ type ETCDConfig struct {
 }
 
 func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
-	driver, dsn := ParseStorageEndpoint(config.Endpoint)
+	driver, dsn, err := ParseStorageEndpoint(config.Endpoint)
 	if driver == ETCDBackend {
 		return ETCDConfig{
 			Endpoints:   strings.Split(config.Endpoint, ","),
@@ -50,12 +50,45 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 			LeaderElect: true,
 		}, nil
 	}
+	if err != nil {
+		return ETCDConfig{}, errors.Wrap(err, "parsing storage point")
+	}
 
-	leaderelect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
+	type Response struct {
+		leaderElect bool
+		backend     server.Backend
+		err         error
+	}
+	ch := make(chan Response, 1)
+
+	go func() {
+		leaderElect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
+		res := Response{
+			leaderElect: leaderElect,
+			backend:     backend,
+			err:         err,
+		}
+		ch <- res
+	}()
+
+	var (
+		leaderElect bool
+		backend     server.Backend
+	)
+	const storageDriveTimeout = time.Second * 10
+	select {
+	case res := <-ch:
+		leaderElect = res.leaderElect
+		backend = res.backend
+		err = res.err
+
+	case <-time.After(storageDriveTimeout):
+		return ETCDConfig{}, errors.New("getKineDriver timed out, please check your connection/host port number")
+	}
+
 	if err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "building kine")
 	}
-
 	if err := backend.Start(ctx); err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "starting kine backend")
 	}
@@ -84,12 +117,11 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}()
 
 	return ETCDConfig{
-		LeaderElect: leaderelect,
+		LeaderElect: leaderElect,
 		Endpoints:   []string{listen},
 		TLSConfig:   tls.Config{},
 	}, nil
 }
-
 func createListener(listen string) (ret net.Listener, rerr error) {
 	network, address := networkAndAddress(listen)
 
@@ -114,7 +146,6 @@ func grpcServer(config Config) *grpc.Server {
 	}
 	return grpc.NewServer()
 }
-
 func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) (bool, server.Backend, error) {
 	var (
 		backend     server.Backend
@@ -138,17 +169,21 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	return leaderElect, backend, err
 }
 
-func ParseStorageEndpoint(storageEndpoint string) (string, string) {
+func ParseStorageEndpoint(storageEndpoint string) (string, string, error) {
 	network, address := networkAndAddress(storageEndpoint)
+	var err error
 	switch network {
 	case "":
-		return SQLiteBackend, ""
+		if address != "" {
+			err = fmt.Errorf("invalid endpoint value")
+		}
+		return SQLiteBackend, "", err
 	case "http":
 		fallthrough
 	case "https":
-		return ETCDBackend, address
+		return ETCDBackend, address, err
 	}
-	return network, address
+	return network, address, err
 }
 
 func networkAndAddress(str string) (string, string) {

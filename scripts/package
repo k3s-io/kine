@@ -1,0 +1,25 @@
+#!/bin/bash
+set -e
+
+source $(dirname $0)/version
+
+ARCH=${ARCH:-"amd64"}
+SUFFIX="-${ARCH}"
+
+cd $(dirname $0)/..
+
+TAG=${TAG:-${VERSION}${SUFFIX}}
+REPO=${REPO:-rancher}
+
+if echo $TAG | grep -q dirty; then
+    TAG=dev
+fi
+
+IMAGE=${REPO}/kine:${TAG}
+DOCKERFILE=package/Dockerfile
+if [ -e ${DOCKERFILE}.${ARCH} ]; then
+    DOCKERFILE=${DOCKERFILE}.${ARCH}
+fi
+
+docker build -f ${DOCKERFILE} -t ${IMAGE} .
+echo Built ${IMAGE}

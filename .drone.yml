@@ -1,0 +1,61 @@
+---
+kind: pipeline
+name: amd64
+
+platform:
+  os: linux
+  arch: amd64
+
+steps:
+- name: build
+  image: rancher/dapper:v0.4.1
+  commands:
+  - dapper ci
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+
+- name: github_binary_release
+  image: plugins/github-release
+  settings:
+    api_key:
+      from_secret: github_token
+    prerelease: true
+    checksum:
+    - sha256
+    checksum_file: CHECKSUMsum-amd64.txt
+    checksum_flatten: true
+    files:
+    - "bin/*"
+  when:
+    instance:
+    - drone-publish.rancher.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+    event:
+    - tag
+
+- name: docker-publish
+  image: plugins/docker
+  settings:
+    dockerfile: package/Dockerfile
+    password:
+      from_secret: docker_password
+    repo: "rancher/kine"
+    tag: "${DRONE_TAG}-amd64"
+    username:
+      from_secret: docker_username
+  when:
+    instance:
+    - drone-publish.rancher.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+    event:
+    - tag
+
+volumes:
+- name: docker
+  host:
+    path: /var/run/docker.sock
