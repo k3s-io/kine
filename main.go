@@ -55,7 +55,7 @@ func main() {
 		},
 		cli.DurationFlag{
 			Name:        "datastore-connection-max-lifetime",
-			Usage:       "Maximum duration a connection is held alive. Defined as a parsable string, e.g., 1s, 2500ms, and 1h30m are all accepted values",
+			Usage:       "Maximum amount of time a connection may be reused. Defined as a parsable string, e.g., 1s, 2500ms, and 1h30m are all accepted values",
 			Destination: &config.ConnectionPoolConfig.MaxLifetime,
 			Value:       time.Second,
 		},
