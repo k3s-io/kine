@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"os"
-	"time"
 
 	"github.com/rancher/kine/pkg/endpoint"
 	"github.com/rancher/wrangler/pkg/signals"
@@ -57,7 +56,7 @@ func main() {
 			Name:        "datastore-connection-max-lifetime",
 			Usage:       "Maximum amount of time a connection may be reused. Defined as a parsable string, e.g., 1s, 2500ms, and 1h30m are all accepted values",
 			Destination: &config.ConnectionPoolConfig.MaxLifetime,
-			Value:       time.Second,
+			Value:       0,
 		},
 		cli.StringFlag{
 			Name:        "key-file",
