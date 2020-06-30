@@ -142,7 +142,7 @@ func ParseStorageEndpoint(storageEndpoint string) (string, string) {
 	network, address := networkAndAddress(storageEndpoint)
 	switch network {
 	case "":
-		return SQLiteBackend, ""
+		return SQLiteBackend, storageEndpoint
 	case "http":
 		fallthrough
 	case "https":
