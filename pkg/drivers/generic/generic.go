@@ -66,7 +66,7 @@ type TranslateErr func(error) error
 
 type Generic struct {
 	sync.Mutex
-
+	DriverName            string
 	LockWrites            bool
 	LastInsertID          bool
 	DB                    *sql.DB
@@ -82,11 +82,13 @@ type Generic struct {
 	InsertSQL             string
 	FillSQL               string
 	InsertLastInsertIDSQL string
+	RevSQL                string
+	CompactRevSQL         string
 	Retry                 ErrRetry
 	TranslateErr          TranslateErr
 }
 
-func q(sql, param string, numbered bool) string {
+func QueryBuilder(sql, param string, numbered bool) string {
 	if param == "?" && !numbered {
 		return sql
 	}
@@ -128,7 +130,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 	}
 }
 
-func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
+func OpenAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
 		return nil, err
@@ -151,7 +153,7 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 	)
 
 	for i := 0; i < 300; i++ {
-		db, err = openAndTest(driverName, dataSourceName)
+		db, err = OpenAndTest(driverName, dataSourceName)
 		if err == nil {
 			break
 		}
@@ -165,25 +167,25 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 	}
 
 	return &Generic{
-		DB: db,
-
-		GetRevisionSQL: q(fmt.Sprintf(`
+		DB:         db,
+		DriverName: driverName,
+		GetRevisionSQL: QueryBuilder(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
 			FROM kine kv
 			WHERE kv.id = ?`, columns), paramCharacter, numbered),
 
-		GetCurrentSQL:        q(fmt.Sprintf(listSQL, ""), paramCharacter, numbered),
-		ListRevisionStartSQL: q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterSQL:  q(fmt.Sprintf(listSQL, idOfKey), paramCharacter, numbered),
+		GetCurrentSQL:        QueryBuilder(fmt.Sprintf(listSQL, ""), paramCharacter, numbered),
+		ListRevisionStartSQL: QueryBuilder(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
+		GetRevisionAfterSQL:  QueryBuilder(fmt.Sprintf(listSQL, idOfKey), paramCharacter, numbered),
 
-		CountSQL: q(fmt.Sprintf(`
+		CountSQL: QueryBuilder(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
 			) c`, revSQL, fmt.Sprintf(listSQL, "")), paramCharacter, numbered),
 
-		AfterSQL: q(fmt.Sprintf(`
+		AfterSQL: QueryBuilder(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
 			FROM kine kv
 			WHERE
@@ -191,23 +193,25 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 				kv.id > ?
 			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns), paramCharacter, numbered),
 
-		DeleteSQL: q(`
+		DeleteSQL: QueryBuilder(`
 			DELETE FROM kine
 			WHERE id = ?`, paramCharacter, numbered),
 
-		UpdateCompactSQL: q(`
+		UpdateCompactSQL: QueryBuilder(`
 			UPDATE kine
 			SET prev_revision = ?
 			WHERE name = 'compact_rev_key'`, paramCharacter, numbered),
 
-		InsertLastInsertIDSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+		InsertLastInsertIDSQL: QueryBuilder(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
 
-		InsertSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, paramCharacter, numbered),
+		InsertSQL: QueryBuilder(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
 
-		FillSQL: q(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+		FillSQL: QueryBuilder(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
+		RevSQL:        revSQL,
+		CompactRevSQL: compactRevSQL,
 	}, err
 }
 
@@ -246,7 +250,7 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 
 func (d *Generic) GetCompactRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := d.queryRow(ctx, compactRevSQL)
+	row := d.queryRow(ctx, d.CompactRevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -271,7 +275,7 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 func (d *Generic) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
 	sql := d.GetCurrentSQL
 	if limit > 0 {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		sql = d.applyLimit(sql, limit)
 	}
 	return d.query(ctx, sql, prefix, includeDeleted)
 }
@@ -280,14 +284,14 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 	if startKey == "" {
 		sql := d.ListRevisionStartSQL
 		if limit > 0 {
-			sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+			sql = d.applyLimit(sql, limit)
 		}
 		return d.query(ctx, sql, prefix, revision, includeDeleted)
 	}
 
 	sql := d.GetRevisionAfterSQL
 	if limit > 0 {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		sql = d.applyLimit(sql, limit)
 	}
 	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
 }
@@ -305,7 +309,7 @@ func (d *Generic) Count(ctx context.Context, prefix string) (int64, int64, error
 
 func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := d.queryRow(ctx, revSQL)
+	row := d.queryRow(ctx, d.RevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -316,7 +320,7 @@ func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 func (d *Generic) After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error) {
 	sql := d.AfterSQL
 	if limit > 0 {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		sql = d.applyLimit(sql, limit)
 	}
 	return d.query(ctx, sql, prefix, rev)
 }
@@ -359,4 +363,15 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 	err = row.Scan(&id)
 	return id, err
+}
+
+func (d Generic) applyLimit(sql string, limit int64) string {
+	if d.DriverName != "sqlserver" {
+		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+	} else {
+		limitRewrite := fmt.Sprintf("SELECT TOP %d ", limit)
+		strings.Replace(sql, "SELECT", limitRewrite, 1)
+	}
+
+	return sql
 }
