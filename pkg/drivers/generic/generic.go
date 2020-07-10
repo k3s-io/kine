@@ -66,7 +66,6 @@ type TranslateErr func(error) error
 
 type Generic struct {
 	sync.Mutex
-	DriverName            string
 	LockWrites            bool
 	LastInsertID          bool
 	DB                    *sql.DB
@@ -86,6 +85,7 @@ type Generic struct {
 	CompactRevSQL         string
 	Retry                 ErrRetry
 	TranslateErr          TranslateErr
+	ApplyLimit            func(string, int64) string
 }
 
 func QueryBuilder(sql, param string, numbered bool) string {
@@ -167,8 +167,7 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 	}
 
 	return &Generic{
-		DB:         db,
-		DriverName: driverName,
+		DB: db,
 		GetRevisionSQL: QueryBuilder(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
@@ -212,6 +211,10 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
 		RevSQL:        revSQL,
 		CompactRevSQL: compactRevSQL,
+		ApplyLimit: func(sql string, limit int64) string {
+			sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+			return sql
+		},
 	}, err
 }
 
@@ -275,7 +278,7 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 func (d *Generic) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
 	sql := d.GetCurrentSQL
 	if limit > 0 {
-		sql = d.applyLimit(sql, limit)
+		sql = d.ApplyLimit(sql, limit)
 	}
 	return d.query(ctx, sql, prefix, includeDeleted)
 }
@@ -284,14 +287,14 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 	if startKey == "" {
 		sql := d.ListRevisionStartSQL
 		if limit > 0 {
-			sql = d.applyLimit(sql, limit)
+			sql = d.ApplyLimit(sql, limit)
 		}
 		return d.query(ctx, sql, prefix, revision, includeDeleted)
 	}
 
 	sql := d.GetRevisionAfterSQL
 	if limit > 0 {
-		sql = d.applyLimit(sql, limit)
+		sql = d.ApplyLimit(sql, limit)
 	}
 	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
 }
@@ -320,7 +323,7 @@ func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 func (d *Generic) After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error) {
 	sql := d.AfterSQL
 	if limit > 0 {
-		sql = d.applyLimit(sql, limit)
+		sql = d.ApplyLimit(sql, limit)
 	}
 	return d.query(ctx, sql, prefix, rev)
 }
@@ -363,15 +366,4 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 	err = row.Scan(&id)
 	return id, err
-}
-
-func (d Generic) applyLimit(sql string, limit int64) string {
-	if d.DriverName != "sqlserver" {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
-	} else {
-		limitRewrite := fmt.Sprintf("SELECT TOP %d ", limit)
-		strings.Replace(sql, "SELECT", limitRewrite, 1)
-	}
-
-	return sql
 }

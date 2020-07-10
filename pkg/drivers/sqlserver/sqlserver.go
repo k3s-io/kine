@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -144,8 +145,7 @@ func setupGenericDriver(ctx context.Context, driverName, dataSourceName string, 
 		}
 	}
 	return &generic.Generic{
-		DB:         db,
-		DriverName: driverName,
+		DB: db,
 		GetRevisionSQL: generic.QueryBuilder(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
@@ -188,6 +188,11 @@ func setupGenericDriver(ctx context.Context, driverName, dataSourceName string, 
 		FillSQL: generic.QueryBuilder(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?, ?);select SCOPE_IDENTITY()`, paramCharacter, numbered),
 		RevSQL: revSQL,
+		ApplyLimit: func(sql string, limit int64) string {
+			limitRewrite := fmt.Sprintf("SELECT TOP %d ", limit)
+			sql = strings.Replace(sql, "SELECT TOP 100 PERCENT", limitRewrite, 1)
+			return sql
+		},
 	}, err
 
 }
