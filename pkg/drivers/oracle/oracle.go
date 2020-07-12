@@ -36,6 +36,14 @@ var (
 		`CREATE INDEX kine_name_id_index ON kine (name,id)`,
 		`CREATE UNIQUE INDEX kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
+	procedureTemplate = []string{
+		"declare",
+		"begin",
+		"%s",
+		"exception when others then",
+		"if SQLCODE = -955 then null; else raise; end if;",
+		"end;",
+	}
 )
 
 func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
@@ -67,16 +75,15 @@ func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
 func setup(db *sql.DB) error {
 	var str strings.Builder
 
-	str.WriteString("declare\n")
-	str.WriteString("begin\n")
-
-	for _, stmt := range schema {
-		str.WriteString(fmt.Sprintf("execute immediate '%s';\n", stmt))
+	for _, cmd := range procedureTemplate {
+		if cmd != "%s" {
+			str.WriteString(cmd + "\n")
+		} else {
+			for _, stmt := range schema {
+				str.WriteString(fmt.Sprintf("execute immediate '%s';\n", stmt))
+			}
+		}
 	}
-	str.WriteString("exception when others then\n")
-	str.WriteString("if SQLCODE = -955 then null; else raise; end if;\n")
-	str.WriteString("end\n")
-
 	_, err := db.Exec(str.String())
 	return err
 }
