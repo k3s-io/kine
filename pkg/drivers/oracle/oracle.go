@@ -90,6 +90,6 @@ func prepareDSN(dataSourceName string) (string, error) {
 		return "", err
 	}
 
-	parsedDSN := config.String()
+	parsedDSN := config.StringWithPassword()
 	return parsedDSN, nil
 }
