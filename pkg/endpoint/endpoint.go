@@ -8,14 +8,16 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+
 	"github.com/rancher/kine/pkg/drivers/dqlite"
 	"github.com/rancher/kine/pkg/drivers/mysql"
+	"github.com/rancher/kine/pkg/drivers/oracle"
 	"github.com/rancher/kine/pkg/drivers/pgsql"
 	"github.com/rancher/kine/pkg/drivers/sqlite"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/kine/pkg/tls"
-	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -25,6 +27,7 @@ const (
 	ETCDBackend     = "etcd3"
 	MySQLBackend    = "mysql"
 	PostgresBackend = "postgres"
+	OracleBackend   = "oracle"
 )
 
 type Config struct {
@@ -131,6 +134,8 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 		backend, err = pgsql.New(ctx, dsn, cfg.Config)
 	case MySQLBackend:
 		backend, err = mysql.New(ctx, dsn, cfg.Config)
+	case OracleBackend:
+		backend, err = oracle.New(ctx, dsn)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
 	}
