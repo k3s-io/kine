@@ -309,7 +309,13 @@ func (d *Generic) ListCurrent(ctx context.Context, prefix string, limit int64, i
 	if limit > 0 {
 		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
 	}
-	return d.query(ctx, sql, prefix, includeDeleted)
+	// don't ask me why, ask golang
+	return d.query(ctx, sql, prefix, func() int {
+		if includeDeleted {
+			return 1
+		}
+		return 0
+	}())
 }
 
 func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error) {
@@ -318,14 +324,24 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 		if limit > 0 {
 			sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
 		}
-		return d.query(ctx, sql, prefix, revision, includeDeleted)
+		return d.query(ctx, sql, prefix, revision, func() int {
+			if includeDeleted {
+				return 1
+			}
+			return 0
+		}())
 	}
 
 	sql := d.GetRevisionAfterSQL
 	if limit > 0 {
 		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
 	}
-	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
+	return d.query(ctx, sql, prefix, revision, startKey, revision, func() int {
+		if includeDeleted {
+			return 1
+		}
+		return 0
+	}())
 }
 
 func (d *Generic) Count(ctx context.Context, prefix string) (int64, int64, error) {
