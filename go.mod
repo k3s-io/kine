@@ -14,5 +14,6 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/urfave/cli v1.21.0
 	go.etcd.io/etcd v0.0.0-20191023171146-3cf2f69b5738
+	golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543
 	google.golang.org/grpc v1.23.1
 )
