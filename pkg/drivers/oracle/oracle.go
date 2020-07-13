@@ -57,6 +57,9 @@ func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
 		return nil, err
 	}
 	dialect.InsertReturningInto = true
+	dialect.TranslateLimit = func(num int64) string {
+		return fmt.Sprintf("FETCH FIRST %d ROWS ONLY", num)
+	}
 	dialect.TranslateErr = func(err error) error {
 		// ORA-00001: unique constraint violated
 		if err, ok := err.(*godror.OraErr); ok && err.Code() == 1 {
