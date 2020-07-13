@@ -63,7 +63,7 @@ func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
 	}
 	dialect.TranslateErr = func(err error) error {
 		// ORA-00001: unique constraint violated
-		if err, ok := err.(*godror.OraErr); ok && err.Code() == 1 {
+		if err, ok := xerrors.Unwrap(err).(*godror.OraErr); ok && err.Code() == 1 {
 			return server.ErrKeyExists
 		}
 		return err
