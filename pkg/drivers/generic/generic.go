@@ -212,6 +212,9 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 
 		FillSQL: q(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
+
+		InsertReturningIntoSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id INTO ?`, paramCharacter, numbered),
 	}, err
 }
 
@@ -387,6 +390,15 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 			return 0, err
 		}
 		return row.LastInsertId()
+	}
+
+	if d.InsertReturningInto {
+		_, err := d.execute(ctx, d.InsertReturningIntoSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue, sql.Out{Dest: &id})
+		if err != nil {
+			return 0, err
+		}
+		logrus.WithField("id", id).Debug("insert returning into")
+		return id, nil
 	}
 
 	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)

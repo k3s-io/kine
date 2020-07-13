@@ -56,7 +56,7 @@ func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
 	if err != nil {
 		return nil, err
 	}
-	dialect.LastInsertID = true
+	dialect.InsertReturningInto = true
 	dialect.TranslateErr = func(err error) error {
 		// ORA-00001: unique constraint violated
 		if err, ok := err.(*godror.OraErr); ok && err.Code() == 1 {
