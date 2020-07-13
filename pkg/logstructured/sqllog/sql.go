@@ -430,11 +430,12 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			// the same time we write to the channel.
 			saveLast = true
 			rev = event.KV.ModRevision
+			logCtx := logrus.WithField("key", event.KV.Key).WithField("revision", event.KV.ModRevision).WithField("delete", event.Delete)
 			if s.d.IsFill(event.KV.Key) {
-				logrus.Debugf("NOT TRIGGER FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				logCtx.Debug("not triggered fill")
 			} else {
 				sequential = append(sequential, event)
-				logrus.Debugf("TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				logCtx.Debug("triggered")
 			}
 		}
 
