@@ -107,17 +107,14 @@ func q(sql, param string, numbered bool) string {
 }
 
 func (d *Generic) Migrate(ctx context.Context) {
-	var (
-		count     = 0
-		countKV   = d.queryRow(ctx, "SELECT COUNT(*) FROM key_value")
-		countKine = d.queryRow(ctx, "SELECT COUNT(*) FROM kine")
-	)
+	var count int64
 
-	if err := countKV.Scan(&count); err != nil || count == 0 {
+	if err := d.queryRow(ctx, "SELECT COUNT(*) FROM key_value").Scan(&count); err != nil || count == 0 {
+		logrus.WithError(err).Debug("no migration request demanded")
 		return
 	}
 
-	if err := countKine.Scan(&count); err != nil || count != 0 {
+	if err := d.queryRow(ctx, "SELECT COUNT(*) FROM kine").Scan(&count); err != nil || count != 0 {
 		return
 	}
 
