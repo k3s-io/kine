@@ -49,7 +49,7 @@ var (
 			GROUP BY mkv.name) maxkv
 	    ON maxkv.id = kv.id
 		WHERE
-			  (kv.deleted = 0 OR ?)
+			  kv.deleted = 0 OR kv.deleted = ?
 		ORDER BY kv.id ASC
 		`, revSQL, compactRevSQL, columns)
 )
