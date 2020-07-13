@@ -22,7 +22,7 @@ const (
 var (
 	schema = []string{`
 		CREATE TABLE kine (
-			id NUMBER GENERATED ALWAYS as IDENTITY,
+			id INTEGER GENERATED ALWAYS as IDENTITY,
 			name VARCHAR(630),
 			created INTEGER,
 			deleted INTEGER,
