@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/godror/godror"
+	"golang.org/x/xerrors"
 
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/logstructured"
@@ -52,7 +53,7 @@ func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
 		return nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "godror", parsedDSN, "?", false)
+	dialect, err := generic.Open(ctx, "godror", parsedDSN, ":", true)
 	if err != nil {
 		return nil, err
 	}
