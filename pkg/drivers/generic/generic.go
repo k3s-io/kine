@@ -63,27 +63,31 @@ func (s Stripped) String() string {
 
 type ErrRetry func(error) bool
 type TranslateErr func(error) error
+type TranslateLimit func(num int64) string
 
 type Generic struct {
 	sync.Mutex
 
-	LockWrites            bool
-	LastInsertID          bool
-	DB                    *sql.DB
-	GetCurrentSQL         string
-	GetRevisionSQL        string
-	RevisionSQL           string
-	ListRevisionStartSQL  string
-	GetRevisionAfterSQL   string
-	CountSQL              string
-	AfterSQL              string
-	DeleteSQL             string
-	UpdateCompactSQL      string
-	InsertSQL             string
-	FillSQL               string
-	InsertLastInsertIDSQL string
-	Retry                 ErrRetry
-	TranslateErr          TranslateErr
+	LockWrites             bool
+	LastInsertID           bool
+	InsertReturningInto    bool
+	DB                     *sql.DB
+	GetCurrentSQL          string
+	GetRevisionSQL         string
+	RevisionSQL            string
+	ListRevisionStartSQL   string
+	GetRevisionAfterSQL    string
+	CountSQL               string
+	AfterSQL               string
+	DeleteSQL              string
+	UpdateCompactSQL       string
+	InsertSQL              string
+	FillSQL                string
+	InsertLastInsertIDSQL  string
+	InsertReturningIntoSQL string
+	Retry                  ErrRetry
+	TranslateErr           TranslateErr
+	TranslateLimit         TranslateLimit
 }
 
 func q(sql, param string, numbered bool) string {
@@ -211,17 +215,46 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 	}, err
 }
 
-func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
-	logrus.Tracef("QUERY %v : %s", args, Stripped(sql))
+var limitNum = regexp.MustCompile(`LIMIT[[:space:]]+(\d+)`)
+
+func (d *Generic) doTranslateLimit(sql string) string {
+	if d.TranslateLimit == nil {
+		return sql
+	}
+
+	return limitNum.ReplaceAllStringFunc(sql, func(s string) string {
+		// This should be a necessary condition
+		if n, err := strconv.ParseInt(limitNum.FindStringSubmatch(s)[1], 10, 64); err == nil {
+			return d.TranslateLimit(n)
+		} else {
+			// ???
+			panic(err)
+		}
+	})
+}
+
+func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (rows *sql.Rows, err error) {
+	sql = d.doTranslateLimit(sql)
+	logrus.
+		WithField("args", args).
+		WithField("sql", Stripped(sql)).
+		WithField("mode", nil).
+		Trace("query")
 	return d.DB.QueryContext(ctx, sql, args...)
 }
 
 func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
-	logrus.Tracef("QUERY ROW %v : %s", args, Stripped(sql))
+	sql = d.doTranslateLimit(sql)
+	logrus.
+		WithField("args", args).
+		WithField("sql", Stripped(sql)).
+		WithField("mode", "row").
+		Trace("query")
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
 func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) (result sql.Result, err error) {
+	sql = d.doTranslateLimit(sql)
 	if d.LockWrites {
 		d.Lock()
 		defer d.Unlock()
