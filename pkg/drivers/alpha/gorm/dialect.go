@@ -37,7 +37,7 @@ func (g *GormBacked) Count(ctx context.Context, prefix string) (int64, int64, er
 			Select("COUNT(theid)").
 			Count(&children)
 		if tx.Error == nil {
-			return kv.ID, children, nil
+			return int64(kv.ID), children, nil
 		}
 	}
 	return 0, 0, tx.Error
@@ -49,7 +49,7 @@ func (g *GormBacked) CurrentRevision(ctx context.Context) (int64, error) {
 	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
 		return 0, nil
 	}
-	return kv.ID, tx.Error
+	return int64(kv.ID), tx.Error
 }
 
 func (g *GormBacked) After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error) {
@@ -80,21 +80,21 @@ func (g *GormBacked) Insert(ctx context.Context, key string, create, delete bool
 		Name:           key,
 		Created:        create,
 		Deleted:        delete,
-		CreateRevision: createRevision,
-		PrevRevision:   previousRevision,
-		Lease:          ttl,
+		CreateRevision: uint64(createRevision),
+		PrevRevision:   uint64(previousRevision),
+		Lease:          uint64(ttl),
 		Value:          value,
 		OldValue:       prevValue,
 	}
 
 	tx := g.DB.WithContext(ctx).
 		Save(&entity)
-	return entity.ID, tx.Error
+	return int64(entity.ID), tx.Error
 }
 
 func (g *GormBacked) GetRevision(ctx context.Context, revision int64) (*sql.Rows, error) {
 	return g.DB.WithContext(ctx).
-		Where(&KineEntry{ID: revision}).
+		Where(&KineEntry{ID: uint64(revision)}).
 		Select(
 			fmt.Sprintf("0, 0, %s", columns),
 		).
@@ -103,7 +103,7 @@ func (g *GormBacked) GetRevision(ctx context.Context, revision int64) (*sql.Rows
 
 func (g *GormBacked) DeleteRevision(ctx context.Context, revision int64) error {
 	tx := g.DB.WithContext(ctx).
-		Delete(&KineEntry{ID: revision})
+		Delete(&KineEntry{ID: uint64(revision)})
 	return tx.Error
 }
 
@@ -114,19 +114,19 @@ func (g *GormBacked) GetCompactRevision(ctx context.Context) (int64, error) {
 	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
 		return 0, nil
 	}
-	return kv.PrevRevision, tx.Error
+	return int64(kv.PrevRevision), tx.Error
 }
 
 func (g *GormBacked) SetCompactRevision(ctx context.Context, revision int64) error {
 	tx := g.GetCompactRevisionQuery(ctx).
-		Updates(&KineEntry{PrevRevision: revision})
+		Updates(&KineEntry{PrevRevision: uint64(revision)})
 	return tx.Error
 }
 
 func (g *GormBacked) Fill(ctx context.Context, revision int64) error {
 	tx := g.DB.WithContext(ctx).Create(
 		&KineEntry{
-			ID:             revision,
+			ID:             uint64(revision),
 			Name:           fmt.Sprintf("gap-%d", revision),
 			Created:        false,
 			Deleted:        true,
