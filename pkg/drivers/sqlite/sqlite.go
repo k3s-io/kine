@@ -57,12 +57,7 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string) (server.
 		return nil, nil, err
 	}
 	dialect.LastInsertID = true
-	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return server.ErrKeyExists
-		}
-		return err
-	}
+	dialect.TranslateErr = TranslateError
 
 	// this is the first SQL that will be executed on a new DB conn so
 	// loop on failure here because in the case of dqlite it could still be initializing
@@ -88,6 +83,13 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string) (server.
 
 	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect)), dialect, nil
+}
+
+func TranslateError(err error) error {
+	if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
+		return server.ErrKeyExists
+	}
+	return err
 }
 
 func setup(db *sql.DB) error {
