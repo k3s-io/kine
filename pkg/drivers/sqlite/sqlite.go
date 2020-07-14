@@ -45,11 +45,9 @@ func New(ctx context.Context, dataSourceName string) (server.Backend, error) {
 }
 
 func NewVariant(ctx context.Context, driverName, dataSourceName string) (server.Backend, *generic.Generic, error) {
-	if dataSourceName == "" {
-		if err := os.MkdirAll("./db", 0700); err != nil {
-			return nil, nil, err
-		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared"
+	dataSourceName, err := PrepareDSN(dataSourceName)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	dialect, err := generic.Open(ctx, driverName, dataSourceName, "?", false)
@@ -101,4 +99,14 @@ func setup(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+func PrepareDSN(dataSourceName string) (string, error) {
+	if dataSourceName == "" {
+		if err := os.MkdirAll("./db", 0700); err != nil {
+			return "", err
+		}
+		dataSourceName = "./db/state.db?_journal=WAL&cache=shared"
+	}
+	return dataSourceName, nil
 }

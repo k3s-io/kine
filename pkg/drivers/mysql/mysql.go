@@ -50,7 +50,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config) (server
 		tlsConfig.MinVersion = cryptotls.VersionTLS11
 	}
 
-	parsedDSN, err := prepareDSN(dataSourceName, tlsConfig)
+	parsedDSN, err := PrepareDSN(dataSourceName, tlsConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	return nil
 }
 
-func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, error) {
+func PrepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultUnixDSN
 		if tlsConfig != nil {

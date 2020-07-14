@@ -42,7 +42,7 @@ var (
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config) (server.Backend, error) {
-	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
+	parsedDSN, err := PrepareDSN(dataSourceName, tlsInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func q(sql string) string {
 	})
 }
 
-func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
+func PrepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultDSN
 	} else {
