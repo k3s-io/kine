@@ -46,11 +46,15 @@ func main() {
 			Usage:       "Key file for DB connection",
 			Destination: &config.KeyFile,
 		},
-		cli.BoolFlag{Name: "debug", Usage: "Enable debug mode for diagnostics"},
+		cli.BoolFlag{
+			Name:        "debug",
+			Usage:       "Enable debug mode for diagnostics",
+			Destination: &config.Features.Debug,
+		},
 		cli.BoolFlag{
 			Name:        "alpha-use-new-backend",
 			Usage:       "Use the new experimental gorm based database backend",
-			Destination: &config.EnableAlphaBackend,
+			Destination: &config.Features.UseAlphaBackend,
 		},
 	}
 	app.Action = run
@@ -64,7 +68,7 @@ func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
-	if config.EnableAlphaBackend {
+	if config.Features.UseAlphaBackend {
 		logrus.Warn("you are using an experimental backend powered by gorm. it is not guaranteed everything will work for now")
 	}
 

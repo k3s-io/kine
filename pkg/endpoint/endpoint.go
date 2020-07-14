@@ -39,10 +39,13 @@ const (
 )
 
 type Config struct {
-	GRPCServer         *grpc.Server
-	Listener           string
-	Endpoint           string
-	EnableAlphaBackend bool
+	GRPCServer *grpc.Server
+	Listener   string
+	Endpoint   string
+	Features   struct {
+		Debug           bool
+		UseAlphaBackend bool
+	}
 
 	tls.Config
 }
@@ -134,7 +137,7 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 		err         error
 	)
 
-	if cfg.EnableAlphaBackend {
+	if cfg.Features.UseAlphaBackend {
 		if leaderElect, backend, err = createKineStorageAlphaBackend(ctx, driver, dsn, cfg, leaderElect, err); err == nil {
 			return leaderElect, backend, err
 		}
