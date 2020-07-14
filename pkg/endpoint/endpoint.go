@@ -14,8 +14,6 @@ import (
 	"github.com/rancher/kine/pkg/drivers/sqlite"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/kine/pkg/tls"
-	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
 )
 
 const (
@@ -28,9 +26,10 @@ const (
 )
 
 type Config struct {
-	GRPCServer *grpc.Server
-	Listener   string
-	Endpoint   string
+	GRPCServer         *grpc.Server
+	Listener           string
+	Endpoint           string
+	EnableAlphaBackend bool
 
 	tls.Config
 }

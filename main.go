@@ -45,7 +45,12 @@ func main() {
 			Usage:       "Key file for DB connection",
 			Destination: &config.KeyFile,
 		},
-		cli.BoolFlag{Name: "debug"},
+		cli.BoolFlag{Name: "debug", Usage: "Enable debug mode for diagnostics"},
+		cli.BoolFlag{
+			Name:        "alpha-use-new-backend",
+			Usage:       "Use the new experimental gorm based database backend",
+			Destination: &config.EnableAlphaBackend,
+		},
 	}
 	app.Action = run
 
