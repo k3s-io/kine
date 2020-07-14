@@ -20,10 +20,7 @@ func (g *GormBacked) List(ctx context.Context, prefix, startKey string, limit, r
 		Where("id <= ?", revision)
 
 	if startKey != "" {
-		subsubquery := g.DB.WithContext(ctx).Model(&KineEntry{}).
-			Where("name = ?", startKey).
-			Where("id <= ?", revision).
-			Select("id")
+		subsubquery := g.FindBestLatestKeyBoundByRevision(ctx, startKey, revision)
 		subquery = subquery.Where("id > (?)", subsubquery)
 	}
 
