@@ -17,7 +17,8 @@ var columns = "id as theid, name, created, deleted, create_revision, prev_revisi
 
 func New(ctx context.Context, dialect gorm.Dialector) (*GormBacked, error) {
 	db, err := gorm.Open(dialect, &gorm.Config{
-		Logger: &Logger{},
+		Logger:      &Logger{},
+		PrepareStmt: true,
 	})
 	if err != nil {
 		return nil, err
