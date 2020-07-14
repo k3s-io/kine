@@ -36,7 +36,7 @@ func (g *GormBacked) Count(ctx context.Context, prefix string) (int64, int64, er
 	tx := g.CurrentRevisionQuery(ctx).Find(&kv)
 	if tx.Error == nil {
 		var children int64
-		tx := g.ListCurrentWithPrefixQuery(ctx, prefix, false, nil).
+		tx := g.ListCurrentWithPrefixQuery(ctx, prefix, false, nil, "id as theid").
 			Select("COUNT(theid)").
 			Count(&children)
 		if tx.Error == nil {
