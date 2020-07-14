@@ -63,6 +63,10 @@ func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
+	if config.EnableAlphaBackend {
+		logrus.Warn("you are using an experimental backend powered by gorm. it is not guaranteed everything will work for now")
+	}
+
 	ctx := signals.SetupSignalHandler(context.Background())
 	_, err := endpoint.Listen(ctx, config)
 	if err != nil {
