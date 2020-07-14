@@ -13,10 +13,10 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
-	gormMssql "github.com/rancher/kine/pkg/drivers/alpha/mssql"
-	gormMysql "github.com/rancher/kine/pkg/drivers/alpha/mysql"
-	gormPgsql "github.com/rancher/kine/pkg/drivers/alpha/pgsql"
-	gormSqlite "github.com/rancher/kine/pkg/drivers/alpha/sqlite"
+	gormMssql "github.com/rancher/kine/pkg/drivers/alpha/gorm/mssql"
+	gormMysql "github.com/rancher/kine/pkg/drivers/alpha/gorm/mysql"
+	gormPgsql "github.com/rancher/kine/pkg/drivers/alpha/gorm/pgsql"
+	gormSqlite "github.com/rancher/kine/pkg/drivers/alpha/gorm/sqlite"
 	"github.com/rancher/kine/pkg/logstructured"
 	"github.com/rancher/kine/pkg/logstructured/sqllog"
 
@@ -135,8 +135,7 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	)
 
 	if cfg.EnableAlphaBackend {
-		leaderElect, backend, err = createKineStorageAlphaBackend(ctx, driver, dsn, cfg, leaderElect, err)
-		if err == nil {
+		if leaderElect, backend, err = createKineStorageAlphaBackend(ctx, driver, dsn, cfg, leaderElect, err); err == nil {
 			return leaderElect, backend, err
 		}
 		logrus.Warn("unable to create alpha backend, falling back to use standard backend")
