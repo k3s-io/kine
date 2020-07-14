@@ -47,7 +47,7 @@ majorScope:
 		}
 	}
 
-	if err := db.AutoMigrate(&KineEntry{}); err != nil {
+	if err := db.AutoMigrate(&KineEntry{}, &KineLease{}, &KineGlobalState{}, &KineKeyValueState{}, &KineVersionData{}); err != nil {
 		return nil, err
 	}
 
