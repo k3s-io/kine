@@ -8,6 +8,18 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+
+	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
+	gormMssql "github.com/rancher/kine/pkg/drivers/alpha/mssql"
+	gormMysql "github.com/rancher/kine/pkg/drivers/alpha/mysql"
+	gormPgsql "github.com/rancher/kine/pkg/drivers/alpha/pgsql"
+	gormSqlite "github.com/rancher/kine/pkg/drivers/alpha/sqlite"
+	"github.com/rancher/kine/pkg/logstructured"
+	"github.com/rancher/kine/pkg/logstructured/sqllog"
+
 	"github.com/rancher/kine/pkg/drivers/dqlite"
 	"github.com/rancher/kine/pkg/drivers/mysql"
 	"github.com/rancher/kine/pkg/drivers/pgsql"
@@ -23,6 +35,7 @@ const (
 	ETCDBackend     = "etcd3"
 	MySQLBackend    = "mysql"
 	PostgresBackend = "postgres"
+	MsSQLBackend    = "sqlserver"
 )
 
 type Config struct {
@@ -120,6 +133,15 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 		leaderElect = true
 		err         error
 	)
+
+	if cfg.EnableAlphaBackend {
+		leaderElect, backend, err = createKineStorageAlphaBackend(ctx, driver, dsn, cfg, leaderElect, err)
+		if err == nil {
+			return leaderElect, backend, err
+		}
+		logrus.Warn("unable to create alpha backend, falling back to use standard backend")
+	}
+
 	switch driver {
 	case SQLiteBackend:
 		leaderElect = false
@@ -135,6 +157,25 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	}
 
 	return leaderElect, backend, err
+}
+
+func createKineStorageAlphaBackend(ctx context.Context, driver string, dsn string, cfg Config, leaderElect bool, err error) (bool, server.Backend, error) {
+	var backend *gorm.GormBacked
+	switch driver {
+	case SQLiteBackend:
+		leaderElect = false
+		backend, err = gormSqlite.New(ctx, dsn)
+	case PostgresBackend:
+		backend, err = gormPgsql.New(ctx, dsn, cfg.Config)
+	case MySQLBackend:
+		backend, err = gormMysql.New(ctx, dsn, cfg.Config)
+	case MsSQLBackend:
+		backend, err = gormMssql.New(ctx, dsn, cfg.Config)
+	default:
+		return false, nil, fmt.Errorf("storage backend is not defined")
+	}
+
+	return leaderElect, logstructured.New(sqllog.New(backend)), err
 }
 
 func ParseStorageEndpoint(storageEndpoint string) (string, string) {
