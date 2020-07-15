@@ -1,23 +1,30 @@
 package sqlite
 
 import (
-	"context"
-
 	gormSqlite "gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
-	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
 	kineSqlite "github.com/rancher/kine/pkg/drivers/sqlite"
+	"github.com/rancher/kine/pkg/tls"
 )
 
-func New(ctx context.Context, dsn string) (*gorm.GormBacked, error) {
+type Driver struct{}
+
+func (b *Driver) PrepareDSN(dsn string, _ tls.Config) (string, error) {
 	dsn, err := kineSqlite.PrepareDSN(dsn)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	dialector := gormSqlite.Open(dsn)
-	backend, err := gorm.New(ctx, dialector)
-	if err == nil {
-		backend.HandleInsertionError = gorm.TransformTranslateErrToHandleInsertionError(kineSqlite.TranslateError)
+	return dsn, nil
+}
+
+func (b *Driver) HandleInsertionError(err error) (newErr error) {
+	if newErr = kineSqlite.TranslateError(err); newErr == err {
+		newErr = nil
 	}
-	return backend, err
+	return
+}
+
+func (b *Driver) GetOpenFunctor() func(string) gorm.Dialector {
+	return gormSqlite.Open
 }

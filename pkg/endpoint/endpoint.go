@@ -8,22 +8,21 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 
-	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
+	"github.com/rancher/kine/pkg/alpha/gorm"
+	"github.com/rancher/kine/pkg/alpha/gorm/compat"
 	gormMssql "github.com/rancher/kine/pkg/drivers/alpha/gorm/mssql"
 	gormMysql "github.com/rancher/kine/pkg/drivers/alpha/gorm/mysql"
 	gormPgsql "github.com/rancher/kine/pkg/drivers/alpha/gorm/pgsql"
 	gormSqlite "github.com/rancher/kine/pkg/drivers/alpha/gorm/sqlite"
-	"github.com/rancher/kine/pkg/logstructured"
-	"github.com/rancher/kine/pkg/logstructured/sqllog"
-
 	"github.com/rancher/kine/pkg/drivers/dqlite"
 	"github.com/rancher/kine/pkg/drivers/mysql"
 	"github.com/rancher/kine/pkg/drivers/pgsql"
 	"github.com/rancher/kine/pkg/drivers/sqlite"
+	"github.com/rancher/kine/pkg/logstructured"
+	"github.com/rancher/kine/pkg/logstructured/sqllog"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/kine/pkg/tls"
 )
@@ -142,8 +141,8 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	)
 
 	if cfg.Features.UseAlphaBackend {
-		if leaderElect, backend, err = createKineStorageAlphaBackend(ctx, driver, dsn, cfg, leaderElect, err); err == nil {
-			return leaderElect, backend, err
+		if retLeaderElect, backend, err := createKineStorageAlphaBackend(ctx, driver, dsn, cfg); err == nil {
+			return retLeaderElect, backend, err
 		}
 		logrus.Warn("unable to create alpha backend, falling back to use standard backend")
 	}
@@ -165,23 +164,40 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	return leaderElect, backend, err
 }
 
-func createKineStorageAlphaBackend(ctx context.Context, driver string, dsn string, cfg Config, leaderElect bool, err error) (bool, server.Backend, error) {
-	var backend *gorm.GormBacked
-	switch driver {
+func createKineStorageAlphaBackend(ctx context.Context, driverPrefix string, dsn string, cfg Config) (leaderElect bool, backend server.Backend, err error) {
+	var driver gorm.Driver
+	switch driverPrefix {
 	case SQLiteBackend:
 		leaderElect = false
-		backend, err = gormSqlite.New(ctx, dsn)
+		driver = &gormSqlite.Driver{}
 	case PostgresBackend:
-		backend, err = gormPgsql.New(ctx, dsn, cfg.Config)
+		leaderElect = true
+		driver = &gormPgsql.Driver{}
 	case MySQLBackend:
-		backend, err = gormMysql.New(ctx, dsn, cfg.Config)
+		leaderElect = true
+		driver = &gormMysql.Driver{}
 	case MsSQLBackend:
-		backend, err = gormMssql.New(ctx, dsn, cfg.Config)
+		leaderElect = true
+		driver = &gormMssql.Driver{}
 	default:
-		return false, nil, fmt.Errorf("storage backend is not defined")
+		err = fmt.Errorf("storage backend is not defined")
+		return
 	}
-
-	return leaderElect, logstructured.New(sqllog.New(backend)), err
+	dsn, err = driver.PrepareDSN(dsn, cfg.Config)
+	if err != nil {
+		return
+	}
+	dialector := driver.GetOpenFunctor()(dsn)
+	dbBackend, err := gorm.New(ctx, dialector, driver)
+	if err != nil {
+		return
+	}
+	compatBackend, err := compat.New(dbBackend)
+	if err != nil {
+		return
+	}
+	backend = logstructured.New(sqllog.New(compatBackend))
+	return
 }
 
 func ParseStorageEndpoint(storageEndpoint string) (string, string) {

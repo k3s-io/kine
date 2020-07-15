@@ -1,24 +1,30 @@
 package pgsql
 
 import (
-	"context"
-
 	gormPostgres "gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
-	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
 	kinePgsql "github.com/rancher/kine/pkg/drivers/pgsql"
 	"github.com/rancher/kine/pkg/tls"
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config) (*gorm.GormBacked, error) {
-	dsn, err := kinePgsql.PrepareDSN(dataSourceName, tlsInfo)
+type Driver struct{}
+
+func (b *Driver) PrepareDSN(dsn string, tlsInfo tls.Config) (string, error) {
+	dsn, err := kinePgsql.PrepareDSN(dsn, tlsInfo)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	dialector := gormPostgres.Open(dsn)
-	backend, err := gorm.New(ctx, dialector)
-	if err == nil {
-		backend.HandleInsertionError = gorm.TransformTranslateErrToHandleInsertionError(kinePgsql.TranslateError)
+	return dsn, nil
+}
+
+func (b *Driver) HandleInsertionError(err error) (newErr error) {
+	if newErr = kinePgsql.TranslateError(err); newErr == err {
+		newErr = nil
 	}
-	return backend, err
+	return
+}
+
+func (b *Driver) GetOpenFunctor() func(string) gorm.Dialector {
+	return gormPostgres.Open
 }

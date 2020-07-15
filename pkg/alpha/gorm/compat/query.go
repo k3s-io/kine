@@ -1,4 +1,4 @@
-package gorm
+package compat
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func (g *GormBacked) CurrentRevisionQuery(ctx context.Context) *gorm.DB {
+func (g *Backend) CurrentRevisionQuery(ctx context.Context) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
 		Limit(1).
@@ -15,7 +15,7 @@ func (g *GormBacked) CurrentRevisionQuery(ctx context.Context) *gorm.DB {
 		Select("id")
 	return tx
 }
-func (g *GormBacked) FindMaxPossibleRevisionForPrefix(ctx context.Context, prefix string, subquery *gorm.DB) *gorm.DB {
+func (g *Backend) FindMaxPossibleRevisionForPrefix(ctx context.Context, prefix string, subquery *gorm.DB) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
 		Group("name").
@@ -27,7 +27,7 @@ func (g *GormBacked) FindMaxPossibleRevisionForPrefix(ctx context.Context, prefi
 	return tx
 }
 
-func (g *GormBacked) ListCurrentQueryBase(ctx context.Context, includeDeleted bool, columns string) *gorm.DB {
+func (g *Backend) ListCurrentQueryBase(ctx context.Context, includeDeleted bool, columns string) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
 		Order("id ASC").
@@ -39,7 +39,7 @@ func (g *GormBacked) ListCurrentQueryBase(ctx context.Context, includeDeleted bo
 	return tx
 }
 
-func (g *GormBacked) GetCompactRevisionQuery(ctx context.Context) *gorm.DB {
+func (g *Backend) GetCompactRevisionQuery(ctx context.Context) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
 		Where(&KineEntry{Name: "compact_rev_key"}).
@@ -48,7 +48,7 @@ func (g *GormBacked) GetCompactRevisionQuery(ctx context.Context) *gorm.DB {
 	return tx
 }
 
-func (g *GormBacked) CurrentCompactRevisionQuery(ctx context.Context) *gorm.DB {
+func (g *Backend) CurrentCompactRevisionQuery(ctx context.Context) *gorm.DB {
 	tx := g.GetCompactRevisionQuery(ctx).
 		Limit(1).
 		Order("id DESC")
@@ -56,19 +56,19 @@ func (g *GormBacked) CurrentCompactRevisionQuery(ctx context.Context) *gorm.DB {
 	return tx
 }
 
-func (g *GormBacked) ListCurrentQuery(ctx context.Context, prefix string, limit int64, includeDeleted bool, subqueryForMaxKey *gorm.DB) *gorm.DB {
+func (g *Backend) ListCurrentQuery(ctx context.Context, prefix string, limit int64, includeDeleted bool, subqueryForMaxKey *gorm.DB) *gorm.DB {
 	return g.ListCurrentWithPrefixQuery(ctx, prefix, includeDeleted, subqueryForMaxKey, columns).
 		Limit(int(limit))
 }
 
-func (g *GormBacked) ListCurrentWithPrefixQuery(ctx context.Context, prefix string, includeDeleted bool, subqueryForMaxKey *gorm.DB, columns string) *gorm.DB {
+func (g *Backend) ListCurrentWithPrefixQuery(ctx context.Context, prefix string, includeDeleted bool, subqueryForMaxKey *gorm.DB, columns string) *gorm.DB {
 	subquery := g.FindMaxPossibleRevisionForPrefix(ctx, prefix, subqueryForMaxKey)
 	tx := g.ListCurrentQueryBase(ctx, includeDeleted, columns).
 		Joins("JOIN (?) mp ON id = mp.mid", subquery)
 	return tx
 }
 
-func (g *GormBacked) FindBestKeyBoundByRevision(ctx context.Context, startKey string, maxRevision int64) *gorm.DB {
+func (g *Backend) FindBestKeyBoundByRevision(ctx context.Context, startKey string, maxRevision int64) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
 		Where("name = ?", startKey).
@@ -77,7 +77,7 @@ func (g *GormBacked) FindBestKeyBoundByRevision(ctx context.Context, startKey st
 	return tx
 }
 
-func (g *GormBacked) FindBestLatestKeyBoundByRevision(ctx context.Context, startKey string, revision int64) *gorm.DB {
+func (g *Backend) FindBestLatestKeyBoundByRevision(ctx context.Context, startKey string, revision int64) *gorm.DB {
 	tx := g.FindBestKeyBoundByRevision(ctx, startKey, revision).
 		Limit(1).
 		Order("id DESC")

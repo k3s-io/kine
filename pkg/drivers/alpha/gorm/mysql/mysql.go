@@ -1,35 +1,41 @@
 package mysql
 
 import (
-	"context"
 	cryptotls "crypto/tls"
 
 	gormMysql "gorm.io/driver/mysql"
+	"gorm.io/gorm"
 
-	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
 	kineMysql "github.com/rancher/kine/pkg/drivers/mysql"
 	"github.com/rancher/kine/pkg/tls"
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config) (*gorm.GormBacked, error) {
+type Driver struct{}
+
+func (b *Driver) PrepareDSN(dsn string, tlsInfo tls.Config) (string, error) {
 	tlsConfig, err := tlsInfo.ClientConfig()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	if tlsConfig != nil {
 		tlsConfig.MinVersion = cryptotls.VersionTLS11
 	}
 
-	dsn, err := kineMysql.PrepareDSN(dataSourceName, tlsConfig)
+	dsn, err = kineMysql.PrepareDSN(dsn, tlsConfig)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
+	return dsn, nil
+}
 
-	dialector := gormMysql.Open(dsn)
-	backend, err := gorm.New(ctx, dialector)
-	if err == nil {
-		backend.HandleInsertionError = gorm.TransformTranslateErrToHandleInsertionError(kineMysql.TranslateError)
+func (b *Driver) HandleInsertionError(err error) (newErr error) {
+	if newErr = kineMysql.TranslateError(err); newErr == err {
+		newErr = nil
 	}
-	return backend, err
+	return
+}
+
+func (b *Driver) GetOpenFunctor() func(string) gorm.Dialector {
+	return gormMysql.Open
 }

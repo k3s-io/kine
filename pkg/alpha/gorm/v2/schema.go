@@ -3,22 +3,9 @@ package gorm
 import (
 	"time"
 
-	uuid "github.com/satori/go.uuid"
-	ogGorm "gorm.io/gorm"
+	"github.com/satori/go.uuid"
+	"gorm.io/gorm"
 )
-
-// This one is schema-compatible with original design, and is preferred
-type KineEntry struct {
-	ID             uint64 `gorm:"primaryKey;index:name_id;AUTO_INCREMENT"`
-	Name           string `gorm:"index;index:name_id;uniqueIndex:name_prev_revision"`
-	Created        bool
-	Deleted        bool
-	CreateRevision uint64
-	PrevRevision   uint64 `gorm:"uniqueIndex:name_prev_revision"`
-	Lease          uint64
-	Value          []byte
-	OldValue       []byte
-}
 
 // This one is a new schema design that is way more advanced
 type KineGlobalState struct {
@@ -39,7 +26,7 @@ type KineKeyValueState struct {
 	// Gorm fields
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt ogGorm.DeletedAt `gorm:"index"`
+	DeletedAt gorm.DeletedAt `gorm:"index"`
 
 	// Foreign Keys
 	CurrentLeaseID *string
@@ -55,7 +42,7 @@ type KineVersionData struct {
 
 	// Gorm fields
 	CreatedAt time.Time
-	DeletedAt ogGorm.DeletedAt `gorm:"index"`
+	DeletedAt gorm.DeletedAt `gorm:"index"`
 
 	// Foreign Keys
 	KVEntityID uuid.UUID
@@ -69,15 +56,15 @@ type KineLease struct {
 	// Gorm fields
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	DeletedAt ogGorm.DeletedAt `gorm:"index"`
+	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
 
-func (kvs *KineKeyValueState) BeforeCreate(*ogGorm.DB) (err error) {
+func (kvs *KineKeyValueState) BeforeCreate(*gorm.DB) (err error) {
 	kvs.ID = uuid.NewV4()
 	return
 }
 
-func (l *KineLease) BeforeDelete(db *ogGorm.DB) (err error) {
+func (l *KineLease) BeforeDelete(db *gorm.DB) (err error) {
 	tx := db.Delete(&l.BoundKV)
 	return tx.Error
 }

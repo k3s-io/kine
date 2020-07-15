@@ -6,27 +6,38 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/rancher/kine/pkg/tls"
 )
 
-type GormBacked struct {
-	DB                   *gorm.DB
-	HandleInsertionError func(error) error
+type DatabaseErrorHandler interface {
+	HandleInsertionError(err error) error
 }
 
-var columns = "id as theid, name, created, deleted, create_revision, prev_revision, lease, value, old_value"
+type Driver interface {
+	PrepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error)
+	GetOpenFunctor() func(string) gorm.Dialector
+	DatabaseErrorHandler
+}
 
-func New(ctx context.Context, dialect gorm.Dialector) (*GormBacked, error) {
+type DatabaseBackend struct {
+	DB *gorm.DB
+	DatabaseErrorHandler
+}
+
+func New(ctx context.Context, dialect gorm.Dialector, handlers DatabaseErrorHandler) (backend *DatabaseBackend, err error) {
 	db, err := gorm.Open(dialect, &gorm.Config{
 		Logger:      &Logger{},
 		PrepareStmt: true,
 	})
+
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	rawDB, err := db.DB()
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// Actually, I don't think this is much needed
@@ -43,15 +54,11 @@ majorScope:
 		logrus.WithError(err).Error("failed to ping connection")
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			err = ctx.Err()
+			return
 		case <-time.After(time.Second):
 		}
 	}
-
-	if err := db.AutoMigrate(&KineEntry{}, &KineLease{}, &KineGlobalState{}, &KineKeyValueState{}, &KineVersionData{}); err != nil {
-		return nil, err
-	}
-
-	backend := &GormBacked{DB: db}
-	return backend, nil
+	backend = &DatabaseBackend{DB: db, DatabaseErrorHandler: handlers}
+	return
 }

@@ -1,14 +1,13 @@
 package mysql
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 
 	mssql "github.com/denisenkom/go-mssqldb"
 	gormMssql "gorm.io/driver/sqlserver"
+	"gorm.io/gorm"
 
-	"github.com/rancher/kine/pkg/drivers/alpha/gorm"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/kine/pkg/tls"
 )
@@ -17,39 +16,9 @@ const (
 	defaultDSN = "sqlserver://sa@localhost?kubernetes"
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config) (*gorm.GormBacked, error) {
-	dsn, err := PrepareDSN(dataSourceName, tlsInfo)
-	if err != nil {
-		return nil, err
-	}
+type Driver struct{}
 
-	dialector := gormMssql.Open(dsn)
-	backend, err := gorm.New(ctx, dialector)
-	if err == nil {
-		backend.HandleInsertionError = func(err error) error {
-			if mssqlErr, convertible := err.(mssql.Error); convertible {
-				switch mssqlErr.Number {
-				/* Server: Msg 2627
-				   Violation of PRIMARY KEY constraint Constraint Name.
-				   Cannot insert duplicate key in object Table Name.
-				*/
-				/* Server: Msg 2601
-				Cannot insert duplicate key row in object '<Object Name>'
-				with unique index '<Index Name>'.
-				*/
-				case 2627, 2601:
-					return server.ErrKeyExists
-				default:
-					return nil
-				}
-			}
-			return nil
-		}
-	}
-	return backend, err
-}
-
-func PrepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
+func (b *Driver) PrepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultDSN
 	} else {
@@ -68,6 +37,30 @@ func PrepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 
 	u.RawQuery = FillDefaultAndExtraOptions(queryMap, tlsInfo).Encode()
 	return u.String(), nil
+}
+
+func (b *Driver) HandleInsertionError(err error) error {
+	if mssqlErr, convertible := err.(mssql.Error); convertible {
+		switch mssqlErr.Number {
+		/* Server: Msg 2627
+		   Violation of PRIMARY KEY constraint Constraint Name.
+		   Cannot insert duplicate key in object Table Name.
+		*/
+		/* Server: Msg 2601
+		Cannot insert duplicate key row in object '<Object Name>'
+		with unique index '<Index Name>'.
+		*/
+		case 2627, 2601:
+			return server.ErrKeyExists
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+func (b *Driver) GetOpenFunctor() func(string) gorm.Dialector {
+	return gormMssql.Open
 }
 
 func FillDefaultAndExtraOptions(queryMap url.Values, tlsInfo tls.Config) url.Values {
