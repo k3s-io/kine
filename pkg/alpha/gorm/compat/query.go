@@ -17,6 +17,7 @@ func (g *Backend) CurrentRevisionQuery(ctx context.Context) *gorm.DB {
 		Select("id")
 	return tx
 }
+
 func (g *Backend) FindMaxPossibleRevisionForPrefix(ctx context.Context, prefix string, subquery *gorm.DB) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
@@ -29,7 +30,7 @@ func (g *Backend) FindMaxPossibleRevisionForPrefix(ctx context.Context, prefix s
 	return tx
 }
 
-func (g *Backend) ListCurrentQueryBase(ctx context.Context, includeDeleted bool, columns string) *gorm.DB {
+func (g *Backend) ListQueryBase(ctx context.Context, includeDeleted bool, columns string) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
 		Order("id ASC").
@@ -58,14 +59,14 @@ func (g *Backend) CurrentCompactRevisionQuery(ctx context.Context) *gorm.DB {
 	return tx
 }
 
-func (g *Backend) ListCurrentQuery(ctx context.Context, prefix string, limit int64, includeDeleted bool, subqueryForMaxKey *gorm.DB) *gorm.DB {
-	return g.ListCurrentWithPrefixQuery(ctx, prefix, includeDeleted, subqueryForMaxKey, columns).
+func (g *Backend) ListQuery(ctx context.Context, prefix string, limit int64, includeDeleted bool, subqueryForMaxRevision *gorm.DB) *gorm.DB {
+	return g.ListCurrentWithPrefixQuery(ctx, prefix, includeDeleted, subqueryForMaxRevision, columns).
 		Limit(int(limit))
 }
 
-func (g *Backend) ListCurrentWithPrefixQuery(ctx context.Context, prefix string, includeDeleted bool, subqueryForMaxKey *gorm.DB, columns string) *gorm.DB {
-	subquery := g.FindMaxPossibleRevisionForPrefix(ctx, prefix, subqueryForMaxKey)
-	tx := g.ListCurrentQueryBase(ctx, includeDeleted, columns).
+func (g *Backend) ListCurrentWithPrefixQuery(ctx context.Context, prefix string, includeDeleted bool, subqueryForMaxRevision *gorm.DB, columns string) *gorm.DB {
+	subquery := g.FindMaxPossibleRevisionForPrefix(ctx, prefix, subqueryForMaxRevision)
+	tx := g.ListQueryBase(ctx, includeDeleted, columns).
 		Joins("JOIN (?) mp ON id = mp.mid", subquery)
 	return tx
 }

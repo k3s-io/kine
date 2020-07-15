@@ -11,7 +11,7 @@ import (
 )
 
 func (g *Backend) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
-	tx := g.ListCurrentQuery(ctx, prefix, limit, includeDeleted, nil)
+	tx := g.ListQuery(ctx, prefix, limit, includeDeleted, nil)
 	return tx.Rows()
 }
 
@@ -24,7 +24,7 @@ func (g *Backend) List(ctx context.Context, prefix, startKey string, limit, revi
 		subquery = subquery.Where("id > (?)", subsubquery)
 	}
 
-	tx := g.ListCurrentQuery(ctx, prefix, limit, includeDeleted, subquery)
+	tx := g.ListQuery(ctx, prefix, limit, includeDeleted, subquery)
 	return tx.Rows()
 }
 
