@@ -16,10 +16,17 @@ var (
 )
 
 func main() {
+	cli.VersionFlag = cli.BoolFlag{
+		Name:  "version, V",
+		Usage: "print the version",
+	}
+
 	app := cli.NewApp()
 	app.Name = "kine"
 	app.Description = "Minimal etcd v3 API to support custom Kubernetes storage engines"
 	app.Usage = "Mini"
+	app.Version = "0.4.0"
+
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "listen-address",
@@ -47,9 +54,14 @@ func main() {
 			Destination: &config.KeyFile,
 		},
 		cli.BoolFlag{
-			Name:        "debug",
-			Usage:       "Enable debug mode for diagnostics",
-			Destination: &config.Features.Debug,
+			Name:  "debug",
+			Usage: "Enable debug mode for diagnostics",
+		},
+		cli.IntFlag{
+			Name:        "v, verbose",
+			Usage:       "Set the verbosity level (0=Panic Only, 1=Fatal, ..., 6=Trace)",
+			Value:       -1,
+			Destination: &config.Features.VerboseLevel,
 		},
 		cli.BoolFlag{
 			Name:        "alpha-use-new-backend",
@@ -65,9 +77,17 @@ func main() {
 }
 
 func run(c *cli.Context) error {
-	if c.Bool("debug") {
-		logrus.SetLevel(logrus.DebugLevel)
+	if c.Bool("debug") && config.Features.VerboseLevel < int(logrus.DebugLevel) {
+		if config.Features.VerboseLevel != -1 {
+			logrus.Warn("you've set verbose level yourself, but you also specified you want debug mode, superseding")
+		}
+		config.Features.VerboseLevel = int(logrus.DebugLevel)
 	}
+
+	if config.Features.VerboseLevel != -1 {
+		logrus.SetLevel(logrus.Level(config.Features.VerboseLevel))
+	}
+
 	if config.Features.UseAlphaBackend {
 		logrus.Warn("you are using an experimental backend powered by gorm. it is not guaranteed everything will work for now")
 	}

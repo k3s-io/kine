@@ -43,7 +43,7 @@ type Config struct {
 	Listener   string
 	Endpoint   string
 	Features   struct {
-		Debug           bool
+		VerboseLevel    int
 		UseAlphaBackend bool
 	}
 
