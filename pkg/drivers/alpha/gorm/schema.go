@@ -50,8 +50,8 @@ type KineKeyValueState struct {
 }
 
 type KineVersionData struct {
-	Revision uint64 `gorm:"autoIncrement;primary_key;"`
-	Value    []byte
+	Version uint64 `gorm:"autoIncrement;primary_key;"`
+	Value   []byte
 
 	// Gorm fields
 	CreatedAt time.Time
