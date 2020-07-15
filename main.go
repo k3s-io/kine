@@ -78,13 +78,13 @@ func main() {
 
 func run(c *cli.Context) error {
 	if c.Bool("debug") && config.Features.VerboseLevel < int(logrus.DebugLevel) {
-		if config.Features.VerboseLevel != -1 {
+		if config.Features.VerboseLevel >= 0 {
 			logrus.Warn("you've set verbose level yourself, but you also specified you want debug mode, superseding")
 		}
 		config.Features.VerboseLevel = int(logrus.DebugLevel)
 	}
 
-	if config.Features.VerboseLevel != -1 {
+	if config.Features.VerboseLevel >= 0 {
 		logrus.SetLevel(logrus.Level(config.Features.VerboseLevel))
 	}
 
