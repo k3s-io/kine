@@ -22,7 +22,7 @@ type KineEntry struct {
 
 // This one is a new schema design that is way more advanced
 type KineGlobalState struct {
-	CurrentRevisionID        uint64
+	CurrentRevisionID        uint64 `gorm:"default:1;"`
 	LastRanCompactRevisionID uint64
 
 	// Gorm fields
