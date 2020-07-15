@@ -1,3 +1,5 @@
+// +build new_design
+
 package gorm
 
 import (
