@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/pkg/math"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -77,14 +78,14 @@ func main() {
 }
 
 func run(c *cli.Context) error {
-	if c.Bool("debug") && config.Features.VerboseLevel < int(logrus.DebugLevel) {
-		if config.Features.VerboseLevel >= 0 {
-			logrus.Warn("you've set verbose level yourself, but you also specified you want debug mode, superseding")
+	if c.Bool("debug") {
+		if config.IsValidVerboseLevel() {
+			logrus.Warn("you've requested verbose level and debug mode together yourself, whoever is more verbose will be superseding")
 		}
-		config.Features.VerboseLevel = int(logrus.DebugLevel)
+		config.Features.VerboseLevel = math.Max(config.Features.VerboseLevel, int(logrus.DebugLevel))
 	}
 
-	if config.Features.VerboseLevel >= 0 {
+	if config.IsValidVerboseLevel() {
 		logrus.SetLevel(logrus.Level(config.Features.VerboseLevel))
 	}
 

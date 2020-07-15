@@ -50,6 +50,10 @@ type Config struct {
 	tls.Config
 }
 
+func (c *Config) IsValidVerboseLevel() bool {
+	return c.Features.VerboseLevel >= 0
+}
+
 type ETCDConfig struct {
 	Endpoints   []string
 	TLSConfig   tls.Config

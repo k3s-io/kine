@@ -10,6 +10,7 @@ require (
 	github.com/lib/pq v1.3.0
 	github.com/mattn/go-sqlite3 v1.14.0
 	github.com/pkg/errors v0.8.1
+	github.com/pkg/math v0.0.0-20141027224758-f2ed9e40e245
 	github.com/rancher/wrangler v0.4.0
 	github.com/satori/go.uuid v1.2.0
 	github.com/sirupsen/logrus v1.4.2
