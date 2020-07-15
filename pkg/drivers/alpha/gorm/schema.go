@@ -32,7 +32,7 @@ type KineGlobalState struct {
 type KineKeyValueState struct {
 	ID                uuid.UUID `gorm:"type:uuid;primary_key;"`
 	Name              string    `gorm:"index;index:name_id;uniqueIndex:cur_rev_name"`
-	CurrentVersion    uint64    `gorm:"index;uniqueIndex:cur_rev_name;"`
+	CurrentVersion    uint64    `gorm:"index;uniqueIndex:cur_rev_name;default:1;"`
 	CreatedAtRevision uint64
 	UpdatedAtRevision uint64
 
