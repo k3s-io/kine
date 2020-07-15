@@ -43,11 +43,11 @@ func (g *GormBacked) Count(ctx context.Context, prefix string) (int64, int64, er
 	return 0, 0, tx.Error
 }
 
-func (g *GormBacked) CurrentRevision(ctx context.Context) (int64, error) {
+func (g *GormBacked) CurrentRevision(ctx context.Context) (revision int64, err error) {
 	kv := KineEntry{}
 	tx := g.CurrentRevisionQuery(ctx).Find(&kv)
 	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
-		return 0, nil
+		return
 	}
 	return int64(kv.ID), tx.Error
 }
@@ -67,7 +67,10 @@ func (g *GormBacked) After(ctx context.Context, prefix string, rev, limit int64)
 	return tx.Rows()
 }
 
-func (g *GormBacked) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (revision int64, err error) {
+func (g *GormBacked) Insert(
+	ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value,
+	prevValue []byte,
+) (revision int64, err error) {
 	defer func() {
 		if g.HandleInsertionError != nil {
 			if interceptErr := g.HandleInsertionError(err); interceptErr != nil {
@@ -107,12 +110,12 @@ func (g *GormBacked) DeleteRevision(ctx context.Context, revision int64) error {
 	return tx.Error
 }
 
-func (g *GormBacked) GetCompactRevision(ctx context.Context) (int64, error) {
+func (g *GormBacked) GetCompactRevision(ctx context.Context) (revision int64, err error) {
 	var kv KineEntry
 	tx := g.GetCompactRevisionQuery(ctx).
 		Last(&kv)
 	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
-		return 0, nil
+		return
 	}
 	return int64(kv.PrevRevision), tx.Error
 }
