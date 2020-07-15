@@ -7,6 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var columns = "id as theid, name, created, deleted, create_revision, prev_revision, lease, value, old_value"
+
 func (g *Backend) CurrentRevisionQuery(ctx context.Context) *gorm.DB {
 	tx := g.DB.WithContext(ctx).
 		Model(&KineEntry{}).
