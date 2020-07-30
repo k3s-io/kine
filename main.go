@@ -42,19 +42,19 @@ func main() {
 		},
 		cli.IntFlag{
 			Name:        "datastore-max-idle-connections",
-			Usage:       "Maximum number of idle connections used by datastore. If num <= 0, then no connections are retained",
+			Usage:       "Maximum number of idle connections retained by datastore. If value = 0, the system default will be used. If value < 0, idle connections will not be reused.",
 			Destination: &config.ConnectionPoolConfig.MaxIdle,
-			Value:       2,
+			Value:       0,
 		},
 		cli.IntFlag{
 			Name:        "datastore-max-open-connections",
-			Usage:       "Maximum number of idle connections used by datastore. If num <= 0, then there is no limit",
+			Usage:       "Maximum number of open connections used by datastore. If value <= 0, then there is no limit",
 			Destination: &config.ConnectionPoolConfig.MaxOpen,
 			Value:       0,
 		},
 		cli.DurationFlag{
 			Name:        "datastore-connection-max-lifetime",
-			Usage:       "Maximum amount of time a connection may be reused. Defined as a parsable string, e.g., 1s, 2500ms, and 1h30m are all accepted values",
+			Usage:       "Maximum amount of time a connection may be reused. If value <= 0, then there is no limit.",
 			Destination: &config.ConnectionPoolConfig.MaxLifetime,
 			Value:       0,
 		},
