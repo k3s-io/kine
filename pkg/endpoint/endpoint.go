@@ -64,7 +64,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 
 	listen := config.Listener
 	if listen == "" {
-		listen = "KineSocket"
+		listen = KineSocket
 	}
 
 	b := server.New(backend)
