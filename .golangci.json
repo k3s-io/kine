@@ -1,0 +1,13 @@
+{
+	"linters": {
+		"disable-all": true,
+		"enable": [
+			"govet",
+			"golint",
+			"goimports"
+		]
+	},
+	"run": {
+		"deadline": "5m"
+	}
+}

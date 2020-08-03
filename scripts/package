@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+source $(dirname $0)/version
+
+cd $(dirname $0)/..
+
+mkdir -p dist/artifacts
+cp bin/kine dist/artifacts/kine${SUFFIX}
+
+TAG=${TAG:-${VERSION_TAG}${SUFFIX}}
+IMAGE_NAME=${IMAGE_NAME:-kine}
+IMAGE=${REPO}/${IMAGE_NAME}:${TAG}
+
+docker build -t ${IMAGE} .
+echo Built ${IMAGE}
