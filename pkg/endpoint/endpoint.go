@@ -18,6 +18,7 @@ import (
 	gormPgsql "github.com/rancher/kine/pkg/drivers/alpha/gorm/pgsql"
 	gormSqlite "github.com/rancher/kine/pkg/drivers/alpha/gorm/sqlite"
 	"github.com/rancher/kine/pkg/drivers/dqlite"
+	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/drivers/mysql"
 	"github.com/rancher/kine/pkg/drivers/pgsql"
 	"github.com/rancher/kine/pkg/drivers/sqlite"
@@ -41,11 +42,11 @@ type Config struct {
 	GRPCServer *grpc.Server
 	Listener   string
 	Endpoint   string
+  ConnectionPoolConfig generic.ConnectionPoolConfig
 	Features   struct {
 		VerboseLevel    int
 		UseAlphaBackend bool
 	}
-
 	tls.Config
 }
 
@@ -150,13 +151,13 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	switch driver {
 	case SQLiteBackend:
 		leaderElect = false
-		backend, err = sqlite.New(ctx, dsn)
+		backend, err = sqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
 	case DQLiteBackend:
-		backend, err = dqlite.New(ctx, dsn)
+		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
 	case PostgresBackend:
-		backend, err = pgsql.New(ctx, dsn, cfg.Config)
+		backend, err = pgsql.New(ctx, dsn, cfg.Config, cfg.ConnectionPoolConfig)
 	case MySQLBackend:
-		backend, err = mysql.New(ctx, dsn, cfg.Config)
+		backend, err = mysql.New(ctx, dsn, cfg.Config, cfg.ConnectionPoolConfig)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
 	}

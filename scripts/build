@@ -1,0 +1,20 @@
+#!/bin/bash
+set -e
+
+source $(dirname $0)/version
+
+cd $(dirname $0)/..
+
+mkdir -p bin
+if [ "$(uname)" = "Linux" ]; then
+    OTHER_LINKFLAGS="-extldflags -static -s"
+fi
+LINKFLAGS="-X github.com/rancher/kine.Version=$VERSION"
+LINKFLAGS="-X github.com/rancher/kine.GitCommit=$COMMIT $LINKFLAGS"
+
+echo Building Kine
+CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/kine
+if [ "$CROSS" = "true" ] && [ "$ARCH" = "amd64" ]; then
+    GOOS=darwin go build -ldflags "$LINKFLAGS" -o bin/kine-darwin
+    GOOS=windows go build -ldflags "$LINKFLAGS" -o bin/kine-windows
+fi
