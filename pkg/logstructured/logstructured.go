@@ -319,7 +319,7 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 
 	// include the current revision in list
 	if revision > 0 {
-		revision -= 1
+		revision--
 	}
 
 	result := make(chan []*server.Event, 100)

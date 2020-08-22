@@ -40,6 +40,24 @@ func main() {
 			Usage:       "Certificate for DB connection",
 			Destination: &config.CertFile,
 		},
+		cli.IntFlag{
+			Name:        "datastore-max-idle-connections",
+			Usage:       "Maximum number of idle connections retained by datastore. If value = 0, the system default will be used. If value < 0, idle connections will not be reused.",
+			Destination: &config.ConnectionPoolConfig.MaxIdle,
+			Value:       0,
+		},
+		cli.IntFlag{
+			Name:        "datastore-max-open-connections",
+			Usage:       "Maximum number of open connections used by datastore. If value <= 0, then there is no limit",
+			Destination: &config.ConnectionPoolConfig.MaxOpen,
+			Value:       0,
+		},
+		cli.DurationFlag{
+			Name:        "datastore-connection-max-lifetime",
+			Usage:       "Maximum amount of time a connection may be reused. If value <= 0, then there is no limit.",
+			Destination: &config.ConnectionPoolConfig.MaxLifetime,
+			Value:       0,
+		},
 		cli.StringFlag{
 			Name:        "key-file",
 			Usage:       "Key file for DB connection",

@@ -15,6 +15,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	defaultMaxIdleConns = 2 // copied from database/sql
+)
+
 var (
 	columns = "kv.id as theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
 	revSQL  = `
@@ -64,6 +68,12 @@ func (s Stripped) String() string {
 type ErrRetry func(error) bool
 type TranslateErr func(error) error
 type TranslateLimit func(num int64) string
+
+type ConnectionPoolConfig struct {
+	MaxIdle     int           // zero means defaultMaxIdleConns; negative means 0
+	MaxOpen     int           // <= 0 means unlimited
+	MaxLifetime time.Duration // maximum amount of time a connection may be reused
+}
 
 type Generic struct {
 	sync.Mutex
@@ -129,6 +139,20 @@ func (d *Generic) Migrate(ctx context.Context) {
 	}
 }
 
+func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB) {
+	// behavior copied from database/sql - zero means defaultMaxIdleConns; negative means 0
+	if connPoolConfig.MaxIdle < 0 {
+		connPoolConfig.MaxIdle = 0
+	} else if connPoolConfig.MaxIdle == 0 {
+		connPoolConfig.MaxIdle = defaultMaxIdleConns
+	}
+
+	logrus.Infof("Configuring DB connection pooling: maxIdleConns=%d, maxOpenConns=%d, connMaxLifetime=%s", connPoolConfig.MaxIdle, connPoolConfig.MaxOpen, connPoolConfig.MaxLifetime)
+	db.SetMaxIdleConns(connPoolConfig.MaxIdle)
+	db.SetMaxOpenConns(connPoolConfig.MaxOpen)
+	db.SetConnMaxLifetime(connPoolConfig.MaxLifetime)
+}
+
 func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
@@ -145,7 +169,7 @@ func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter string, numbered bool) (*Generic, error) {
+func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
@@ -164,6 +188,8 @@ func Open(ctx context.Context, driverName, dataSourceName string, paramCharacter
 		case <-time.After(time.Second):
 		}
 	}
+
+	configureConnectionPooling(connPoolConfig, db)
 
 	return &Generic{
 		DB: db,
