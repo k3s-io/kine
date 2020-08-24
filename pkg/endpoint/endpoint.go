@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/rancher/kine/pkg/drivers/dqlite"
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/drivers/mysql"
 	"github.com/rancher/kine/pkg/drivers/pgsql"
@@ -22,7 +21,6 @@ import (
 const (
 	KineSocket      = "unix://kine.sock"
 	SQLiteBackend   = "sqlite"
-	DQLiteBackend   = "dqlite"
 	ETCDBackend     = "etcd3"
 	MySQLBackend    = "mysql"
 	PostgresBackend = "postgres"
@@ -127,8 +125,6 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	case SQLiteBackend:
 		leaderElect = false
 		backend, err = sqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
-	case DQLiteBackend:
-		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
 	case PostgresBackend:
 		backend, err = pgsql.New(ctx, dsn, cfg.Config, cfg.ConnectionPoolConfig)
 	case MySQLBackend:

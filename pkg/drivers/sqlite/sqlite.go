@@ -65,7 +65,7 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 	}
 
 	// this is the first SQL that will be executed on a new DB conn so
-	// loop on failure here because in the case of dqlite it could still be initializing
+	// loop on failure here because it could still be initializing
 	for i := 0; i < 300; i++ {
 		err = setup(dialect.DB)
 		if err == nil {
