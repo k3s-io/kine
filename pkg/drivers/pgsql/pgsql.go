@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
+
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/logstructured"
 	"github.com/rancher/kine/pkg/logstructured/sqllog"

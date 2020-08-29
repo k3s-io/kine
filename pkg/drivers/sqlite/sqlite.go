@@ -76,9 +76,9 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
-	//if err := setup(dialect.DB); err != nil {
+	// if err := setup(dialect.DB); err != nil {
 	//	return nil, nil, errors.Wrap(err, "setup db")
-	//}
+	// }
 
 	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect)), dialect, nil

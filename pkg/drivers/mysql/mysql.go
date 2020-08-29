@@ -6,6 +6,7 @@ import (
 	"database/sql"
 
 	"github.com/go-sql-driver/mysql"
+
 	"github.com/rancher/kine/pkg/drivers/generic"
 	"github.com/rancher/kine/pkg/logstructured"
 	"github.com/rancher/kine/pkg/logstructured/sqllog"

@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rancher/kine/pkg/endpoint"
 	"go.etcd.io/etcd/clientv3"
+
+	"github.com/rancher/kine/pkg/endpoint"
 )
 
 type Value struct {

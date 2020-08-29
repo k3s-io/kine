@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/rancher/kine/pkg/broadcaster"
 	"github.com/rancher/kine/pkg/server"
-	"github.com/sirupsen/logrus"
 )
 
 type SQLLog struct {

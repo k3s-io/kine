@@ -5,8 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rancher/kine/pkg/server"
 	"github.com/sirupsen/logrus"
+
+	"github.com/rancher/kine/pkg/server"
 )
 
 type Log interface {

@@ -39,11 +39,11 @@ const (
 )
 
 type Config struct {
-	GRPCServer *grpc.Server
-	Listener   string
-	Endpoint   string
-  ConnectionPoolConfig generic.ConnectionPoolConfig
-	Features   struct {
+	GRPCServer           *grpc.Server
+	Listener             string
+	Endpoint             string
+	ConnectionPoolConfig generic.ConnectionPoolConfig
+	Features             struct {
 		VerboseLevel    int
 		UseAlphaBackend bool
 	}
