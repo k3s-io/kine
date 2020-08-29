@@ -42,7 +42,7 @@ var (
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
-	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
+	parsedDSN, err := PrepareDSN(dataSourceName, tlsInfo)
 	if err != nil {
 		return nil, err
 	}
