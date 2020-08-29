@@ -24,3 +24,11 @@ func NewVariant(driverName, dataSourceName string, connPoolConfig generic.Connec
 func setup(db *sql.DB) error {
 	return errNoCgo
 }
+
+func TranslateError(err error) error {
+	return errNoCgo
+}
+
+func PrepareDSN(dataSourceName string) (string, error) {
+	return "", errNoCgo
+}
