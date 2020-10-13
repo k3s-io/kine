@@ -12,7 +12,6 @@ import (
 
 	"github.com/Rican7/retry/backoff"
 	"github.com/Rican7/retry/strategy"
-	"github.com/rancher/kine/pkg/log"
 	"github.com/sirupsen/logrus"
 )
 
@@ -256,11 +255,7 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
 	for i := uint(0); i < 20; i++ {
-		if i > 2 {
-			log.Debugf(ctx, "EXEC (try: %d) %v : %s", i, args, Stripped(sql))
-		} else {
-			logrus.Tracef("EXEC (try: %d) %v : %s", i, args, Stripped(sql))
-		}
+		logrus.Tracef("EXEC (try: %d) %v : %s", i, args, Stripped(sql))
 		result, err = d.DB.ExecContext(ctx, sql, args...)
 		if err != nil && d.Retry != nil && d.Retry(err) {
 			wait(i)
