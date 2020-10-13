@@ -22,15 +22,14 @@ func SetLogger(ctx context.Context, logger logger) context.Context {
 }
 
 func getLogger(ctx context.Context) logger {
-	if log, _ := ctx.Value("k3s-logger").(logger); log != nil {
-		log.(*logrus.Logger).SetLevel(logrus.InfoLevel)
-		return log
+	if v := ctx.Value("k3s-logger"); v != nil {
+		if v.(string) == "k3s-logger" {
+			l := logrus.StandardLogger()
+			l.SetLevel(logrus.InfoLevel)
+			return l
+		}
 	}
-	log, _ := ctx.Value(key).(logger)
-	if log == nil {
-		return logrus.StandardLogger()
-	}
-	return log
+	return logrus.StandardLogger()
 }
 
 func Infof(ctx context.Context, msg string, args ...interface{}) {
