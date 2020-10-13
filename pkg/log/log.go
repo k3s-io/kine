@@ -23,12 +23,12 @@ func SetLogger(ctx context.Context, logger logger) context.Context {
 }
 
 func getLogger(ctx context.Context) logger {
+	fmt.Printf("XXX - %#v\n", ctx)
 	if v := ctx.Value("k3s-logger"); v != nil {
 		if v.(string) == "k3s-logger" {
 			l := logrus.StandardLogger()
 			l.WithContext(ctx)
 			l.SetLevel(logrus.InfoLevel)
-			fmt.Printf("XXX - set k3s logger")
 			return l
 		}
 	}
