@@ -2,6 +2,7 @@ package log
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 )
@@ -25,7 +26,9 @@ func getLogger(ctx context.Context) logger {
 	if v := ctx.Value("k3s-logger"); v != nil {
 		if v.(string) == "k3s-logger" {
 			l := logrus.StandardLogger()
+			l.WithContext(ctx)
 			l.SetLevel(logrus.InfoLevel)
+			fmt.Printf("XXX - set k3s logger")
 			return l
 		}
 	}
