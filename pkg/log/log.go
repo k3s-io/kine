@@ -25,6 +25,7 @@ func SetLogger(ctx context.Context, logger logger) context.Context {
 func getLogger(ctx context.Context) logger {
 	fmt.Printf("XXX - %#v\n", ctx)
 	if v := ctx.Value("k3s-logger"); v != nil {
+		fmt.Printf("XXX - key found: %#v - %s\n", v.(string))
 		if v.(string) == "k3s-logger" {
 			l := logrus.StandardLogger()
 			l.WithContext(ctx)
