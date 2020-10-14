@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/rancher/kine/pkg/broadcaster"
-	"github.com/rancher/kine/pkg/log"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/sirupsen/logrus"
 )
@@ -412,13 +411,13 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 					break
 				} else {
 					if err := s.d.Fill(s.ctx, next); err == nil {
-						log.Debugf(s.ctx, "FILL, revision=%d, err=%v", next, err)
+						logrus.Tracef("FILL, revision=%d, err=%v", next, err)
 						select {
 						case s.notify <- next:
 						default:
 						}
 					} else {
-						log.Debugf(s.ctx, "FILL FAILED, revision=%d, err=%v", next, err)
+						logrus.Tracef("FILL FAILED, revision=%d, err=%v", next, err)
 					}
 					break
 				}
@@ -432,10 +431,10 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			saveLast = true
 			rev = event.KV.ModRevision
 			if s.d.IsFill(event.KV.Key) {
-				log.Debugf(s.ctx, "NOT TRIGGER FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				logrus.Tracef("NOT TRIGGER FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 			} else {
 				sequential = append(sequential, event)
-				log.Debugf(s.ctx, "TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				logrus.Tracef("TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 			}
 		}
 

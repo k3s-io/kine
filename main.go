@@ -74,7 +74,7 @@ func main() {
 
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
-		logrus.SetLevel(logrus.DebugLevel)
+		logrus.SetLevel(logrus.TraceLevel)
 	}
 	ctx := signals.SetupSignalHandler(context.Background())
 	_, err := endpoint.Listen(ctx, config)
