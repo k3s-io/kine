@@ -15,6 +15,7 @@ type logger interface {
 	Warnf(msg string, args ...interface{})
 	Errorf(msg string, args ...interface{})
 	Debugf(msg string, args ...interface{})
+	Tracef(msg string, args ...interface{})
 }
 
 func SetLogger(ctx context.Context, logger logger) context.Context {
@@ -42,9 +43,13 @@ func Warnf(ctx context.Context, msg string, args ...interface{}) {
 }
 
 func Errorf(ctx context.Context, msg string, args ...interface{}) {
-	getLogger(ctx).Warnf(msg, args...)
+	getLogger(ctx).Errorf(msg, args...)
 }
 
 func Debugf(ctx context.Context, msg string, args ...interface{}) {
 	getLogger(ctx).Debugf(msg, args...)
+}
+
+func Tracef(ctx context.Context, msg string, args ...interface{}) {
+	getLogger(ctx).Tracef(msg, args...)
 }
