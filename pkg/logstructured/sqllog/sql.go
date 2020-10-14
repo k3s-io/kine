@@ -3,7 +3,6 @@ package sqllog
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -436,7 +435,6 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 				log.Debugf(s.ctx, "NOT TRIGGER FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 			} else {
 				sequential = append(sequential, event)
-				fmt.Printf("XXX - Context: %#v - Key: %s\n", s.ctx, s.ctx.Value("k3s-logger").(string))
 				log.Debugf(s.ctx, "TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 			}
 		}
