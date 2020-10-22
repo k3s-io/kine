@@ -34,10 +34,12 @@ var (
 				PRIMARY KEY (id)
 			);`,
 	}
-	nameIdx     = "create index kine_name_index on kine (name)"
-	nameIDIdx   = "create index kine_name_id_index on kine (name,id)"
-	revisionIdx = "create unique index kine_name_prev_revision_uindex on kine (name, prev_revision)"
-	createDB    = "create database if not exists "
+	nameIdx      = "create index kine_name_index on kine (name)"
+	nameIDIdx    = "create index kine_name_id_index on kine (name,id)"
+	deletedIDIdx = "create index kine_id_deleted_index on kine (id,deleted)"
+	prevRevIdx   = "create index kine_prev_revision_index on kine (prev_revision)"
+	revisionIdx  = "create unique index kine_name_prev_revision_uindex on kine (name, prev_revision)"
+	createDB     = "create database if not exists "
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
@@ -89,6 +91,8 @@ func setup(db *sql.DB) error {
 	indexes := []string{
 		nameIdx,
 		nameIDIdx,
+		deletedIDIdx,
+		prevRevIdx,
 		revisionIdx}
 
 	for _, idx := range indexes {

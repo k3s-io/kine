@@ -35,6 +35,9 @@ var (
 				old_value BLOB
 			)`,
 		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
+		`CREATE INDEX IF NOT EXISTS kine_name_id_index ON kine (name,id)`,
+		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
+		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
 )
