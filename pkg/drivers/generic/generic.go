@@ -85,6 +85,7 @@ type Generic struct {
 	CountSQL              string
 	AfterSQL              string
 	DeleteSQL             string
+	CompactSQL            string
 	UpdateCompactSQL      string
 	InsertSQL             string
 	FillSQL               string
@@ -218,6 +219,16 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 			DELETE FROM kine AS kv
 			WHERE kv.id = ?`, paramCharacter, numbered),
 
+		CompactSQL: q(`
+			DELETE kd FROM kine AS kd
+			INNER JOIN (SELECT ki.id
+									FROM kine AS ki
+									WHERE
+									  ki.name != 'compact_rev_key' AND
+										((ki.prev_revision BETWEEN 1 AND ?) OR
+										 (ki.deleted != 0 AND ki.id <= ?))
+									) AS kc ON kd.id = kc.id`, paramCharacter, numbered),
+
 		UpdateCompactSQL: q(`
 			UPDATE kine
 			SET prev_revision = ?
@@ -277,6 +288,15 @@ func (d *Generic) SetCompactRevision(ctx context.Context, revision int64) error 
 	logrus.Tracef("SETCOMPACTREVISION %v", revision)
 	_, err := d.execute(ctx, d.UpdateCompactSQL, revision)
 	return err
+}
+
+func (d *Generic) Compact(ctx context.Context, revision int64) (int64, error) {
+	logrus.Tracef("COMPACT %v", revision)
+	res, err := d.execute(ctx, d.CompactSQL, revision, revision)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (d *Generic) GetRevision(ctx context.Context, revision int64) (*sql.Rows, error) {

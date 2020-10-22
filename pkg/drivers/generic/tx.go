@@ -29,9 +29,23 @@ func (t *Tx) Commit() error {
 	return t.x.Commit()
 }
 
+func (t *Tx) MustCommit() {
+	if err := t.Commit(); err != nil {
+		logrus.Fatalf("Transaction commit failed: %v", err)
+	}
+}
+
 func (t *Tx) Rollback() error {
 	logrus.Tracef("TX ROLLBACK")
 	return t.x.Rollback()
+}
+
+func (t *Tx) MustRollback() {
+	if err := t.Rollback(); err != nil {
+		if err != sql.ErrTxDone {
+			logrus.Fatalf("Transaction rollback failed: %v", err)
+		}
+	}
 }
 
 func (t *Tx) GetCompactRevision(ctx context.Context) (int64, error) {
@@ -50,6 +64,15 @@ func (t *Tx) SetCompactRevision(ctx context.Context, revision int64) error {
 	return err
 }
 
+func (t *Tx) Compact(ctx context.Context, revision int64) (int64, error) {
+	logrus.Tracef("TX COMPACT %v", revision)
+	res, err := t.execute(ctx, t.d.CompactSQL, revision, revision)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (t *Tx) GetRevision(ctx context.Context, revision int64) (*sql.Rows, error) {
 	return t.query(ctx, t.d.GetRevisionSQL, revision)
 }
@@ -58,6 +81,16 @@ func (t *Tx) DeleteRevision(ctx context.Context, revision int64) error {
 	logrus.Tracef("TX DELETEREVISION %v", revision)
 	_, err := t.execute(ctx, t.d.DeleteSQL, revision)
 	return err
+}
+
+func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
+	var id int64
+	row := t.queryRow(ctx, revSQL)
+	err := row.Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return id, err
 }
 
 func (t *Tx) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {

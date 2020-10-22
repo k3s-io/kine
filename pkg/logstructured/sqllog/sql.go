@@ -38,6 +38,7 @@ type Dialect interface {
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
 	SetCompactRevision(ctx context.Context, revision int64) error
+	Compact(ctx context.Context, revision int64) (int64, error)
 	Fill(ctx context.Context, revision int64) error
 	IsFill(key string) bool
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*generic.Tx, error)
