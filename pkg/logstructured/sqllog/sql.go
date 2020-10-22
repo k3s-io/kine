@@ -13,6 +13,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	defaultCompactInterval = 5 * time.Minute
+)
+
 type SQLLog struct {
 	d           Dialect
 	broadcaster broadcaster.Broadcaster
@@ -322,7 +326,7 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 	c := make(chan interface{})
 	// start compaction and polling at the same time to watch starts
 	// at the oldest revision, but compaction doesn't create gaps
-	go s.compactor(5 * time.Minute)
+	go s.compactor(defaultCompactInterval)
 	go s.poll(c, pollStart)
 	return c, nil
 }

@@ -59,6 +59,17 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 	if err != nil {
 		return nil, nil, err
 	}
+
+	dialect.CompactSQL = `
+			DELETE FROM kine AS kd
+			WHERE
+			kd.id IN (SELECT ki.id
+								FROM kine AS ki
+								WHERE
+									ki.name != 'compact_rev_key' AND
+									((ki.prev_revision BETWEEN 1 AND ?) OR
+									 (ki.deleted != 0 AND ki.id <= ?))
+								)`
 	dialect.LastInsertID = true
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
