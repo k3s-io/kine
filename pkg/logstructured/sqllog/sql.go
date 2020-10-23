@@ -113,7 +113,7 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 }
 
 // compactor periodically compacts historical versions of keys.
-// It will compact keys with versions older than given interval, with a 1000 key buffer.
+// It will compact keys with versions older than given interval, but never within the last 1000 revisions.
 // In other words, after compaction, it will only contain key revisions set during last interval.
 // Any API call for the older versions of keys will return error.
 // Interval is the time interval between each compaction. The first compaction happens after "interval".
@@ -143,7 +143,7 @@ func (s *SQLLog) compactor(interval time.Duration) {
 // compact removes deleted or replaced rows from the database. compactRev is the revision that was last compacted to.
 // If this changes between compactions, we know that someone else has compacted and we don't need to do it.
 // targetCompactRev is the revision that we should try to compact to. Upon success, the function returns the revision
-// compacted to, and the revision that we should try to compact to next time.
+// compacted to, and the revision that we should try to compact to next time (the current revision).
 // This logic is directly cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64, error) {
 	t, err := s.d.BeginTx(s.ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -167,6 +167,7 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 		return dbCompactRev, currentRev, nil
 	}
 
+	// Ensure that we never compact the most recent 1000 revisions
 	targetCompactRev = safeCompactRev(targetCompactRev, currentRev)
 	logrus.Tracef("COMPACT compactRev=%d targetCompactRev=%d currentRev=%d", compactRev, targetCompactRev, currentRev)
 
@@ -175,13 +176,14 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	if err != nil {
 		return compactRev, targetCompactRev, errors.Wrapf(err, "failed to compact to revision %d", targetCompactRev)
 	}
-	logrus.Infof("COMPACT deleted %d rows from %d revisions in %s", deletedRows, (targetCompactRev - compactRev), time.Since(start))
 
 	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
 		return compactRev, targetCompactRev, errors.Wrap(err, "failed to record compact revision")
 	}
 
 	t.MustCommit()
+	logrus.Infof("COMPACT deleted %d rows from %d revisions in %s - compacted to %d/%d", deletedRows, (targetCompactRev - compactRev), time.Since(start), targetCompactRev, currentRev)
+
 	return targetCompactRev, currentRev, nil
 }
 
@@ -510,7 +512,7 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event) error
 	return nil
 }
 
-// safeCompactRev ensures that we never compact the most recent 1000 rows.
+// safeCompactRev ensures that we never compact the most recent 1000 revisions.
 func safeCompactRev(targetCompactRev int64, currentRev int64) int64 {
 	safeRev := currentRev - 1000
 	if targetCompactRev < safeRev {

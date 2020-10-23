@@ -31,7 +31,9 @@ var (
 		WHERE crkv.name = 'compact_rev_key'`
 
 	idOfKey = `
-		AND mkv.id <= ? AND mkv.id > (
+		AND
+		mkv.id <= ? AND
+		mkv.id > (
 			SELECT MAX(ikv.id) AS id
 			FROM kine AS ikv
 			WHERE
@@ -220,14 +222,22 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 			WHERE kv.id = ?`, paramCharacter, numbered),
 
 		CompactSQL: q(`
-			DELETE kd FROM kine AS kd
-			INNER JOIN (SELECT ki.id
-									FROM kine AS ki
-									WHERE
-									  ki.name != 'compact_rev_key' AND
-										((ki.prev_revision BETWEEN 1 AND ?) OR
-										 (ki.deleted != 0 AND ki.id <= ?))
-									) AS kc ON kd.id = kc.id`, paramCharacter, numbered),
+			DELETE kv FROM kine AS kv
+			INNER JOIN (
+				SELECT kp.prev_revision AS id
+				FROM kine AS kp
+				WHERE
+					kp.name != 'compact_rev_key' AND
+					kp.prev_revision != 0 AND
+					kp.id <= ?
+				UNION
+				SELECT kd.id AS id
+				FROM kine AS kd
+				WHERE
+					kd.deleted != 0 AND
+					kd.id <= ?
+			) AS ks
+			ON kv.id = ks.id`, paramCharacter, numbered),
 
 		UpdateCompactSQL: q(`
 			UPDATE kine
