@@ -221,24 +221,6 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 			DELETE FROM kine AS kv
 			WHERE kv.id = ?`, paramCharacter, numbered),
 
-		CompactSQL: q(`
-			DELETE kv FROM kine AS kv
-			INNER JOIN (
-				SELECT kp.prev_revision AS id
-				FROM kine AS kp
-				WHERE
-					kp.name != 'compact_rev_key' AND
-					kp.prev_revision != 0 AND
-					kp.id <= ?
-				UNION
-				SELECT kd.id AS id
-				FROM kine AS kd
-				WHERE
-					kd.deleted != 0 AND
-					kd.id <= ?
-			) AS ks
-			ON kv.id = ks.id`, paramCharacter, numbered),
-
 		UpdateCompactSQL: q(`
 			UPDATE kine
 			SET prev_revision = ?

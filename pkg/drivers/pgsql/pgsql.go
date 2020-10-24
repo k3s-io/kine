@@ -63,7 +63,6 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 			SELECT kp.prev_revision AS id
 			FROM kine AS kp
 			WHERE
-				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
 				kp.id <= $1
 			UNION
@@ -73,7 +72,9 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 				kd.deleted != 0 AND
 				kd.id <= $2
 		) AS ks
-		WHERE kv.id = ks.id`
+		WHERE
+			kv.id = ks.id AND
+			kv.name != 'compact_rev_key'`
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(*pq.Error); ok && err.Code == "23505" {
 			return server.ErrKeyExists
