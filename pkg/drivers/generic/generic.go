@@ -138,7 +138,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 	}
 }
 
-func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB) {
+func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB, driverName string) {
 	// behavior copied from database/sql - zero means defaultMaxIdleConns; negative means 0
 	if connPoolConfig.MaxIdle < 0 {
 		connPoolConfig.MaxIdle = 0
@@ -146,7 +146,7 @@ func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB)
 		connPoolConfig.MaxIdle = defaultMaxIdleConns
 	}
 
-	logrus.Infof("Configuring DB connection pooling: maxIdleConns=%d, maxOpenConns=%d, connMaxLifetime=%s", connPoolConfig.MaxIdle, connPoolConfig.MaxOpen, connPoolConfig.MaxLifetime)
+	logrus.Infof("Configuring %s database connection pooling: maxIdleConns=%d, maxOpenConns=%d, connMaxLifetime=%s", driverName, connPoolConfig.MaxIdle, connPoolConfig.MaxOpen, connPoolConfig.MaxLifetime)
 	db.SetMaxIdleConns(connPoolConfig.MaxIdle)
 	db.SetMaxOpenConns(connPoolConfig.MaxOpen)
 	db.SetConnMaxLifetime(connPoolConfig.MaxLifetime)
@@ -188,7 +188,7 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		}
 	}
 
-	configureConnectionPooling(connPoolConfig, db)
+	configureConnectionPooling(connPoolConfig, db, driverName)
 
 	return &Generic{
 		DB: db,
