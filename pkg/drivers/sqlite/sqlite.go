@@ -103,9 +103,6 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
-	//if err := setup(dialect.DB); err != nil {
-	//	return nil, nil, errors.Wrap(err, "setup db")
-	//}
 
 	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect)), dialect, nil
@@ -113,6 +110,7 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 
 func setup(db *sql.DB) error {
 	for _, stmt := range schema {
+		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
 			return err

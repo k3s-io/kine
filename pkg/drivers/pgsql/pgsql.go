@@ -14,6 +14,7 @@ import (
 	"github.com/rancher/kine/pkg/logstructured/sqllog"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/kine/pkg/tls"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -92,6 +93,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 
 func setup(db *sql.DB) error {
 	for _, stmt := range schema {
+		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
 			return err
@@ -130,7 +132,9 @@ func createDBIfNotExist(dataSourceName string) error {
 			return err
 		}
 		defer db.Close()
-		_, err = db.Exec(createDB + dbName + ";")
+		stmt := createDB + dbName + ";"
+		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
+		_, err = db.Exec(stmt)
 		if err != nil {
 			return err
 		}

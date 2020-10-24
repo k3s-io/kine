@@ -11,6 +11,7 @@ import (
 	"github.com/rancher/kine/pkg/logstructured/sqllog"
 	"github.com/rancher/kine/pkg/server"
 	"github.com/rancher/kine/pkg/tls"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -101,6 +102,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 
 func setup(db *sql.DB) error {
 	for _, stmt := range schema {
+		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
 			return err
@@ -181,6 +183,7 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 }
 
 func createIndex(db *sql.DB, indexStmt string) error {
+	logrus.Tracef("SETUP EXEC : %v", generic.Stripped(indexStmt))
 	_, err := db.Exec(indexStmt)
 	if err != nil {
 		if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
