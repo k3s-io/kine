@@ -14,7 +14,11 @@ import (
 )
 
 const (
-	defaultCompactInterval = 5 * time.Minute
+	compactInterval  = 5 * time.Minute
+	compactTimeout   = 5 * time.Second
+	compactMinRetain = 1000
+	compactBatchSize = 1000
+	pollBatchSize    = 500
 )
 
 type SQLLog struct {
@@ -119,12 +123,12 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 // Interval is the time interval between each compaction. The first compaction happens after "interval".
 // This logic is directly cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compactor(interval time.Duration) {
-	var err error
 	t := time.NewTicker(interval)
 	compactRev, _ := s.d.GetCompactRevision(s.ctx)
 	targetCompactRev, _ := s.d.CurrentRevision(s.ctx)
 	logrus.Tracef("COMPACT starting compactRev=%d targetCompactRev=%d", compactRev, targetCompactRev)
 
+outer:
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -132,11 +136,40 @@ func (s *SQLLog) compactor(interval time.Duration) {
 		case <-t.C:
 		}
 
-		compactRev, targetCompactRev, err = s.compact(compactRev, targetCompactRev)
-		if err != nil {
-			logrus.Errorf("Compact failed: %v", err)
-			continue
+		// Break up the compaction into smaller batches to avoid locking the database with excessively
+		// long transactions. When things are working normally deletes should proceed quite quickly, but if
+		// run against a database where compaction has stalled (see rancher/k3s#1311) it may take a long time
+		// (several hundred ms) just for the database to execute the subquery to select the revisions to delete.
+
+		var (
+			iterCompactRev int64
+			compactedRev   int64
+			currentRev     int64
+			err            error
+		)
+
+		iterCompactRev = compactRev
+		compactedRev = compactRev
+
+		for iterCompactRev < targetCompactRev {
+			iterCompactRev += compactBatchSize
+
+			compactedRev, currentRev, err = s.compact(compactedRev, iterCompactRev)
+			if err != nil {
+				// ErrCompacted indicates that no further work is necessary - either compactRev changed since the
+				// last iteration because another client has compacted, or the requested revision has already been compacted.
+				if err == server.ErrCompacted {
+					break
+				} else {
+					logrus.Errorf("Compact failed: %v", err)
+					continue outer
+				}
+			}
 		}
+
+		// Record the final results for the outer loop
+		compactRev = compactedRev
+		targetCompactRev = currentRev
 	}
 }
 
@@ -146,7 +179,10 @@ func (s *SQLLog) compactor(interval time.Duration) {
 // compacted to, and the revision that we should try to compact to next time (the current revision).
 // This logic is directly cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64, error) {
-	t, err := s.d.BeginTx(s.ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	ctx, cancel := context.WithTimeout(s.ctx, compactTimeout)
+	defer cancel()
+
+	t, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return compactRev, targetCompactRev, errors.Wrap(err, "failed to begin transaction")
 	}
@@ -163,12 +199,19 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	}
 
 	if compactRev != dbCompactRev {
-		logrus.Tracef("COMPACT compact revision changed since last iteration: %v => %v", compactRev, dbCompactRev)
-		return dbCompactRev, currentRev, nil
+		logrus.Tracef("COMPACT compact revision changed since last iteration: %d => %d", compactRev, dbCompactRev)
+		return dbCompactRev, currentRev, server.ErrCompacted
 	}
 
 	// Ensure that we never compact the most recent 1000 revisions
 	targetCompactRev = safeCompactRev(targetCompactRev, currentRev)
+
+	// Don't bother compacting to a revision that has already been compacted
+	if targetCompactRev <= compactRev {
+		logrus.Tracef("COMPACT revision %d has already been compacted", targetCompactRev)
+		return dbCompactRev, currentRev, server.ErrCompacted
+	}
+
 	logrus.Tracef("COMPACT compactRev=%d targetCompactRev=%d currentRev=%d", compactRev, targetCompactRev, currentRev)
 
 	start := time.Now()
@@ -328,7 +371,7 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 	c := make(chan interface{})
 	// start compaction and polling at the same time to watch starts
 	// at the oldest revision, but compaction doesn't create gaps
-	go s.compactor(defaultCompactInterval)
+	go s.compactor(compactInterval)
 	go s.poll(c, pollStart)
 	return c, nil
 }
@@ -359,7 +402,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		}
 		waitForMore = true
 
-		rows, err := s.d.After(s.ctx, "%", last, 500)
+		rows, err := s.d.After(s.ctx, "%", last, pollBatchSize)
 		if err != nil {
 			logrus.Errorf("fail to list latest changes: %v", err)
 			continue
@@ -514,7 +557,7 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event) error
 
 // safeCompactRev ensures that we never compact the most recent 1000 revisions.
 func safeCompactRev(targetCompactRev int64, currentRev int64) int64 {
-	safeRev := currentRev - 1000
+	safeRev := currentRev - compactMinRetain
 	if targetCompactRev < safeRev {
 		safeRev = targetCompactRev
 	}
