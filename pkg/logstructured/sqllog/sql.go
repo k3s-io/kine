@@ -152,7 +152,13 @@ outer:
 		compactedRev = compactRev
 
 		for iterCompactRev < targetCompactRev {
+			// Set move iteration target compactBatchSize revisions forward, or
+			// just as far as we need to hit the compaction target if that would
+			// overshoot it.
 			iterCompactRev += compactBatchSize
+			if iterCompactRev > targetCompactRev {
+				iterCompactRev = targetCompactRev
+			}
 
 			compactedRev, currentRev, err = s.compact(compactedRev, iterCompactRev)
 			if err != nil {
