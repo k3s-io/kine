@@ -24,7 +24,7 @@ var (
 	schema = []string{
 		`CREATE TABLE IF NOT EXISTS kine
 			(
-				id INTEGER primary key autoincrement,
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				name INTEGER,
 				created INTEGER,
 				deleted INTEGER,

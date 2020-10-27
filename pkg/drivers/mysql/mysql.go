@@ -21,7 +21,7 @@ const (
 
 var (
 	schema = []string{
-		`create table if not exists kine
+		`CREATE TABLE IF NOT EXISTS kine
 			(
 				id INTEGER AUTO_INCREMENT,
 				name VARCHAR(630),
@@ -34,13 +34,13 @@ var (
 				old_value MEDIUMBLOB,
 				PRIMARY KEY (id)
 			);`,
+		`CREATE INDEX kine_name_index ON kine (name)`,
+		`CREATE INDEX kine_name_id_index ON kine (name,id)`,
+		`CREATE INDEX kine_id_deleted_index ON kine (id,deleted)`,
+		`CREATE INDEX kine_prev_revision_index ON kine (prev_revision)`,
+		`CREATE UNIQUE INDEX kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
-	nameIdx      = "create index kine_name_index on kine (name)"
-	nameIDIdx    = "create index kine_name_id_index on kine (name,id)"
-	deletedIDIdx = "create index kine_id_deleted_index on kine (id,deleted)"
-	prevRevIdx   = "create index kine_prev_revision_index on kine (prev_revision)"
-	revisionIdx  = "create unique index kine_name_prev_revision_uindex on kine (name, prev_revision)"
-	createDB     = "create database if not exists "
+	createDB = "CREATE DATABASE IF NOT EXISTS "
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
@@ -107,21 +107,9 @@ func setup(db *sql.DB) error {
 		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
-			return err
-		}
-	}
-
-	// check if duplicate indexes
-	indexes := []string{
-		nameIdx,
-		nameIDIdx,
-		deletedIDIdx,
-		prevRevIdx,
-		revisionIdx}
-	for _, idx := range indexes {
-		err := createIndex(db, idx)
-		if err != nil {
-			return err
+			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
+				return err
+			}
 		}
 	}
 
@@ -184,15 +172,4 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 	parsedDSN := config.FormatDSN()
 
 	return parsedDSN, nil
-}
-
-func createIndex(db *sql.DB, indexStmt string) error {
-	logrus.Tracef("SETUP EXEC : %v", generic.Stripped(indexStmt))
-	_, err := db.Exec(indexStmt)
-	if err != nil {
-		if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
-			return err
-		}
-	}
-	return nil
 }

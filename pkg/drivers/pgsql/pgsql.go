@@ -23,7 +23,7 @@ const (
 
 var (
 	schema = []string{
-		`create table if not exists kine
+		`CREATE TABLE IF NOT EXISTS kine
  			(
  				id SERIAL PRIMARY KEY,
 				name VARCHAR(630),
@@ -41,7 +41,7 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
-	createDB = "create database "
+	createDB = "CREATE DATABASE "
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
