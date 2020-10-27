@@ -109,6 +109,8 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 }
 
 func setup(db *sql.DB) error {
+	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
@@ -117,5 +119,6 @@ func setup(db *sql.DB) error {
 		}
 	}
 
+	logrus.Infof("Database tables and indexes are up to date")
 	return nil
 }

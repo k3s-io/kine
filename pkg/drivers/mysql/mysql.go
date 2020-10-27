@@ -101,6 +101,8 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 }
 
 func setup(db *sql.DB) error {
+	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
@@ -108,6 +110,7 @@ func setup(db *sql.DB) error {
 			return err
 		}
 	}
+
 	// check if duplicate indexes
 	indexes := []string{
 		nameIdx,
@@ -115,13 +118,14 @@ func setup(db *sql.DB) error {
 		deletedIDIdx,
 		prevRevIdx,
 		revisionIdx}
-
 	for _, idx := range indexes {
 		err := createIndex(db, idx)
 		if err != nil {
 			return err
 		}
 	}
+
+	logrus.Infof("Database tables and indexes are up to date")
 	return nil
 }
 
