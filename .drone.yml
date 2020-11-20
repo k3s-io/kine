@@ -10,10 +10,10 @@ platform:
 steps:
 - name: build
   image: rancher/dapper:v0.5.0
-  environment:
-    ARCH: "${DRONE_STAGE_ARCH}"
   commands:
   - dapper --file Dockerfile --target dapper ci
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
   volumes:
   - name: docker
     path: /var/run/docker.sock
@@ -42,15 +42,17 @@ steps:
 - name: docker-publish
   image: plugins/docker
   settings:
-    build_args:
-      ARCH: amd64
+    build_args_from_env:
+    - ARCH
     username:
       from_secret: docker_username
     password:
       from_secret: docker_password
-    target: release
     repo: rancher/kine
-    tag: "${DRONE_TAG}-amd64"
+    tag: "${DRONE_TAG}-${DRONE_STAGE_ARCH}"
+    target: release
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
   when:
     event:
     - tag
@@ -77,10 +79,10 @@ platform:
 steps:
 - name: build
   image: rancher/dapper:v0.5.0
-  environment:
-    ARCH: "${DRONE_STAGE_ARCH}"
   commands:
   - dapper --file Dockerfile --target dapper ci
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
   volumes:
   - name: docker
     path: /var/run/docker.sock
@@ -109,15 +111,17 @@ steps:
 - name: docker-publish
   image: plugins/docker
   settings:
-    build_args:
-      ARCH: arm64
+    build_args_from_env:
+    - ARCH
     username:
       from_secret: docker_username
     password:
       from_secret: docker_password
-    target: release
     repo: rancher/kine
-    tag: "${DRONE_TAG}-arm64"
+    tag: "${DRONE_TAG}-${DRONE_STAGE_ARCH}"
+    target: release
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
   when:
     event:
     - tag
@@ -144,10 +148,10 @@ platform:
 steps:
 - name: build
   image: rancher/dapper:v0.5.0
-  environment:
-    ARCH: "${DRONE_STAGE_ARCH}"
   commands:
   - dapper --file Dockerfile --target dapper ci
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
   volumes:
   - name: docker
     path: /var/run/docker.sock
@@ -176,15 +180,17 @@ steps:
 - name: docker-publish
   image: plugins/docker
   settings:
-    build_args:
-      ARCH: arm
+    build_args_from_env:
+    - ARCH
     username:
       from_secret: docker_username
     password:
       from_secret: docker_password
-    target: release
     repo: rancher/kine
-    tag: "${DRONE_TAG}-arm"
+    tag: "${DRONE_TAG}-${DRONE_STAGE_ARCH}"
+    target: release
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
   when:
     event:
     - tag
