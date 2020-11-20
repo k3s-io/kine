@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/rancher/kine/pkg/endpoint"
+	"github.com/k3s-io/kine/pkg/endpoint"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
