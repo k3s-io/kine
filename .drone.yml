@@ -53,6 +53,7 @@ steps:
     target: release
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
+    DOCKER_BUILDKIT: "1"
   when:
     event:
     - tag
@@ -122,6 +123,7 @@ steps:
     target: release
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
+    DOCKER_BUILDKIT: "1"
   when:
     event:
     - tag
@@ -191,6 +193,7 @@ steps:
     target: release
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
+    DOCKER_BUILDKIT: "1"
   when:
     event:
     - tag
