@@ -9,8 +9,8 @@ mkdir -p bin
 if [ "$(uname)" = "Linux" ]; then
     OTHER_LINKFLAGS="-extldflags -static -s"
 fi
-LINKFLAGS="-X github.com/rancher/kine.Version=$VERSION"
-LINKFLAGS="-X github.com/rancher/kine.GitCommit=$COMMIT $LINKFLAGS"
+LINKFLAGS="-X github.com/k3s-io/kine.Version=$VERSION"
+LINKFLAGS="-X github.com/k3s-io/kine.GitCommit=$COMMIT $LINKFLAGS"
 
 echo Building Kine
 CGO_ENABLED=0 go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/kine

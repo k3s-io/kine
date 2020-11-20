@@ -1,6 +1,6 @@
-module github.com/rancher/kine
+module github.com/k3s-io/kine
 
-go 1.12
+go 1.15
 
 require (
 	github.com/Rican7/retry v0.1.0
