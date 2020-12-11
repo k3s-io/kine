@@ -40,7 +40,8 @@ var (
 		`CREATE INDEX kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
-	createDB = "CREATE DATABASE IF NOT EXISTS "
+	createDB         = "CREATE DATABASE IF NOT EXISTS "
+	checkSchemaExist = "SELECT 0 from kine"
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
@@ -102,6 +103,10 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 func setup(db *sql.DB) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
+	if isSchemaAlreadyExist(db) {
+		return nil
+	}
+
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
 		_, err := db.Exec(stmt)
@@ -114,6 +119,16 @@ func setup(db *sql.DB) error {
 
 	logrus.Infof("Database tables and indexes are up to date")
 	return nil
+}
+
+func isSchemaAlreadyExist(db *sql.DB) bool {
+	_, err := db.Exec(checkSchemaExist)
+	if err != nil {
+		logrus.Infof("Schema doesn't seem to exist, continue creating: %v", err)
+		return false
+	}
+	logrus.Infof("Schema already exists, skipping creating")
+	return true
 }
 
 func createDBIfNotExist(dataSourceName string) error {
