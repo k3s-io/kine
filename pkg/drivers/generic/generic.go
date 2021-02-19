@@ -46,19 +46,23 @@ var (
 				ikv.id <= ?)`
 
 	listSQL = fmt.Sprintf(`
-		SELECT (%s), (%s), %s
-		FROM kine AS kv
-		JOIN (
-			SELECT MAX(mkv.id) AS id
-			FROM kine AS mkv
+		SELECT *
+		FROM (
+			SELECT (%s), (%s), %s
+			FROM kine AS kv
+			JOIN (
+				SELECT MAX(mkv.id) AS id
+				FROM kine AS mkv
+				WHERE
+					mkv.name LIKE ?
+					%%s
+				GROUP BY mkv.name) AS maxkv
+				ON maxkv.id = kv.id
 			WHERE
-				mkv.name LIKE ?
-				%%s
-			GROUP BY mkv.name) maxkv
-	    ON maxkv.id = kv.id
-		WHERE
-			  (kv.deleted = 0 OR ?)
-		ORDER BY kv.id ASC
+				kv.deleted = 0 OR
+				?
+		) AS lkv
+		ORDER BY lkv.theid ASC
 		`, revSQL, compactRevSQL, columns)
 )
 
