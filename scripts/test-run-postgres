@@ -1,0 +1,36 @@
+#!/bin/bash
+
+start-test() {
+    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
+    local port=$(cat $TEST_DIR/databases/*/metadata/port)
+    local pass=$(cat $TEST_DIR/databases/*/metadata/password)
+    local image=$(cat $TEST_DIR/databases/*/metadata/image)
+    DB_CONNECTION_TEST="
+        docker run --rm
+        --name connection-test
+        -e PGPASSWORD=$pass
+        $image
+        psql
+          --host=$ip
+          --port=$port
+          --username=postgres
+          --command=\\conninfo" \
+    timeout --foreground 1m bash -c "wait-for-db-connection"
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://postgres:$pass@$ip:$port/postgres?sslmode=disable" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+VERSION_LIST="\
+    postgres 13.2
+    postgres 12.6
+    postgres 11.11
+    postgres 10.16
+    postgres 9.6
+    postgres 9.5"
+
+while read ENGINE VERSION; do
+    LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test
+done <<< $VERSION_LIST
+

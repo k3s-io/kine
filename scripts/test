@@ -3,5 +3,27 @@ set -e
 
 cd $(dirname $0)/..
 
-echo Running tests
+. ./scripts/test-helpers
+
+#echo Running go unit tests
 go test -cover -tags=test ./...
+
+# ---
+
+docker ps
+
+# ---
+
+. ./scripts/test-run-sqlite
+echo "Did test-run-sqlite $?"
+
+. ./scripts/test-run-mysql
+echo "Did test-run-mysql $?"
+
+. ./scripts/test-run-postgres
+echo "Did test-run-postgres $?"
+
+. ./scripts/test-run-cockroachdb
+echo "Did test-run-cockroachdb $?"
+
+exit 0

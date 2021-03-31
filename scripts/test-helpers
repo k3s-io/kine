@@ -1,0 +1,320 @@
+#!/bin/bash
+
+# ---
+
+dump-logs() {
+    local testID=$(basename $TEST_DIR)
+    echo "#---------------------------------"
+    echo "#- Begin: logs for run ($testID)"
+    echo
+
+    for node in $TEST_DIR/*/*; do
+        [ -d "$node" ] || continue
+        local name=$(cat $node/metadata/name 2>/dev/null)
+        [ "$name" ] || continue
+        mkdir -p $node/logs
+        local hostname=$(docker exec $name hostname)
+        docker logs $name >$node/logs/system.log 2>&1
+        for log in $node/logs/*.log; do
+            echo
+            echo "#- Tail: $log"
+            tail -5 $log
+            echo "#- Done: $log"
+            echo
+        done
+    done
+    echo
+    echo "#- Finish: logs for run ($testID)"
+    echo "#---------------------------------"
+    echo
+}
+export -f dump-logs
+
+# ---
+
+test-cleanup() {
+    local code=$?
+    set +e
+    echo 'Cleaning up...'
+    trap - EXIT INT TERM
+    if [[ $code -ne 0 ]]; then
+        dump-logs
+    fi
+    for name in $TEST_DIR/*/*/metadata/name; do
+        [ -f "$name" ] || continue
+        local container=$(cat $name)
+        echo "Removing container $container"
+        docker rm -f -v $container
+    done
+    echo
+    if has-function test-post-hook; then
+      test-post-hook $code
+      code=$?
+    fi
+    if [ "$TEST_CLEANUP" = true ]; then
+        echo "Removing test directory $TEST_DIR"
+        rm -rf $TEST_DIR
+    fi
+    [ -f "$PROVISION_LOCK" ] && rm $PROVISION_LOCK
+    echo -n "Test $(basename $TEST_DIR) "
+    if [ $code -eq 0 ]; then
+        echo "passed."
+    else
+        echo "failed."
+    fi
+    echo
+    exit $code
+}
+export -f test-cleanup
+
+# ---
+
+test-setup() {
+    export TEST_DIR=$(mktemp -d '/tmp/XXXXXX')
+    trap test-cleanup EXIT INT TERM
+
+    mkdir -p $TEST_DIR/metadata
+    if [ "$LABEL" ]; then
+        exec > >(awk "{ printf \"[\033[36m${LABEL}\033[m] %s\n\", \$0; fflush() }") \
+            2> >(awk "{ printf \"[\033[35m${LABEL}\033[m] %s\n\", \$0; fflush() }" >&2)
+        echo "$LABEL" >$TEST_DIR/metadata/label
+    fi
+
+    mkdir -p $TEST_DIR/logs
+    exec > >(tee -a $TEST_DIR/logs/test.log) \
+        2> >(tee -a $TEST_DIR/logs/test.log >&2)
+
+    echo "Test $(basename $TEST_DIR) starting"
+}
+export -f test-setup
+
+# ---
+
+early-exit() {
+    printf "\033[33m$1\033[m\n"
+    exit $2
+}
+export -f early-exit
+
+# ---
+
+run-test() {
+    export PROVISION_LOCK=$(mktemp)
+    ./scripts/test-runner $@ &
+    pids+=($!)
+    (
+        set +x
+        while [ -f "$PROVISION_LOCK" ]; do
+            sleep 1
+        done
+        sleep 5
+    )
+}
+export -f run-test
+
+# ---
+
+inc-count() {(
+    shopt -s extglob
+    local count=$(exec 2>/dev/null; ls -1d $TEST_DIR/$1/+([0-9]) | xargs -n1 basename | sort -n -r | head -1)
+    count=$((count+1))
+    mkdir -p $TEST_DIR/$1/$count/metadata
+    echo $count
+)}
+export -f inc-count
+
+# ---
+
+has-function() {
+  [[ ! -z "$1" && $(type -t $1) == "function" ]]
+} 2> /dev/null
+export -f has-function
+
+# ---
+
+run-function() {
+    has-function $1 || return 0
+    $@
+}
+export -f run-function
+
+# ---
+
+wait-for-db-connection() {
+    if [ -z "$DB_CONNECTION_TEST" ]; then
+        echo 'DB_CONNECTION_TEST is not defined' >&2
+        return 1
+    fi
+    while ! $DB_CONNECTION_TEST 2>/dev/null; do
+        echo 'Waiting for database to become available...' >&2
+        sleep 5
+    done
+}
+export -f wait-for-db-connection
+
+# ---
+
+fetch-kubeconfig() {(
+    set -e -o pipefail
+    local num=${1:-1}
+    local name=$(cat $TEST_DIR/servers/$num/metadata/name)
+    local url=$(cat $TEST_DIR/servers/$num/metadata/url)
+    docker cp $name:/etc/rancher/k3s/k3s.yaml - 2>/dev/null | tar -xO 2>/dev/null | sed -e "s|https://127.0.0.1:6443|$url|g" >$TEST_DIR/servers/$num/kubeconfig.yaml
+)}
+export -f fetch-kubeconfig
+
+# ---
+
+wait-for-kubeconfig() {
+    while ! fetch-kubeconfig $1; do
+        echo 'Waiting for kubeconfig to become available...' >&2
+        sleep 5
+    done
+}
+export -f wait-for-kubeconfig
+
+# ---
+
+provision-cluster() {
+    run-function cluster-pre-hook
+
+    provision-server
+    timeout --foreground 120s bash -c "wait-for-kubeconfig $i"
+    export KUBECONFIG=$TEST_DIR/servers/1/kubeconfig.yaml
+
+    run-function cluster-post-hook
+}
+export -f provision-cluster
+
+# ---
+
+provision-server() {
+    local count=$(inc-count servers)
+    local testID=$(basename $TEST_DIR)
+    local name=$(echo "k3s-server-$count-$testID" | tee $TEST_DIR/servers/$count/metadata/name)
+
+    run-function server-pre-hook $count
+
+    docker run \
+        -d --name $name \
+        --privileged \
+        -p 6443 \
+        -e K3S_DEBUG=true \
+        -e K3S_DATASTORE_ENDPOINT=$K3S_DATASTORE_ENDPOINT \
+        ${K3S_IMAGE:-docker.io/rancher/k3s:v1.20.4-k3s1} server \
+        --disable=coredns,servicelb,traefik,local-storage,metrics-server \
+        --disable-agent --disable-scheduler --disable-cloud-controller --disable-kube-proxy --disable-network-policy
+
+    local ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' $name | tee $TEST_DIR/servers/$count/metadata/ip)
+    local port=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/servers/$count/metadata/port)
+    local url=$(echo "https://$ip:$port" | tee $TEST_DIR/servers/$count/metadata/url)
+
+    echo "Started $name @ $url"
+    run-function server-post-hook $count
+}
+export -f provision-server
+
+# ---
+
+provision-kine() {
+    if [ -z "$KINE_IMAGE" ]; then
+        echo 'KINE_IMAGE is not defined' >&2
+        return 1
+    fi
+
+    local count=$(inc-count kine)
+    local testID=$(basename $TEST_DIR)
+    local name=$(echo "kine-$count-$testID" | tee $TEST_DIR/kine/$count/metadata/name) 
+
+    run-function kine-pre-hook $count
+
+    docker run \
+        -d --name $name \
+        $KINE_IMAGE --endpoint $KINE_ENDPOINT
+
+    local ip=$(docker inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)
+    local port=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/kine/$count/metadata/port)
+    local url=$(echo "http://$ip:$port" | tee $TEST_DIR/kine/$count/metadata/url)
+
+    run-function kine-post-hook $count
+
+    echo "Started $name @ $url"
+}
+export -f provision-kine
+
+# ---
+
+provision-database() {
+    if [ -z "$DB_IMAGE" ] || [ -z "$DB_PASSWORD_ENV" ]; then
+        return 0
+    fi
+
+    local count=$(inc-count databases)
+    echo > $TEST_DIR/databases/$count/metadata/env
+    echo $DB_IMAGE > $TEST_DIR/databases/$count/metadata/image
+    local testID=$(basename $TEST_DIR)
+    local name=$(echo "database-$count-$testID" | tee $TEST_DIR/databases/$count/metadata/name) 
+    local pass=$(echo "$RANDOM$RANDOM$RANDOM" | tee $TEST_DIR/databases/$count/metadata/password)
+    while [[ "$#" -gt "0" ]]; do
+      echo $1 >> $TEST_DIR/databases/$count/metadata/env
+      shift
+    done
+
+    run-function database-pre-hook $count
+
+    docker run \
+        -d --name $name \
+        --cap-add=sys_nice \
+        -e $DB_PASSWORD_ENV=$pass \
+        --env-file $TEST_DIR/databases/$count/metadata/env \
+        ${DB_IMAGE} ${DB_ARGS}
+
+    local ip=$(docker inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/databases/$count/metadata/ip)
+    local port=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/databases/$count/metadata/port)
+
+    echo "Started $name @ $ip:$port"
+
+    run-function database-post-hook $count
+}
+export -f provision-database
+
+# ---
+
+pid-cleanup() {
+    local code=$?
+    local failCount=0
+    set +e
+    if [ $code -eq 0 ]; then
+        for pid in ${pids[@]}; do
+            wait $pid || code=$?
+        done
+    fi
+    if [ $code -ne 0 ]; then
+        for pid in ${pids[@]}; do
+            pkill -P $pid
+            wait $pid || failCount=$((failCount+1))
+        done
+    fi
+    trap - EXIT INT TERM
+    set +x
+    echo
+    if [ $failCount -eq 0 ]; then
+        printf '\033[32mAll tests passed.\033[m\n'
+    else
+        printf "\033[31m$failCount tests failed.\033[m\n"
+        if [ "$DRONE_BUILD_EVENT" = 'tag' ]; then
+            printf "\033[31mIgnoring test failures on tag.\033[m\n"
+            code=0
+        else
+            code=1
+        fi
+    fi
+    echo
+    exit $code
+}
+export -f pid-cleanup
+
+# ---
+
+pids=()
+trap pid-cleanup EXIT INT TERM

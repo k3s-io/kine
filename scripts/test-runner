@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+cd $(dirname $0)/..
+
+. ./scripts/version
+
+TAG=${TAG:-${VERSION_TAG}${SUFFIX}}
+IMAGE_NAME=${IMAGE_NAME:-kine}
+IMAGE=${REPO}/${IMAGE_NAME}:${TAG}
+
+test-setup
+provision-database $DB_ARGS
+start-test $@
+
+./scripts/test-load

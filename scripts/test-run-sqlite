@@ -1,0 +1,9 @@
+#!/bin/bash
+start-test() {
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="sqlite" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+LABEL=sqlite run-test

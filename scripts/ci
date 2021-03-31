@@ -3,9 +3,10 @@ set -e
 
 cd $(dirname $0)
 
-./build
-./test
-./validate
-./validate-ci
-./package
+if [ -z "$SKIP_VALIDATE" ]; then
+  ./validate
+  ./validate-ci
+fi
 
+./build
+./package

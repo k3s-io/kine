@@ -1,0 +1,37 @@
+#!/bin/bash
+
+start-test() {
+    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
+    local port=$(cat $TEST_DIR/databases/*/metadata/port)
+    local pass=$(cat $TEST_DIR/databases/*/metadata/password)
+    local test_image=docker.io/library/postgres:13.2
+    # https://github.com/k3s-io/kine/issues/44
+    case "$DB_IMAGE" in
+      *v20.2 ) local extra_params="&serial_normalization=sql_sequence" ;;
+      *      ) local extra_params="&experimental_serial_normalization=sql_sequence";;
+    esac
+
+    DB_CONNECTION_TEST="
+        docker run --rm
+        --name connection-test
+        $test_image
+        psql
+          --host=$ip
+          --port=$port
+          --username=root
+          --command=\\conninfo" \
+    timeout --foreground 1m bash -c "wait-for-db-connection"
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://root@$ip:$port/postgres?sslmode=disable$extra_params" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+VERSION_LIST="\
+    cockroachdb v20.2
+    cockroachdb v20.1
+    cockroachdb v19.2"
+
+while read ENGINE VERSION; do
+    LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/$ENGINE/cockroach:latest-$VERSION DB_ARGS="start-single-node --insecure" run-test
+done <<< $VERSION_LIST
