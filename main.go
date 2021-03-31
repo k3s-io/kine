@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/k3s-io/kine/pkg/endpoint"
@@ -68,7 +69,9 @@ func main() {
 	app.Action = run
 
 	if err := app.Run(os.Args); err != nil {
-		logrus.Fatal(err)
+		if !errors.Is(err, context.Canceled) {
+			logrus.Fatal(err)
+		}
 	}
 }
 
