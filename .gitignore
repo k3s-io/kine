@@ -61,3 +61,10 @@ network_closure.sh
 
 # Go vendor files
 vendor/
+
+# kine database file
+db/
+
+# build artifacts
+bin/
+dist/
