@@ -8,8 +8,9 @@ import (
 
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/k3s-io/kine/pkg/tls"
 )
 
-func New(ctx context.Context, datasourceName string, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
+func New(ctx context.Context, datasourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
 	return nil, errors.New(`this binary is built without dqlite support, compile with "-tags dqlite"`)
 }
