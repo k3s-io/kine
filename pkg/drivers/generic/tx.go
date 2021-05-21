@@ -95,15 +95,21 @@ func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
 
 func (t *Tx) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
 	logrus.Tracef("TX QUERY %v : %s", args, Stripped(sql))
+	trace := NewTrace()
+	defer trace.LogSlowSQL(Stripped(sql), args)
 	return t.x.QueryContext(ctx, sql, args...)
 }
 
 func (t *Tx) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
 	logrus.Tracef("TX QUERY ROW %v : %s", args, Stripped(sql))
+	trace := NewTrace()
+	defer trace.LogSlowSQL(Stripped(sql), args)
 	return t.x.QueryRowContext(ctx, sql, args...)
 }
 
 func (t *Tx) execute(ctx context.Context, sql string, args ...interface{}) (result sql.Result, err error) {
 	logrus.Tracef("TX EXEC %v : %s", args, Stripped(sql))
+	trace := NewTrace()
+	defer trace.LogSlowSQL(Stripped(sql), args)
 	return t.x.ExecContext(ctx, sql, args...)
 }

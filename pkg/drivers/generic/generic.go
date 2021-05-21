@@ -239,11 +239,15 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 
 func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
 	logrus.Tracef("QUERY %v : %s", args, Stripped(sql))
+	trace := NewTrace()
+	defer trace.LogSlowSQL(Stripped(sql), args)
 	return d.DB.QueryContext(ctx, sql, args...)
 }
 
 func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
 	logrus.Tracef("QUERY ROW %v : %s", args, Stripped(sql))
+	trace := NewTrace()
+	defer trace.LogSlowSQL(Stripped(sql), args)
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
@@ -256,7 +260,9 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
 	for i := uint(0); i < 20; i++ {
 		logrus.Tracef("EXEC (try: %d) %v : %s", i, args, Stripped(sql))
+		trace := NewTrace()
 		result, err = d.DB.ExecContext(ctx, sql, args...)
+		trace.LogSlowSQL(Stripped(sql), args)
 		if err != nil && d.Retry != nil && d.Retry(err) {
 			wait(i)
 			continue
