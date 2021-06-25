@@ -27,44 +27,57 @@ func getClient(t *testing.T) (Client, error) {
 	return New(e)
 }
 
-func TestGetCliient(t *testing.T) {
+func TestGetClient(t *testing.T) {
 	c, err := getClient(t)
 	if err != nil {
-		t.Errorf("Unable to create new client: %v", err)
+		t.Fatalf("Unable to create new client: %v", err)
 		return
 	}
 	testClient = c
 }
 
-func TestList(t *testing.T) {
+func TestListAll(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	values, err := testClient.List(ctx, "", 0)
+	if err != nil {
+		t.Fatalf("Failed to list '': %v", err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("Expected 0 values in list response")
+	}
+}
+
+func TestListPrefix(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	values, err := testClient.List(ctx, "/test", 0)
 	if err != nil {
-		t.Errorf("Failed to list /test: %v", err)
+		t.Fatalf("Failed to list '/test': %v", err)
 	}
 	if len(values) != 0 {
-		t.Error("Expected 0 values in list response")
+		t.Fatal("Expected 0 values in list response")
 	}
 }
 
-func TestCreateAndList(t *testing.T) {
+func TestCreateAndListPrefix(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
 	err := testClient.Create(ctx, "/test/x", []byte("test"))
 	if err != nil {
-		t.Errorf("Failed to create /test/x: %v", err)
+		t.Fatalf("Failed to create '/test/x': %v", err)
 	}
 
 	values, err := testClient.List(ctx, "/test", 0)
 	if err != nil {
-		t.Errorf("Failed to list /test: %v", err)
+		t.Fatalf("Failed to list '/test': %v", err)
 	}
 
 	if len(values) != 1 {
-		t.Errorf("Expected 1 value in list response")
+		t.Fatal("Expected 1 value in list response")
 	}
 
 	for _, v := range values {

@@ -23,6 +23,7 @@ start-test() {
     timeout --foreground 1m bash -c "wait-for-db-connection"
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://root@$ip:$port/postgres?sslmode=disable$extra_params" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url run-go-tests
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
 export -f start-test
