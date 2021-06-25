@@ -84,3 +84,26 @@ func TestCreateAndListPrefix(t *testing.T) {
 		t.Logf("Got value: %s=%s", v.Key, v.Data)
 	}
 }
+
+func TestDeleteAndListPrefix(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	err := testClient.Delete(ctx, "/test/x")
+	if err != nil {
+		t.Fatalf("Failed to delete '/test/x': %v", err)
+	}
+
+	values, err := testClient.List(ctx, "/test", 0)
+	if err != nil {
+		t.Fatalf("Failed to list '/test': %v", err)
+	}
+
+	if len(values) != 1 {
+		t.Fatal("Expected 0 values in list response")
+	}
+
+	for _, v := range values {
+		t.Logf("Got value: %s=%s", v.Key, v.Data)
+	}
+}
