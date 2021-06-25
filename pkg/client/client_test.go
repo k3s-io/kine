@@ -14,33 +14,35 @@ const (
 	testTimeout = 1 * time.Second
 )
 
+var (
+	testClient Client
+)
+
 func getClient(t *testing.T) (Client, error) {
 	e := endpoint.ETCDConfig{Endpoints: []string{"localhost:2379"}}
 	if str := os.Getenv("K3S_DATASTORE_ENDPOINT"); str != "" {
-		// Strip off the scheme, if present
-		parts := strings.SplitN(str, "://", 2)
-		if len(parts) > 1 {
-			str = parts[1]
-		}
 		e.Endpoints = strings.Split(str, ",")
 	}
 	t.Logf("Connecting to etcd at %v", e.Endpoints)
 	return New(e)
 }
 
-func TestList(t *testing.T) {
+func TestGetCliient(t *testing.T) {
 	c, err := getClient(t)
 	if err != nil {
 		t.Errorf("Unable to create new client: %v", err)
+		return
 	}
-	defer c.Close()
+	testClient = c
+}
 
+func TestList(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	values, err := c.List(ctx, "/bootstrap", 0)
+	values, err := testClient.List(ctx, "/test", 0)
 	if err != nil {
-		t.Errorf("Failed to list /bootstrap: %v", err)
+		t.Errorf("Failed to list /test: %v", err)
 	}
 	if len(values) != 0 {
 		t.Error("Expected 0 values in list response")
@@ -48,23 +50,17 @@ func TestList(t *testing.T) {
 }
 
 func TestCreateAndList(t *testing.T) {
-	c, err := getClient(t)
-	if err != nil {
-		t.Errorf("Unable to create new client: %v", err)
-	}
-	defer c.Close()
-
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
-	err = c.Create(ctx, "/bootstrap/test", []byte("test"))
+	err := testClient.Create(ctx, "/test/x", []byte("test"))
 	if err != nil {
-		t.Errorf("Failed to create /bootstrap/test: %v", err)
+		t.Errorf("Failed to create /test/x: %v", err)
 	}
 
-	values, err := c.List(ctx, "/bootstrap", 0)
+	values, err := testClient.List(ctx, "/test", 0)
 	if err != nil {
-		t.Errorf("Failed to list /bootstrap: %v", err)
+		t.Errorf("Failed to list /test: %v", err)
 	}
 
 	if len(values) != 1 {
