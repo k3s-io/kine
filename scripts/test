@@ -5,9 +5,6 @@ cd $(dirname $0)/..
 
 . ./scripts/test-helpers
 
-#echo Running go unit tests
-go test -cover -tags=test ./...
-
 # ---
 
 docker ps

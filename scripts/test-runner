@@ -12,4 +12,8 @@ test-setup
 provision-database $DB_ARGS
 start-test $@
 
-./scripts/test-load
+echo "Running go unit tests"
+go test -v -cover -tags=test ./...
+
+#echo "Running load tests"
+#./scripts/test-load
