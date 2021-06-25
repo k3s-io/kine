@@ -13,8 +13,8 @@ provision-database $DB_ARGS
 start-test $@
 
 echo "Running go unit tests"
-env
-go test -v -cover -tags=test ./...
+local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+K3S_DATASTORE_ENDPOINT=$kine_url go test -v -cover -tags=test ./...
 
 #echo "Running load tests"
 #./scripts/test-load
