@@ -5,8 +5,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/k3s-io/kine/pkg/endpoint"
+)
+
+const (
+	testTimeout = 1 * time.Second
 )
 
 func getClient(t *testing.T) (Client, error) {
@@ -28,8 +33,12 @@ func TestList(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unable to create new client: %v", err)
 	}
+	defer c.Close()
 
-	values, err := c.List(context.TODO(), "/bootstrap", 0)
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	values, err := c.List(ctx, "/bootstrap", 0)
 	if err != nil {
 		t.Errorf("Failed to list /bootstrap: %v", err)
 	}
@@ -43,10 +52,17 @@ func TestCreateAndList(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unable to create new client: %v", err)
 	}
+	defer c.Close()
 
-	err = c.Create(context.TODO(), "/bootstrap/test", []byte("test"))
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
 
-	values, err := c.List(context.TODO(), "/bootstrap", 0)
+	err = c.Create(ctx, "/bootstrap/test", []byte("test"))
+	if err != nil {
+		t.Errorf("Failed to create /bootstrap/test: %v", err)
+	}
+
+	values, err := c.List(ctx, "/bootstrap", 0)
 	if err != nil {
 		t.Errorf("Failed to list /bootstrap: %v", err)
 	}
