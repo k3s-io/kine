@@ -13,6 +13,7 @@ provision-database $DB_ARGS
 start-test $@
 
 echo "Running go unit tests"
+env
 go test -v -cover -tags=test ./...
 
 #echo "Running load tests"
