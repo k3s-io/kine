@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/server/v3/embed"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -35,8 +36,8 @@ type Config struct {
 	Listener             string
 	Endpoint             string
 	ConnectionPoolConfig generic.ConnectionPoolConfig
-
-	tls.Config
+	ServerTLSConfig      tls.Config
+	BackendTLSConfig     tls.Config
 }
 
 type ETCDConfig struct {
@@ -50,7 +51,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	if driver == ETCDBackend {
 		return ETCDConfig{
 			Endpoints:   strings.Split(config.Endpoint, ","),
-			TLSConfig:   config.Config,
+			TLSConfig:   config.BackendTLSConfig,
 			LeaderElect: true,
 		}, nil
 	}
@@ -70,7 +71,11 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}
 
 	b := server.New(backend)
-	grpcServer := grpcServer(config)
+	grpcServer, err := grpcServer(config)
+	if err != nil {
+		return ETCDConfig{}, err
+	}
+
 	b.Register(grpcServer)
 
 	listener, err := createListener(listen)
@@ -112,10 +117,11 @@ func createListener(listen string) (ret net.Listener, rerr error) {
 	return net.Listen(network, address)
 }
 
-func grpcServer(config Config) *grpc.Server {
+func grpcServer(config Config) (*grpc.Server, error) {
 	if config.GRPCServer != nil {
-		return config.GRPCServer
+		return config.GRPCServer, nil
 	}
+
 	gopts := []grpc.ServerOption{
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             embed.DefaultGRPCKeepAliveMinTime,
@@ -127,7 +133,15 @@ func grpcServer(config Config) *grpc.Server {
 		}),
 	}
 
-	return grpc.NewServer(gopts...)
+	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(config.ServerTLSConfig.CertFile, config.ServerTLSConfig.KeyFile)
+		if err != nil {
+			return nil, err
+		}
+		gopts = append(gopts, grpc.Creds(creds))
+	}
+
+	return grpc.NewServer(gopts...), nil
 }
 
 func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) (bool, server.Backend, error) {
@@ -143,9 +157,9 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	case DQLiteBackend:
 		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
 	case PostgresBackend:
-		backend, err = pgsql.New(ctx, dsn, cfg.Config, cfg.ConnectionPoolConfig)
+		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
 	case MySQLBackend:
-		backend, err = mysql.New(ctx, dsn, cfg.Config, cfg.ConnectionPoolConfig)
+		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
 	}
