@@ -34,12 +34,22 @@ func main() {
 		cli.StringFlag{
 			Name:        "ca-file",
 			Usage:       "CA cert for DB connection",
-			Destination: &config.CAFile,
+			Destination: &config.BackendTLSConfig.CAFile,
 		},
 		cli.StringFlag{
 			Name:        "cert-file",
 			Usage:       "Certificate for DB connection",
-			Destination: &config.CertFile,
+			Destination: &config.BackendTLSConfig.CertFile,
+		},
+		cli.StringFlag{
+			Name:        "server-cert-file",
+			Usage:       "Certificate for etcd connection",
+			Destination: &config.ServerTLSConfig.CertFile,
+		},
+		cli.StringFlag{
+			Name:        "server-key-file",
+			Usage:       "Key file for etcd connection",
+			Destination: &config.ServerTLSConfig.KeyFile,
 		},
 		cli.IntFlag{
 			Name:        "datastore-max-idle-connections",
@@ -62,7 +72,7 @@ func main() {
 		cli.StringFlag{
 			Name:        "key-file",
 			Usage:       "Key file for DB connection",
-			Destination: &config.KeyFile,
+			Destination: &config.BackendTLSConfig.KeyFile,
 		},
 		cli.BoolFlag{Name: "debug"},
 	}
