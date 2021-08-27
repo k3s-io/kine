@@ -19,11 +19,10 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "kine"
 	app.Description = "Minimal etcd v3 API to support custom Kubernetes storage engines"
-	app.Usage = "Mini"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "listen-address",
-			Value:       "tcp://0.0.0.0:2379",
+			Value:       "0.0.0.0:2379",
 			Destination: &config.Listener,
 		},
 		cli.StringFlag{

@@ -16,6 +16,7 @@ import (
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/soheilhy/cmux"
 	"go.etcd.io/etcd/server/v3/embed"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -65,44 +66,99 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 		return ETCDConfig{}, errors.Wrap(err, "starting kine backend")
 	}
 
-	listen := config.Listener
-	if listen == "" {
-		listen = KineSocket
-	}
-
+	// set up GRPC server and register services
 	b := server.New(backend)
 	grpcServer, err := grpcServer(config)
 	if err != nil {
 		return ETCDConfig{}, err
 	}
-
 	b.Register(grpcServer)
 
-	listener, err := createListener(listen)
+	// set up HTTP server with basic mux
+	httpServer := httpServer()
+
+	// Create raw listener and wrap in cmux for protocol switching
+	listener, err := createListener(config)
 	if err != nil {
 		return ETCDConfig{}, err
 	}
+	m := cmux.New(listener)
+
+	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
+		// If using TLS, wrap handler in GRPC/HTTP switching handler and serve TLS
+		httpServer.Handler = grpcHandlerFunc(grpcServer, httpServer.Handler)
+		anyl := m.Match(cmux.Any())
+		go func() {
+			if err := httpServer.ServeTLS(anyl, config.ServerTLSConfig.CertFile, config.ServerTLSConfig.KeyFile); err != nil {
+				logrus.Errorf("Kine TLS server shutdown: %v", err)
+			}
+		}()
+	} else {
+		// If using plaintext, use cmux matching for GRPC/HTTP switching
+		grpcl := m.Match(cmux.HTTP2())
+		go func() {
+			if err := grpcServer.Serve(grpcl); err != nil {
+				logrus.Errorf("Kine GRPC server shutdown: %v", err)
+			}
+		}()
+		httpl := m.Match(cmux.HTTP1())
+		go func() {
+			if err := httpServer.Serve(httpl); err != nil {
+				logrus.Errorf("Kine HTTP server shutdown: %v", err)
+			}
+		}()
+	}
 
 	go func() {
-		if err := grpcServer.Serve(listener); err != nil {
-			logrus.Errorf("Kine server shutdown: %v", err)
+		if err := m.Serve(); err != nil {
+			logrus.Errorf("Kine listener shutdown: %v", err)
+			grpcServer.Stop()
 		}
-		<-ctx.Done()
-		grpcServer.Stop()
-		listener.Close()
 	}()
+
+	endpoint := getEndpointURL(config, listener)
+	logrus.Infof("Kine available at %s", endpoint)
 
 	return ETCDConfig{
 		LeaderElect: leaderelect,
-		Endpoints:   []string{listen},
+		Endpoints:   []string{endpoint},
 		TLSConfig:   tls.Config{},
 	}, nil
 }
 
-func createListener(listen string) (ret net.Listener, rerr error) {
-	network, address := networkAndAddress(listen)
+// getEndpointURL returns a URI string suitable for use as a local etcd endpoint.
+// For TCP sockets, it is assumed that the port can be reached via the loopback address.
+func getEndpointURL(config Config, listener net.Listener) string {
+	if config.Listener == "" {
+		config.Listener = KineSocket
+	}
+
+	network, _ := networkAndAddress(config.Listener)
+	if network == "unix" {
+		return config.Listener
+	}
+
+	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
+		network = "https"
+	} else {
+		network = "http"
+	}
+
+	address := listener.Addr().String()
+	return network + "://127.0.0.1" + address[strings.LastIndex(address, ":"):]
+}
+
+// createListener returns a listener bound to the requested protocol and address.
+func createListener(config Config) (ret net.Listener, rerr error) {
+	if config.Listener == "" {
+		config.Listener = KineSocket
+	}
+	network, address := networkAndAddress(config.Listener)
 
 	if network == "unix" {
+		if config.ServerTLSConfig.CertFile != "" || config.ServerTLSConfig.KeyFile != "" {
+			return nil, errors.New("cannot enable TLS on unix socket")
+		}
 		if err := os.Remove(address); err != nil && !os.IsNotExist(err) {
 			logrus.Warnf("failed to remove socket %s: %v", address, err)
 		}
@@ -111,12 +167,15 @@ func createListener(listen string) (ret net.Listener, rerr error) {
 				rerr = err
 			}
 		}()
+	} else {
+		network = "tcp"
 	}
 
-	logrus.Infof("Kine listening on %s://%s", network, address)
 	return net.Listen(network, address)
 }
 
+// grpcServer returns either a preconfigured GRPC server, or builds a new GRPC
+// server using upstream keepalive defaults plus the local Server TLS configuration.
 func grpcServer(config Config) (*grpc.Server, error) {
 	if config.GRPCServer != nil {
 		return config.GRPCServer, nil
@@ -144,6 +203,9 @@ func grpcServer(config Config) (*grpc.Server, error) {
 	return grpc.NewServer(gopts...), nil
 }
 
+// getKineStorageBackend parses the driver string, and returns a bool
+// indicating whether the backend requires leader election, and a suitable
+// backend datastore connection.
 func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) (bool, server.Backend, error) {
 	var (
 		backend     server.Backend
@@ -167,6 +229,7 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	return leaderElect, backend, err
 }
 
+// ParseStorageEndpoint returns the driver name and endpoint string from a datastore endpoint URL.
 func ParseStorageEndpoint(storageEndpoint string) (string, string) {
 	network, address := networkAndAddress(storageEndpoint)
 	switch network {
@@ -180,6 +243,8 @@ func ParseStorageEndpoint(storageEndpoint string) (string, string) {
 	return network, address
 }
 
+// networkAndAddress crudely splits a URL string into network (scheme) and address,
+// where the address includes everything after the scheme/authority separator.
 func networkAndAddress(str string) (string, string) {
 	parts := strings.SplitN(str, "://", 2)
 	if len(parts) > 1 {
