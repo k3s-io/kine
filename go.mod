@@ -11,6 +11,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rancher/wrangler v0.8.3
 	github.com/sirupsen/logrus v1.7.0
+	github.com/soheilhy/cmux v0.1.5
 	github.com/urfave/cli v1.21.0
 	go.etcd.io/etcd v0.0.0-20191023171146-3cf2f69b5738
 	go.etcd.io/etcd/api/v3 v3.5.0
