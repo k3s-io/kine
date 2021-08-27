@@ -67,10 +67,10 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}
 
 	// set up GRPC server and register services
-	b := server.New(backend)
+	b := server.New(backend, endpointScheme(config))
 	grpcServer, err := grpcServer(config)
 	if err != nil {
-		return ETCDConfig{}, err
+		return ETCDConfig{}, errors.Wrap(err, "creating GRPC server")
 	}
 	b.Register(grpcServer)
 
@@ -80,7 +80,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	// Create raw listener and wrap in cmux for protocol switching
 	listener, err := createListener(config)
 	if err != nil {
-		return ETCDConfig{}, err
+		return ETCDConfig{}, errors.Wrap(err, "creating listener")
 	}
 	m := cmux.New(listener)
 
@@ -116,7 +116,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 		}
 	}()
 
-	endpoint := getEndpointURL(config, listener)
+	endpoint := endpointURL(config, listener)
 	logrus.Infof("Kine available at %s", endpoint)
 
 	return ETCDConfig{
@@ -126,26 +126,39 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}, nil
 }
 
-// getEndpointURL returns a URI string suitable for use as a local etcd endpoint.
+// endpointURL returns a URI string suitable for use as a local etcd endpoint.
 // For TCP sockets, it is assumed that the port can be reached via the loopback address.
-func getEndpointURL(config Config, listener net.Listener) string {
+func endpointURL(config Config, listener net.Listener) string {
+	scheme := endpointScheme(config)
+	address := listener.Addr().String()
+	if scheme != "unix" {
+		_, port, err := net.SplitHostPort(address)
+		if err != nil {
+			logrus.Warnf("failed to get listener port: %v", err)
+			port = "2379"
+		}
+		address = "127.0.0.1:" + port
+	}
+
+	return scheme + "://" + address
+}
+
+// endpointScheme returns the URI scheme for the listener specified by the configuration.
+func endpointScheme(config Config) string {
 	if config.Listener == "" {
 		config.Listener = KineSocket
 	}
 
 	network, _ := networkAndAddress(config.Listener)
 	if network == "unix" {
-		return config.Listener
+		return network
 	}
 
 	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
-		network = "https"
-	} else {
-		network = "http"
+		return "https"
 	}
 
-	address := listener.Addr().String()
-	return network + "://127.0.0.1" + address[strings.LastIndex(address, ":"):]
+	return "http"
 }
 
 // createListener returns a listener bound to the requested protocol and address.
