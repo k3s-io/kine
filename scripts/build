@@ -9,11 +9,11 @@ mkdir -p bin
 if [ "$(uname)" = "Linux" ]; then
     OTHER_LINKFLAGS="-extldflags -static -s"
 fi
-LINKFLAGS="-X github.com/k3s-io/kine.Version=$VERSION"
-LINKFLAGS="-X github.com/k3s-io/kine.GitCommit=$COMMIT $LINKFLAGS"
+LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.Version=$VERSION"
+LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
 
 echo Building Kine
-go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/kine
+CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -o bin/kine
 if [ "$CROSS" = "true" ] && [ "$ARCH" = "amd64" ]; then
     GOOS=darwin go build -ldflags "$LINKFLAGS" -o bin/kine-darwin
     GOOS=windows go build -ldflags "$LINKFLAGS" -o bin/kine-windows

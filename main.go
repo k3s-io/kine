@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/k3s-io/kine/pkg/endpoint"
+	"github.com/k3s-io/kine/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -18,7 +20,8 @@ var (
 func main() {
 	app := cli.NewApp()
 	app.Name = "kine"
-	app.Description = "Minimal etcd v3 API to support custom Kubernetes storage engines"
+	app.Usage = "Minimal etcd v3 API to support custom Kubernetes storage engines"
+	app.Version = fmt.Sprintf("%s (%s)", version.Version, version.GitCommit)
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "listen-address",
