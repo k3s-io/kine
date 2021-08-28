@@ -131,7 +131,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 func endpointURL(config Config, listener net.Listener) string {
 	scheme := endpointScheme(config)
 	address := listener.Addr().String()
-	if scheme != "unix" {
+	if !strings.HasPrefix(scheme, "unix") {
 		_, port, err := net.SplitHostPort(address)
 		if err != nil {
 			logrus.Warnf("failed to get listener port: %v", err)
@@ -150,15 +150,16 @@ func endpointScheme(config Config) string {
 	}
 
 	network, _ := networkAndAddress(config.Listener)
-	if network == "unix" {
-		return network
+	if network != "unix" {
+		network = "http"
 	}
 
 	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
-		return "https"
+		// yes, etcd supports the "unixs" scheme for TLS over unix sockets
+		network += "s"
 	}
 
-	return "http"
+	return network
 }
 
 // createListener returns a listener bound to the requested protocol and address.
@@ -169,9 +170,6 @@ func createListener(config Config) (ret net.Listener, rerr error) {
 	network, address := networkAndAddress(config.Listener)
 
 	if network == "unix" {
-		if config.ServerTLSConfig.CertFile != "" || config.ServerTLSConfig.KeyFile != "" {
-			return nil, errors.New("cannot enable TLS on unix socket")
-		}
 		if err := os.Remove(address); err != nil && !os.IsNotExist(err) {
 			logrus.Warnf("failed to remove socket %s: %v", address, err)
 		}
