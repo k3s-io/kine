@@ -19,6 +19,10 @@ func (l *LimitedServer) Range(ctx context.Context, r *etcdserverpb.RangeRequest)
 	return l.list(ctx, r)
 }
 
+func (l *LimitedServer) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
+	return l.put(ctx, r)
+}
+
 func txnHeader(rev int64) *etcdserverpb.ResponseHeader {
 	return &etcdserverpb.ResponseHeader{
 		Revision: rev,
