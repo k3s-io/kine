@@ -61,7 +61,7 @@ def main(type, *args, **kwargs):
                 operations[labels['operation']]['count'] = value
 
     for operation, stats in operations.items():
-        print(f"\n{stats['sum'] / stats['count']:.3f}  average etcd request duration (seconds): {operation} {stats['type']}")
+        print(f"\n{stats['sum'] / stats['count']:.3f}  average {kwargs['backend_name']} request duration (seconds): {operation} {stats['type']}")
         fig = tpl.figure()
         fig.barh(stats['counts'], stats['buckets'], max_width=50)
         fig.show()
@@ -71,6 +71,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--type', '-t', type=str, required=False, default='core.ConfigMap')
     parser.add_argument('--log-level', '-l', type=str, required=False, default='INFO')
+    parser.add_argument('--backend-name', '-b', type=str, required=False, default='etcd')
     args = parser.parse_args()
 
     try:
