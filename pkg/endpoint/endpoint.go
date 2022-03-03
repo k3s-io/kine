@@ -9,6 +9,7 @@ import (
 
 	"github.com/k3s-io/kine/pkg/drivers/dqlite"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
+	"github.com/k3s-io/kine/pkg/drivers/jetstream"
 	"github.com/k3s-io/kine/pkg/drivers/mysql"
 	"github.com/k3s-io/kine/pkg/drivers/pgsql"
 	"github.com/k3s-io/kine/pkg/drivers/sqlite"
@@ -24,12 +25,13 @@ import (
 )
 
 const (
-	KineSocket      = "unix://kine.sock"
-	SQLiteBackend   = "sqlite"
-	DQLiteBackend   = "dqlite"
-	ETCDBackend     = "etcd3"
-	MySQLBackend    = "mysql"
-	PostgresBackend = "postgres"
+	KineSocket       = "unix://kine.sock"
+	SQLiteBackend    = "sqlite"
+	DQLiteBackend    = "dqlite"
+	ETCDBackend      = "etcd3"
+	JetStreamBackend = "jetstream"
+	MySQLBackend     = "mysql"
+	PostgresBackend  = "postgres"
 )
 
 type Config struct {
@@ -233,6 +235,8 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
 	case MySQLBackend:
 		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
+	case JetStreamBackend:
+		backend, err = jetstream.New(ctx, dsn)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
 	}
@@ -246,6 +250,8 @@ func ParseStorageEndpoint(storageEndpoint string) (string, string) {
 	switch network {
 	case "":
 		return SQLiteBackend, ""
+	case "nats":
+		return JetStreamBackend, storageEndpoint
 	case "http":
 		fallthrough
 	case "https":
