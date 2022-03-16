@@ -236,7 +236,7 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	case MySQLBackend:
 		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
 	case JetStreamBackend:
-		backend, err = jetstream.New(ctx, dsn)
+		backend, err = jetstream.New(ctx, dsn, cfg.BackendTLSConfig)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
 	}

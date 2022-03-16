@@ -3,6 +3,8 @@ package jetstream
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,6 +13,8 @@ import (
 
 	"github.com/k3s-io/kine/pkg/drivers/jetstream/kv"
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/k3s-io/kine/pkg/tls"
+	"github.com/nats-io/jsm.go/natscontext"
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 )
@@ -19,10 +23,11 @@ const (
 	kineBucket             = "kine"
 	revHistory             = 12
 	slowMethodMilliseconds = 500
+	defaultDSN             = "nats://localhost:4222?bucket=kine"
 )
 
 var (
-	toplevelKeyMatch = regexp.MustCompile(`/registry/(.*)/.*`)
+	toplevelKeyMatch = regexp.MustCompile(`(/[^/]*/[^/]*)(/.*)?`)
 )
 
 type JetStream struct {
@@ -41,20 +46,53 @@ type JSValue struct {
 	Delete       bool
 }
 
-// New get the JetStream Backend, establish connection to NATS JetStream.
-func New(ctx context.Context, connection string) (server.Backend, error) {
-	// support /bucketname in connection string
-	connectionMatch := regexp.MustCompile(`(nats://.*)/(.*)`)
-	bucketName := kineBucket
-	if connectionMatch.MatchString(connection) {
-		matches := connectionMatch.FindStringSubmatch(connection)
-		connection = matches[1]
-		bucketName = matches[2]
-		logrus.Infof("using bucket: %s", bucketName)
+// New get the JetStream Backend, establish connection to NATS JetStream. At the moment nats.go does not have
+// connection string support so kine will use nats://(token|username:password)hostname:port?bucket=bucketName&context=nats-context`
+//
+// bucket: specifies the bucket on the nats server for all of the k3s values for this cluster (optional)
+//
+// context: specifies the nats context to load from ~/.config/nats/context/ e.g. nats-context for ~/.config/nats/context/nats-context.json
+//
+// Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query parameters,
+// While auth is valid in the url, the preferred way to pass auth is through a file. If user/pass or token are provided in the
+// url only the first one will be used for all urls.
+///
+// If no bucket query parameter is provided it will default to kine
+//
+// The url expected by kine is a custom url with custom query parameters, so url passed in from nats-context.json will be ignored.
+// https://docs.nats.io/using-nats/nats-tools/nats_cli#configuration-contexts
+//
+// example nats-context.json:
+/**
+{
+  "description": "optional context description",
+  "url": "nats://127.0.0.1:4222?bucketName=kine",
+  "token": "",
+  "user": "",
+  "password": "",
+  "creds": "",
+  "nkey": "",
+  "cert": "",
+  "key": "",
+  "ca": "",
+  "nsc": "",
+  "jetstream_domain": "",
+  "jetstream_api_prefix": "",
+  "jetstream_event_prefix": ""
+}
+*/
+func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
+	c, b, nopts, err := parseNatsConnection(connection, tlsInfo)
+	if err != nil {
+		return nil, err
 	}
-	logrus.Infof("connecting to %s", connection)
 
-	conn, err := nats.Connect(connection)
+	logrus.Infof("using bucket: %s", b)
+	logrus.Infof("connecting to %s", c)
+
+	nopts = append(nopts, nats.Name("k3s-server using bucket: "+b))
+
+	conn, err := nats.Connect(c, nopts...)
 	if err != nil {
 		return nil, err
 	}
@@ -65,11 +103,11 @@ func New(ctx context.Context, connection string) (server.Backend, error) {
 		return nil, err
 	}
 
-	bucket, err := js.KeyValue(bucketName)
+	bucket, err := js.KeyValue(b)
 	if err != nil && err == nats.ErrBucketNotFound {
 		bucket, err = js.CreateKeyValue(
 			&nats.KeyValueConfig{
-				Bucket:      bucketName,
+				Bucket:      b,
 				Description: "Holds kine key/values",
 				History:     revHistory,
 			})
@@ -88,6 +126,92 @@ func New(ctx context.Context, connection string) (server.Backend, error) {
 		kvDirectoryMuxes: make(map[string]*sync.RWMutex),
 		jetStream:        js,
 	}, nil
+}
+
+// parseNatsConnection returns nats connection url, bucketName and []nats.Option, error
+func parseNatsConnection(dsn string, tlsInfo tls.Config) (string, string, []nats.Option, error) {
+
+	o := make([]nats.Option, 0)
+
+	bucketName := kineBucket
+
+	connections := strings.Split(dsn, ",")
+
+	connBuilder := strings.Builder{}
+	for idx, c := range connections {
+		if idx > 0 {
+			connBuilder.WriteString(",")
+		}
+		u, err := url.Parse(c)
+		if err != nil {
+			return "", "", nil, err
+		}
+		if u.Scheme != "nats" {
+			return "", "", nil, fmt.Errorf("invalid connection string=%s", c)
+		}
+		connBuilder.WriteString("nats://")
+		if u.User != nil && idx == 0 {
+			userInfo := strings.Split(u.User.String(), ":")
+			if len(userInfo) > 1 {
+				o = append(o, nats.UserInfo(userInfo[0], userInfo[1]))
+			} else {
+				o = append(o, nats.Token(userInfo[0]))
+			}
+		}
+		connBuilder.WriteString(u.Host)
+	}
+
+	u, err := url.Parse(connections[0])
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	queryMap, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	if b, ok := queryMap["bucket"]; ok {
+		bucketName = b[0]
+	}
+
+	clientCertFile := ""
+	clientKeyFile := ""
+
+	if tlsInfo.CertFile != "" {
+		clientCertFile = tlsInfo.CertFile
+	}
+
+	if tlsInfo.KeyFile != "" {
+		clientKeyFile = tlsInfo.KeyFile
+	}
+
+	if clientCertFile != "" && clientKeyFile != "" {
+		o = append(o, nats.ClientCert(clientCertFile, clientKeyFile))
+	}
+
+	if tlsInfo.CAFile != "" {
+		o = append(o, nats.RootCAs(tlsInfo.CAFile))
+	}
+
+	if ctxOpt, ok := queryMap["context"]; ok {
+		logrus.Infof("loading nats context=%s", ctxOpt[0])
+		natsContext, err := natscontext.New(ctxOpt[0], true)
+		if err != nil {
+			return "", "", nil, err
+		}
+		// command line options provided to kine will override the file
+		// https://github.com/nats-io/jsm.go/blob/v0.0.29/natscontext/context.go#L257
+		// allows for user, creds, nke, token, certifcate, ca, inboxprefix from the context.json
+		natsClientOpts, err := natsContext.NATSOptions(o...)
+		if err != nil {
+			return "", "", nil, err
+		}
+		o = natsClientOpts
+	}
+	logrus.Infof("using provided options=%v", o)
+
+	return connBuilder.String(), bucketName, o, nil
 }
 
 func (j *JetStream) Start(ctx context.Context) error {
@@ -152,7 +276,6 @@ func (j *JetStream) Get(ctx context.Context, key string, revision int64) (revRet
 }
 
 func (j *JetStream) get(ctx context.Context, key string, revision int64, includeDeletes bool) (int64, *JSValue, error) {
-	//logrus.Tracef("get %s, revision=%d, includeDeletes=%v", key, revision, includeDeletes)
 
 	compactRev, err := j.compactRevision()
 	if err != nil {
@@ -209,7 +332,6 @@ func (j *JetStream) get(ctx context.Context, key string, revision int64, include
 
 // Create
 func (j *JetStream) Create(ctx context.Context, key string, value []byte, lease int64) (revRet int64, errRet error) {
-	//logrus.Tracef("CREATE %s, size=%d, lease=%d", key, len(value), lease)
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
@@ -278,7 +400,6 @@ func (j *JetStream) Create(ctx context.Context, key string, value []byte, lease 
 }
 
 func (j *JetStream) Delete(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, deletedRet bool, errRet error) {
-	//logrus.Tracef("DELETE %s, rev=%d", key, revision)
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
@@ -340,17 +461,10 @@ func (j *JetStream) Delete(ctx context.Context, key string, revision int64) (rev
 		return rev, value.KV, false, nil
 	}
 
-	//entry, err := j.kvBucket.Get(key)
-	//if err != nil {
-	//	// should not happen
-	//	return rev, value.KV, true, nil
-	//}
-
 	return int64(deleteRev), value.KV, true, nil
 }
 
 func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, revision int64) (revRet int64, kvRet []*server.KeyValue, errRet error) {
-	//logrus.Tracef("LIST %s, start=%s, limit=%d, rev=%d", prefix, startKey, limit, revision)
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
@@ -406,7 +520,7 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 				if history, err := j.kvBucket.History(key, nats.Context(ctx)); err == nil {
 					histories[key] = history
 				} else {
-					// TODO? should not happen
+					// should not happen
 					logrus.Warnf("no history for %s", key)
 				}
 			}
@@ -534,7 +648,6 @@ func (j *JetStream) listAfter(ctx context.Context, prefix string, revision int64
 
 // Count returns an exact count of the number of matching keys and the current revision of the database
 func (j *JetStream) Count(ctx context.Context, prefix string) (revRet int64, count int64, err error) {
-	//logrus.Tracef("COUNT %s", prefix)
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
@@ -566,7 +679,6 @@ func (j *JetStream) Count(ctx context.Context, prefix string) (revRet int64, cou
 }
 
 func (j *JetStream) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {
-	//logrus.Tracef("UPDATE %s, value=%d, rev=%d, lease=%v", key, len(value), revision, lease)
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
@@ -643,10 +755,6 @@ func (j *JetStream) Update(ctx context.Context, key string, value []byte, revisi
 
 func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-chan []*server.Event {
 
-	//watchCtx, _ := context.WithCancel(ctx)
-
-	//logrus.Tracef("WATCH %s, rev=%d", prefix, revision)
-
 	watcher, err := j.kvBucket.(*kv.EncodedKV).WatchWithCtx(ctx, prefix, nats.IgnoreDeletes())
 
 	if revision > 0 {
@@ -688,11 +796,7 @@ func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-
 							Delete:       false,
 						}
 						lastEntry := &i
-						//if i.Operation() == nats.KeyValueDelete {
-						//	lastEntry, err = j.getPreviousEntry(watchCtx, i)
-						//}
 
-						//if err == nil && (*lastEntry).Operation() != nats.KeyValuePurge {
 						value, err = decode(*lastEntry)
 						if err != nil {
 							logrus.Warnf("watch event: could not decode %s seq %d", i.Key(), i.Revision())
@@ -701,18 +805,7 @@ func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-
 							if prevEntry != nil {
 								prevValue = *prevEntry
 							}
-							//else {
-							//	prevValue = value
-							//}
 						}
-						//if prevEntry, prevErr := j.getPreviousEntry(watchCtx, i); prevErr == nil {
-						//	if prevEntry != nil {
-						//		prevValue, err = decode(*prevEntry)
-						//	} else {
-						//		prevValue = value
-						//	}
-						//}
-
 						if err == nil {
 							event := &server.Event{
 								Create: value.Create,
@@ -720,9 +813,6 @@ func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-
 								KV:     value.KV,
 								PrevKV: prevValue.KV,
 							}
-							//if _, prevKV, err := j.Get(ctx, value.KV.Key, value.PrevRevision); err == nil && prevKV != nil {
-							//	event.PrevKV = prevKV
-							//}
 							events[0] = event
 							result <- events
 						} else {
@@ -730,7 +820,6 @@ func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-
 							continue
 						}
 					}
-					//					}
 				}
 			case <-ctx.Done():
 				logrus.Infof("watcher: %s context cancelled", prefix)
