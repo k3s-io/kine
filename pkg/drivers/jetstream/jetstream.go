@@ -23,7 +23,6 @@ const (
 	kineBucket             = "kine"
 	revHistory             = 12
 	slowMethodMilliseconds = 500
-	defaultDSN             = "nats://localhost:4222?bucket=kine"
 )
 
 var (
@@ -47,27 +46,28 @@ type JSValue struct {
 }
 
 // New get the JetStream Backend, establish connection to NATS JetStream. At the moment nats.go does not have
-// connection string support so kine will use nats://(token|username:password)hostname:port?bucket=bucketName&contextFile=nats-context`.
-// If contextFile is provided then do not provide a hostname:port in the endpoint URL
+// connection string support so kine will use:
+//		nats://(token|username:password)hostname:port?bucket=bucketName&contextFile=nats-context`.
 //
-// bucket: specifies the bucket on the nats server for all of the k3s values for this cluster (optional)
+// If contextFile is provided then do not provide a hostname:port in the endpoint URL, instead use the context file to
+// provide the NATS server url(s).
 //
-// contextFile: specifies the nats context to load from ~/.config/nats/context/ e.g. nats-context for ~/.config/nats/context/nats-context.json
+// 		bucket: specifies the bucket on the nats server for the k8s key/values for this cluster (optional)
+// 		contextFile: specifies the nats context file to load e.g. /etc/nats/context.json
 //
-// Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query parameters,
-// While auth is valid in the url, the preferred way to pass auth is through a file. If user/pass or token are provided in the
-// url only the first one will be used for all urls.
+// Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query
+// parameters. While auth is valid in the url, the preferred way to pass auth is through a context file. If user/pass or
+// token are provided in the url only the first one will be used for all urls.
 ///
 // If no bucket query parameter is provided it will default to kine
 //
-// The url expected by kine is a custom url with custom query parameters, so url passed in from nats-context.json will be ignored.
 // https://docs.nats.io/using-nats/nats-tools/nats_cli#configuration-contexts
 //
 // example nats-context.json:
-/**
+/*
 {
   "description": "optional context description",
-  "url": "nats://127.0.0.1:4222?bucketName=kine",
+  "url": "nats://127.0.0.1:4222",
   "token": "",
   "user": "",
   "password": "",
