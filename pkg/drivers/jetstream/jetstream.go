@@ -47,11 +47,12 @@ type JSValue struct {
 }
 
 // New get the JetStream Backend, establish connection to NATS JetStream. At the moment nats.go does not have
-// connection string support so kine will use nats://(token|username:password)hostname:port?bucket=bucketName&context=nats-context`
+// connection string support so kine will use nats://(token|username:password)hostname:port?bucket=bucketName&contextFile=nats-context`.
+// If contextFile is provided then do not provide a hostname:port in the endpoint URL
 //
 // bucket: specifies the bucket on the nats server for all of the k3s values for this cluster (optional)
 //
-// context: specifies the nats context to load from ~/.config/nats/context/ e.g. nats-context for ~/.config/nats/context/nats-context.json
+// contextFile: specifies the nats context to load from ~/.config/nats/context/ e.g. nats-context for ~/.config/nats/context/nats-context.json
 //
 // Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query parameters,
 // While auth is valid in the url, the preferred way to pass auth is through a file. If user/pass or token are provided in the
@@ -131,35 +132,10 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 // parseNatsConnection returns nats connection url, bucketName and []nats.Option, error
 func parseNatsConnection(dsn string, tlsInfo tls.Config) (string, string, []nats.Option, error) {
 
-	o := make([]nats.Option, 0)
-
+	connections := strings.Split(dsn, ",")
 	bucketName := kineBucket
 
-	connections := strings.Split(dsn, ",")
-
-	connBuilder := strings.Builder{}
-	for idx, c := range connections {
-		if idx > 0 {
-			connBuilder.WriteString(",")
-		}
-		u, err := url.Parse(c)
-		if err != nil {
-			return "", "", nil, err
-		}
-		if u.Scheme != "nats" {
-			return "", "", nil, fmt.Errorf("invalid connection string=%s", c)
-		}
-		connBuilder.WriteString("nats://")
-		if u.User != nil && idx == 0 {
-			userInfo := strings.Split(u.User.String(), ":")
-			if len(userInfo) > 1 {
-				o = append(o, nats.UserInfo(userInfo[0], userInfo[1]))
-			} else {
-				o = append(o, nats.Token(userInfo[0]))
-			}
-		}
-		connBuilder.WriteString(u.Host)
-	}
+	opts := make([]nats.Option, 0)
 
 	u, err := url.Parse(connections[0])
 	if err != nil {
@@ -175,43 +151,70 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (string, string, []nats
 		bucketName = b[0]
 	}
 
-	clientCertFile := ""
-	clientKeyFile := ""
-
-	if tlsInfo.CertFile != "" {
-		clientCertFile = tlsInfo.CertFile
+	contextFile, hasContext := queryMap["contextFile"]
+	if hasContext && u.Host != "" {
+		return "", "", nil, fmt.Errorf("when using context endpoint should be nats://?contextFile=<context-file.json>&bucket=bucketName")
 	}
 
-	if tlsInfo.KeyFile != "" {
-		clientKeyFile = tlsInfo.KeyFile
-	}
-
-	if clientCertFile != "" && clientKeyFile != "" {
-		o = append(o, nats.ClientCert(clientCertFile, clientKeyFile))
+	if tlsInfo.KeyFile != "" && tlsInfo.CertFile != "" {
+		opts = append(opts, nats.ClientCert(tlsInfo.CertFile, tlsInfo.KeyFile))
 	}
 
 	if tlsInfo.CAFile != "" {
-		o = append(o, nats.RootCAs(tlsInfo.CAFile))
+		opts = append(opts, nats.RootCAs(tlsInfo.CAFile))
 	}
 
-	if ctxOpt, ok := queryMap["context"]; ok {
-		logrus.Infof("loading nats context=%s", ctxOpt[0])
-		natsContext, err := natscontext.New(ctxOpt[0], true)
+	if hasContext {
+		logrus.Infof("loading nats contextFile=%s", contextFile[0])
+
+		natsContext, err := natscontext.NewFromFile(contextFile[0])
 		if err != nil {
 			return "", "", nil, err
 		}
+
+		connections = strings.Split(natsContext.ServerURL(), ",")
+
 		// command line options provided to kine will override the file
 		// https://github.com/nats-io/jsm.go/blob/v0.0.29/natscontext/context.go#L257
 		// allows for user, creds, nke, token, certifcate, ca, inboxprefix from the context.json
-		natsClientOpts, err := natsContext.NATSOptions(o...)
+		natsClientOpts, err := natsContext.NATSOptions(opts...)
 		if err != nil {
 			return "", "", nil, err
 		}
-		o = natsClientOpts
+		opts = natsClientOpts
 	}
-	logrus.Infof("using provided options=%v", o)
 
-	return connBuilder.String(), bucketName, o, nil
+	connBuilder := strings.Builder{}
+	for idx, c := range connections {
+		if idx > 0 {
+			connBuilder.WriteString(",")
+		}
+
+		u, err := url.Parse(c)
+		if err != nil {
+			return "", "", nil, err
+		}
+
+		if u.Scheme != "nats" {
+			return "", "", nil, fmt.Errorf("invalid connection string=%s", c)
+		}
+
+		connBuilder.WriteString("nats://")
+
+		if u.User != nil && idx == 0 {
+			userInfo := strings.Split(u.User.String(), ":")
+			if len(userInfo) > 1 {
+				opts = append(opts, nats.UserInfo(userInfo[0], userInfo[1]))
+			} else {
+				opts = append(opts, nats.Token(userInfo[0]))
+			}
+		}
+		connBuilder.WriteString(u.Host)
+	}
+
+	logrus.Infof("using provided options=%v", opts)
+
+	return connBuilder.String(), bucketName, opts, nil
 }
 
 func (j *JetStream) Start(ctx context.Context) error {
