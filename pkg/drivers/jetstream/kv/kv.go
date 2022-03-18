@@ -93,38 +93,6 @@ func (w *watcher) Stop() error {
 	return w.watcher.Stop()
 }
 
-func (e *EncodedKV) newWatcherWithCtx(ctx context.Context, w nats.KeyWatcher) nats.KeyWatcher {
-	watch := &watcher{
-		watcher:    w,
-		keyCodec:   e.keyCodec,
-		valueCodec: e.valueCodec,
-		updates:    make(chan nats.KeyValueEntry, 32)}
-
-	watch.ctx, watch.cancel = context.WithCancel(ctx)
-
-	go func() {
-		for {
-			select {
-			case ent := <-w.Updates():
-				if ent == nil {
-					watch.updates <- nil
-					continue
-				}
-
-				watch.updates <- &entry{
-					keyCodec:   e.keyCodec,
-					valueCodec: e.valueCodec,
-					entry:      ent,
-				}
-			case <-watch.ctx.Done():
-				return
-			}
-		}
-	}()
-
-	return watch
-}
-
 func (e *EncodedKV) newWatcher(w nats.KeyWatcher) nats.KeyWatcher {
 	watch := &watcher{
 		watcher:    w,
@@ -132,13 +100,11 @@ func (e *EncodedKV) newWatcher(w nats.KeyWatcher) nats.KeyWatcher {
 		valueCodec: e.valueCodec,
 		updates:    make(chan nats.KeyValueEntry, 32)}
 
-	// waiting on https://github.com/nats-io/nats.go/pull/904 to refactor
-	//
-	//if w.Context() == nil {
-	watch.ctx, watch.cancel = context.WithCancel(context.Background())
-	//} else {
-	//	watch.ctx, watch.cancel = context.WithCancel(w.Context())
-	//}
+	if w.Context() == nil {
+		watch.ctx, watch.cancel = context.WithCancel(context.Background())
+	} else {
+		watch.ctx, watch.cancel = context.WithCancel(w.Context())
+	}
 
 	go func() {
 		for {
@@ -263,21 +229,6 @@ func (e *EncodedKV) Purge(key string) error {
 	}
 
 	return e.bucket.Purge(ek)
-}
-
-func (e *EncodedKV) WatchWithCtx(ctx context.Context, keys string, opts ...nats.WatchOpt) (nats.KeyWatcher, error) {
-	opts = append(opts, nats.Context(ctx))
-	ek, err := e.keyCodec.EncodeRange(keys)
-	if err != nil {
-		return nil, err
-	}
-
-	nw, err := e.bucket.Watch(ek, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return e.newWatcherWithCtx(ctx, nw), err
 }
 
 func (e *EncodedKV) Watch(keys string, opts ...nats.WatchOpt) (nats.KeyWatcher, error) {
