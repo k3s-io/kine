@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	kineBucket             = "kine"
-	revHistory             = 12
-	slowMethodMilliseconds = 500
+	defaultBucket       = "kine"
+	defaultRevHistory   = 10
+	defaultSlowMethodMs = 500
 )
 
 var (
@@ -64,7 +64,7 @@ type JSValue struct {
 //
 //		bucket: specifies the bucket on the nats server for the k8s key/values for this cluster (optional)
 //		contextFile: specifies the nats context file to load e.g. /etc/nats/context.json
-//		revHistory: controls the rev history for JetStream defaults to 12 must be > 0 and <= 64
+//		revHistory: controls the rev history for JetStream defaults to 10 must be > 2 and <= 64
 //		slowMethodMs: used to log methods slower than x Ms default 500
 //
 // Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query
@@ -146,11 +146,11 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 
 	jsConfig := &Config{
-		slowMilliseconds: slowMethodMilliseconds,
-		revHistory:       revHistory,
+		slowMilliseconds: defaultSlowMethodMs,
+		revHistory:       defaultRevHistory,
 	}
 	connections := strings.Split(dsn, ",")
-	jsConfig.bucket = kineBucket
+	jsConfig.bucket = defaultBucket
 
 	jsConfig.options = make([]nats.Option, 0)
 
@@ -169,19 +169,19 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	}
 
 	if r, ok := queryMap["slowMethodMs"]; ok {
-		if ms, err := strconv.Atoi(r[0]); err == nil {
-			jsConfig.slowMilliseconds = int64(ms)
+		if ms, err := strconv.ParseInt(r[0], 10, 64); err == nil {
+			jsConfig.slowMilliseconds = ms
 		} else {
 			return nil, err
 		}
 	}
 
 	if r, ok := queryMap["revHistory"]; ok {
-		if count, err := strconv.Atoi(r[0]); err == nil {
-			if count > 0 && count <= 64 {
-				jsConfig.revHistory = uint8(count)
+		if revs, err := strconv.ParseUint(r[0], 10, 8); err == nil {
+			if revs >= 2 && revs <= 64 {
+				jsConfig.revHistory = uint8(revs)
 			} else {
-				return nil, fmt.Errorf("invalid revHistory, must be > 0 and < 64")
+				return nil, fmt.Errorf("invalid revHistory, must be => 2 and <= 64")
 			}
 		}
 	}
