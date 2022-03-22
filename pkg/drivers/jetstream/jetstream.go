@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	defaultBucket       = "kine"
-	defaultRevHistory   = 10
-	defaultSlowMethodMs = 500
+	defaultBucket     = "kine"
+	defaultRevHistory = 10
+	defaultSlowMethod = 500 * time.Millisecond
 )
 
 var (
@@ -31,11 +31,11 @@ var (
 )
 
 type Config struct {
-	natsURL          string
-	options          []nats.Option
-	revHistory       uint8
-	bucket           string
-	slowMilliseconds int64
+	natsURL    string
+	options    []nats.Option
+	revHistory uint8
+	bucket     string
+	slowMethod time.Duration
 }
 
 type JetStream struct {
@@ -44,7 +44,7 @@ type JetStream struct {
 	kvDirectoryMutex *sync.RWMutex
 	kvDirectoryMuxes map[string]*sync.RWMutex
 	jetStream        nats.JetStreamContext
-	slowMethod       int64
+	slowMethod       time.Duration
 	server.Backend
 }
 
@@ -57,7 +57,7 @@ type JSValue struct {
 
 // New get the JetStream Backend, establish connection to NATS JetStream. At the moment nats.go does not have
 // connection string support so kine will use:
-//		nats://(token|username:password)hostname:port?bucket=bucketName&contextFile=nats-context&slowMethodMs=<milliseconds>&revHistory=<revCount>`.
+//		nats://(token|username:password)hostname:port?bucket=bucketName&contextFile=nats-context&slowMethod=<duration>&revHistory=<revCount>`.
 //
 // If contextFile is provided then do not provide a hostname:port in the endpoint URL, instead use the context file to
 // provide the NATS server url(s).
@@ -65,7 +65,7 @@ type JSValue struct {
 //		bucket: specifies the bucket on the nats server for the k8s key/values for this cluster (optional)
 //		contextFile: specifies the nats context file to load e.g. /etc/nats/context.json
 //		revHistory: controls the rev history for JetStream defaults to 10 must be > 2 and <= 64
-//		slowMethodMs: used to log methods slower than x Ms default 500
+//		slowMethod: used to log methods slower than provided duration default 500ms
 //
 // Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query
 // parameters. While auth is valid in the url, the preferred way to pass auth is through a context file. If user/pass or
@@ -138,7 +138,7 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 		kvDirectoryMutex: &sync.RWMutex{},
 		kvDirectoryMuxes: make(map[string]*sync.RWMutex),
 		jetStream:        js,
-		slowMethod:       config.slowMilliseconds,
+		slowMethod:       config.slowMethod,
 	}, nil
 }
 
@@ -146,8 +146,8 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 
 	jsConfig := &Config{
-		slowMilliseconds: defaultSlowMethodMs,
-		revHistory:       defaultRevHistory,
+		slowMethod: defaultSlowMethod,
+		revHistory: defaultRevHistory,
 	}
 	connections := strings.Split(dsn, ",")
 	jsConfig.bucket = defaultBucket
@@ -168,9 +168,9 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		jsConfig.bucket = b[0]
 	}
 
-	if r, ok := queryMap["slowMethodMs"]; ok {
-		if ms, err := strconv.ParseInt(r[0], 10, 64); err == nil {
-			jsConfig.slowMilliseconds = ms
+	if r, ok := queryMap["slowMethod"]; ok {
+		if dur, err := time.ParseDuration(r[0]); err == nil {
+			jsConfig.slowMethod = dur
 		} else {
 			return nil, err
 		}
@@ -289,11 +289,11 @@ func (j *JetStream) Get(ctx context.Context, key string, revision int64) (revRet
 		if kvRet != nil {
 			size = len(kvRet.Value)
 		}
-		fStr := "GET %s, rev=%d => revRet=%d, kv=%v, size=%d, err=%v, duration=%d"
-		if duration.Milliseconds() > j.slowMethod {
-			logrus.Warnf(fStr, key, revision, revRet, kvRet != nil, size, errRet, duration.Milliseconds())
+		fStr := "GET %s, rev=%d => revRet=%d, kv=%v, size=%d, err=%v, duration=%s"
+		if duration > j.slowMethod {
+			logrus.Warnf(fStr, key, revision, revRet, kvRet != nil, size, errRet, duration.String())
 		} else {
-			logrus.Tracef(fStr, key, revision, revRet, kvRet != nil, size, errRet, duration.Milliseconds())
+			logrus.Tracef(fStr, key, revision, revRet, kvRet != nil, size, errRet, duration.String())
 		}
 	}()
 
@@ -374,11 +374,11 @@ func (j *JetStream) Create(ctx context.Context, key string, value []byte, lease 
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
-		fStr := "CREATE %s, size=%d, lease=%d => rev=%d, err=%v, duration=%d"
-		if duration.Milliseconds() > j.slowMethod {
-			logrus.Warnf(fStr, key, len(value), lease, revRet, errRet, duration.Milliseconds())
+		fStr := "CREATE %s, size=%d, lease=%d => rev=%d, err=%v, duration=%s"
+		if duration > j.slowMethod {
+			logrus.Warnf(fStr, key, len(value), lease, revRet, errRet, duration.String())
 		} else {
-			logrus.Tracef(fStr, key, len(value), lease, revRet, errRet, duration.Milliseconds())
+			logrus.Tracef(fStr, key, len(value), lease, revRet, errRet, duration.String())
 		}
 	}()
 
@@ -442,11 +442,11 @@ func (j *JetStream) Delete(ctx context.Context, key string, revision int64) (rev
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
-		fStr := "DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v, duration=%d"
-		if duration.Milliseconds() > j.slowMethod {
-			logrus.Warnf(fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, duration.Milliseconds())
+		fStr := "DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v, duration=%s"
+		if duration > j.slowMethod {
+			logrus.Warnf(fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, duration.String())
 		} else {
-			logrus.Tracef(fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, duration.Milliseconds())
+			logrus.Tracef(fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, duration.String())
 		}
 	}()
 	lockFolder := getTopLevelKey(key)
@@ -507,11 +507,11 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
-		fStr := "LIST %s, start=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v, duration=%d"
-		if duration.Milliseconds() > j.slowMethod {
-			logrus.Warnf(fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, duration.Milliseconds())
+		fStr := "LIST %s, start=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v, duration=%s"
+		if duration > j.slowMethod {
+			logrus.Warnf(fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, duration.String())
 		} else {
-			logrus.Tracef(fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, duration.Milliseconds())
+			logrus.Tracef(fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, duration.String())
 		}
 	}()
 
@@ -689,11 +689,11 @@ func (j *JetStream) Count(ctx context.Context, prefix string) (revRet int64, cou
 	start := time.Now()
 	defer func() {
 		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
-		fStr := "COUNT %s => rev=%d, count=%d, err=%v, duration=%d"
-		if duration.Milliseconds() > j.slowMethod {
-			logrus.Warnf(fStr, prefix, revRet, count, err, duration.Milliseconds())
+		fStr := "COUNT %s => rev=%d, count=%d, err=%v, duration=%s"
+		if duration > j.slowMethod {
+			logrus.Warnf(fStr, prefix, revRet, count, err, duration.String())
 		} else {
-			logrus.Tracef(fStr, prefix, revRet, count, err, duration.Milliseconds())
+			logrus.Tracef(fStr, prefix, revRet, count, err, duration.String())
 		}
 	}()
 
@@ -717,11 +717,11 @@ func (j *JetStream) Update(ctx context.Context, key string, value []byte, revisi
 		if kvRet != nil {
 			kvRev = kvRet.ModRevision
 		}
-		fStr := "UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v, duration=%d"
-		if duration.Milliseconds() > j.slowMethod {
-			logrus.Warnf(fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, duration.Milliseconds())
+		fStr := "UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v, duration=%s"
+		if duration > j.slowMethod {
+			logrus.Warnf(fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, duration.String())
 		} else {
-			logrus.Tracef(fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, duration.Milliseconds())
+			logrus.Tracef(fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, duration.String())
 		}
 	}()
 
