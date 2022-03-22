@@ -76,6 +76,11 @@ func main() {
 			Usage:       "Key file for DB connection",
 			Destination: &config.BackendTLSConfig.KeyFile,
 		},
+		cli.StringFlag{
+			Name:        "data-dir",
+			Usage:       "Storage path (default is ./ )",
+			Destination: &config.DataDir,
+		},
 		cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run
