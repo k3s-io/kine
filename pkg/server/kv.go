@@ -21,9 +21,9 @@ func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest
 		return nil, unsupported("maxCreateRevision")
 	}
 
-	if r.SortOrder != 0 {
-		return nil, unsupported("sortOrder")
-	}
+	// if r.SortOrder != 0 {
+	// 	return nil, unsupported("sortOrder")
+	// }
 
 	if r.SortTarget != 0 {
 		return nil, unsupported("sortTarget")
