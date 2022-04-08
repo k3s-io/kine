@@ -13,8 +13,8 @@ dump-logs() {
         local name=$(cat $node/metadata/name 2>/dev/null)
         [ "$name" ] || continue
         mkdir -p $node/logs
-        local hostname=$(docker exec $name hostname)
-        docker logs $name >$node/logs/system.log 2>&1
+        local hostname=$(docker container exec $name hostname)
+        docker container logs $name >$node/logs/system.log 2>&1
         for log in $node/logs/*.log; do
             echo
             echo "#- Tail: $log"
@@ -44,7 +44,7 @@ test-cleanup() {
         [ -f "$name" ] || continue
         local container=$(cat $name)
         echo "Removing container $container"
-        docker rm -f -v $container
+        docker container rm -f -v $container
     done
     echo
     if has-function test-post-hook; then
@@ -159,7 +159,12 @@ fetch-kubeconfig() {(
     local num=${1:-1}
     local name=$(cat $TEST_DIR/servers/$num/metadata/name)
     local url=$(cat $TEST_DIR/servers/$num/metadata/url)
-    docker cp $name:/etc/rancher/k3s/k3s.yaml - 2>/dev/null | tar -xO 2>/dev/null | sed -e "s|https://127.0.0.1:6443|$url|g" >$TEST_DIR/servers/$num/kubeconfig.yaml
+    # check for macos and do not replace k8s api url
+    if [[ "$OSTYPE" =~ ^darwin ]]; then
+      docker cp $name:/etc/rancher/k3s/k3s.yaml - 2>/dev/null | tar -xO 2>/dev/null  >$TEST_DIR/servers/$num/kubeconfig.yaml
+    else
+      docker cp $name:/etc/rancher/k3s/k3s.yaml - 2>/dev/null | tar -xO 2>/dev/null | sed -e "s|https://127.0.0.1:6443|$url|g" >$TEST_DIR/servers/$num/kubeconfig.yaml
+    fi
 )}
 export -f fetch-kubeconfig
 
@@ -195,18 +200,18 @@ provision-server() {
 
     run-function server-pre-hook $count
 
-    docker run \
+    docker container run \
         -d --name $name \
         --privileged \
-        -p 6443 \
+        -p 6443:6443 \
         -e K3S_DEBUG=true \
         -e K3S_DATASTORE_ENDPOINT=$K3S_DATASTORE_ENDPOINT \
         ${K3S_IMAGE:-docker.io/rancher/k3s:v1.20.4-k3s1} server \
         --disable=coredns,servicelb,traefik,local-storage,metrics-server \
         --disable-agent --disable-scheduler --disable-cloud-controller --disable-kube-proxy --disable-network-policy
 
-    local ip=$(docker inspect --format '{{ .NetworkSettings.IPAddress }}' $name | tee $TEST_DIR/servers/$count/metadata/ip)
-    local port=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/servers/$count/metadata/port)
+    local ip=$(docker container inspect --format '{{ .NetworkSettings.IPAddress }}' $name | tee $TEST_DIR/servers/$count/metadata/ip)
+    local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/servers/$count/metadata/port)
     local url=$(echo "https://$ip:$port" | tee $TEST_DIR/servers/$count/metadata/url)
 
     echo "Started $name @ $url"
@@ -224,16 +229,16 @@ provision-kine() {
 
     local count=$(inc-count kine)
     local testID=$(basename $TEST_DIR)
-    local name=$(echo "kine-$count-$testID" | tee $TEST_DIR/kine/$count/metadata/name) 
+    local name=$(echo "kine-$count-$testID" | tee $TEST_DIR/kine/$count/metadata/name)
 
     run-function kine-pre-hook $count
 
-    docker run \
+    docker container run \
         -d --name $name \
         $KINE_IMAGE --endpoint $KINE_ENDPOINT
 
-    local ip=$(docker inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)
-    local port=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/kine/$count/metadata/port)
+    local ip=$(docker container inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)
+    local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/kine/$count/metadata/port)
     local url=$(echo "http://$ip:$port" | tee $TEST_DIR/kine/$count/metadata/url)
 
     run-function kine-post-hook $count
@@ -253,7 +258,7 @@ provision-database() {
     echo > $TEST_DIR/databases/$count/metadata/env
     echo $DB_IMAGE > $TEST_DIR/databases/$count/metadata/image
     local testID=$(basename $TEST_DIR)
-    local name=$(echo "database-$count-$testID" | tee $TEST_DIR/databases/$count/metadata/name) 
+    local name=$(echo "database-$count-$testID" | tee $TEST_DIR/databases/$count/metadata/name)
     local pass=$(echo "$RANDOM$RANDOM$RANDOM" | tee $TEST_DIR/databases/$count/metadata/password)
     while [[ "$#" -gt "0" ]]; do
       echo $1 >> $TEST_DIR/databases/$count/metadata/env
@@ -262,15 +267,15 @@ provision-database() {
 
     run-function database-pre-hook $count
 
-    docker run \
+    docker container run \
         -d --name $name \
         --cap-add=sys_nice \
         -e $DB_PASSWORD_ENV=$pass \
         --env-file $TEST_DIR/databases/$count/metadata/env \
         ${DB_IMAGE} ${DB_ARGS}
 
-    local ip=$(docker inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/databases/$count/metadata/ip)
-    local port=$(docker inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/databases/$count/metadata/port)
+    local ip=$(docker container inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/databases/$count/metadata/ip)
+    local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/databases/$count/metadata/port)
 
     echo "Started $name @ $ip:$port"
 

@@ -17,4 +17,5 @@ CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" go build -ldfla
 if [ "$CROSS" = "true" ] && [ "$ARCH" = "amd64" ]; then
     GOOS=darwin go build -ldflags "$LINKFLAGS" -o bin/kine-darwin
     GOOS=windows go build -ldflags "$LINKFLAGS" -o bin/kine-windows
+    GOOS=linux go build -ldflags "$LINKFLAGS" -o bin/kine-amd64
 fi
