@@ -16,8 +16,7 @@ require (
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/soheilhy/cmux v0.1.5
-	github.com/urfave/cli v1.21.0
-	go.etcd.io/etcd v0.0.0-20191023171146-3cf2f69b5738
+	github.com/urfave/cli v1.22.4
 	go.etcd.io/etcd/api/v3 v3.5.0
 	go.etcd.io/etcd/client/pkg/v3 v3.5.0
 	go.etcd.io/etcd/client/v3 v3.5.0
