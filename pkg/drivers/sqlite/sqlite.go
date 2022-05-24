@@ -6,6 +6,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"time"
 
@@ -13,8 +14,10 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	// sqlite db driver
@@ -44,12 +47,12 @@ var (
 	}
 )
 
-func New(ctx context.Context, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
-	backend, _, err := NewVariant(ctx, "sqlite3", dataSourceName, connPoolConfig)
+func New(ctx context.Context, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
+	backend, _, err := NewVariant(ctx, "sqlite3", dataSourceName, connPoolConfig, metricsRegisterer)
 	return backend, err
 }
 
-func NewVariant(ctx context.Context, driverName, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, *generic.Generic, error) {
+func NewVariant(ctx context.Context, driverName, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, *generic.Generic, error) {
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, nil, err
@@ -57,7 +60,7 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared"
 	}
 
-	dialect, err := generic.Open(ctx, driverName, dataSourceName, connPoolConfig, "?", false)
+	dialect, err := generic.Open(ctx, driverName, dataSourceName, connPoolConfig, "?", false, metricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -88,6 +91,15 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 		}
 		return err
 	}
+	dialect.ErrCode = func(err error) string {
+		if err == nil {
+			return ""
+		}
+		if err, ok := err.(sqlite3.Error); ok {
+			return fmt.Sprint(err.ExtendedCode)
+		}
+		return err.Error()
+	}
 
 	// this is the first SQL that will be executed on a new DB conn so
 	// loop on failure here because in the case of dqlite it could still be initializing
@@ -116,7 +128,7 @@ func setup(db *sql.DB) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
 	for _, stmt := range schema {
-		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
 			return err

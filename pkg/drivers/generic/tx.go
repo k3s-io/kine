@@ -3,8 +3,11 @@ package generic
 import (
 	"context"
 	"database/sql"
+	"time"
 
+	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -97,17 +100,29 @@ func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (t *Tx) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
-	logrus.Tracef("TX QUERY %v : %s", args, Stripped(sql))
+func (t *Tx) query(ctx context.Context, sql string, args ...interface{}) (result *sql.Rows, err error) {
+	logrus.Tracef("TX QUERY %v : %s", args, util.Stripped(sql))
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, t.d.ErrCode(err), util.Stripped(sql), args)
+	}()
 	return t.x.QueryContext(ctx, sql, args...)
 }
 
-func (t *Tx) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
-	logrus.Tracef("TX QUERY ROW %v : %s", args, Stripped(sql))
+func (t *Tx) queryRow(ctx context.Context, sql string, args ...interface{}) (result *sql.Row) {
+	logrus.Tracef("TX QUERY ROW %v : %s", args, util.Stripped(sql))
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, t.d.ErrCode(result.Err()), util.Stripped(sql), args)
+	}()
 	return t.x.QueryRowContext(ctx, sql, args...)
 }
 
 func (t *Tx) execute(ctx context.Context, sql string, args ...interface{}) (result sql.Result, err error) {
-	logrus.Tracef("TX EXEC %v : %s", args, Stripped(sql))
+	logrus.Tracef("TX EXEC %v : %s", args, util.Stripped(sql))
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, t.d.ErrCode(err), util.Stripped(sql), args)
+	}()
 	return t.x.ExecContext(ctx, sql, args...)
 }

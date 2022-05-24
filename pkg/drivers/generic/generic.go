@@ -13,7 +13,11 @@ import (
 
 	"github.com/Rican7/retry/backoff"
 	"github.com/Rican7/retry/strategy"
+	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/k3s-io/kine/pkg/util"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -66,15 +70,9 @@ var (
 		`, revSQL, compactRevSQL, columns)
 )
 
-type Stripped string
-
-func (s Stripped) String() string {
-	str := strings.ReplaceAll(string(s), "\n", "")
-	return regexp.MustCompile("[\t ]+").ReplaceAllString(str, " ")
-}
-
 type ErrRetry func(error) bool
 type TranslateErr func(error) error
+type ErrCode func(error) string
 
 type ConnectionPoolConfig struct {
 	MaxIdle     int           // zero means defaultMaxIdleConns; negative means 0
@@ -105,6 +103,7 @@ type Generic struct {
 	GetSizeSQL            string
 	Retry                 ErrRetry
 	TranslateErr          TranslateErr
+	ErrCode               ErrCode
 }
 
 func q(sql, param string, numbered bool) string {
@@ -179,7 +178,7 @@ func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool) (*Generic, error) {
+func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
@@ -200,6 +199,10 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	}
 
 	configureConnectionPooling(connPoolConfig, db, driverName)
+
+	if metricsRegisterer != nil {
+		metricsRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
+	}
 
 	return &Generic{
 		DB: db,
@@ -248,13 +251,21 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	}, err
 }
 
-func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
-	logrus.Tracef("QUERY %v : %s", args, Stripped(sql))
+func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (result *sql.Rows, err error) {
+	logrus.Tracef("QUERY %v : %s", args, util.Stripped(sql))
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, d.ErrCode(err), util.Stripped(sql), args)
+	}()
 	return d.DB.QueryContext(ctx, sql, args...)
 }
 
-func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{}) *sql.Row {
-	logrus.Tracef("QUERY ROW %v : %s", args, Stripped(sql))
+func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{}) (result *sql.Row) {
+	logrus.Tracef("QUERY ROW %v : %s", args, util.Stripped(sql))
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, d.ErrCode(result.Err()), util.Stripped(sql), args)
+	}()
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
@@ -266,8 +277,10 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
 	for i := uint(0); i < 20; i++ {
-		logrus.Tracef("EXEC (try: %d) %v : %s", i, args, Stripped(sql))
+		logrus.Tracef("EXEC (try: %d) %v : %s", i, args, util.Stripped(sql))
+		startTime := time.Now()
 		result, err = d.DB.ExecContext(ctx, sql, args...)
+		metrics.ObserveSQL(startTime, d.ErrCode(err), util.Stripped(sql), args)
 		if err != nil && d.Retry != nil && d.Retry(err) {
 			wait(i)
 			continue
