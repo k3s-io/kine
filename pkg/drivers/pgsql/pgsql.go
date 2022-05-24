@@ -13,7 +13,9 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,7 +46,7 @@ var (
 	createDB = "CREATE DATABASE "
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
+func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
 	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -54,7 +56,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "postgres", parsedDSN, connPoolConfig, "$", true)
+	dialect, err := generic.Open(ctx, "postgres", parsedDSN, connPoolConfig, "$", true, metricsRegisterer)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +84,15 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		}
 		return err
 	}
+	dialect.ErrCode = func(err error) string {
+		if err == nil {
+			return ""
+		}
+		if err, ok := err.(*pq.Error); ok {
+			return string(err.Code)
+		}
+		return err.Error()
+	}
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
@@ -95,7 +106,7 @@ func setup(db *sql.DB) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
 	for _, stmt := range schema {
-		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
 			return err
@@ -136,7 +147,7 @@ func createDBIfNotExist(dataSourceName string) error {
 		}
 		defer db.Close()
 		stmt := createDB + dbName + ";"
-		logrus.Tracef("SETUP EXEC : %v", generic.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err = db.Exec(stmt)
 		if err != nil {
 			return err

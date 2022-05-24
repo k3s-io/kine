@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/k3s-io/kine/pkg/broadcaster"
+	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -150,6 +151,7 @@ outer:
 					break
 				} else {
 					logrus.Errorf("Compact failed: %v", err)
+					metrics.CompactTotal.WithLabelValues(metrics.ResultError).Inc()
 					continue outer
 				}
 			}
@@ -162,6 +164,8 @@ outer:
 		// Record the final results for the outer loop
 		compactRev = compactedRev
 		targetCompactRev = currentRev
+
+		metrics.CompactTotal.WithLabelValues(metrics.ResultSuccess).Inc()
 	}
 }
 
