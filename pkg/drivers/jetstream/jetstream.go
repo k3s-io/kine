@@ -280,7 +280,7 @@ func (j *JetStream) isKeyExpired(_ context.Context, createTime time.Time, value 
 }
 
 // Get returns the associated server.KeyValue
-func (j *JetStream) Get(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
+func (j *JetStream) Get(ctx context.Context, key, rangeEnd string, limit, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
 	//logrus.Tracef("GET %s, rev=%d", key, revision)
 	start := time.Now()
 	defer func() {
@@ -674,7 +674,7 @@ func (j *JetStream) listAfter(ctx context.Context, prefix string, revision int64
 				KV:     kv.KV,
 				PrevKV: &server.KeyValue{},
 			}
-			if _, prevKV, err := j.Get(ctx, kv.KV.Key, kv.PrevRevision); err == nil && prevKV != nil {
+			if _, prevKV, err := j.Get(ctx, kv.KV.Key, "", 1, kv.PrevRevision); err == nil && prevKV != nil {
 				event.PrevKV = prevKV
 			}
 
