@@ -44,21 +44,21 @@ func (l *LogStructured) Start(ctx context.Context) error {
 	return nil
 }
 
-func (l *LogStructured) Get(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
+func (l *LogStructured) Get(ctx context.Context, key, rangeEnd string, limit, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
 	defer func() {
 		l.adjustRevision(ctx, &revRet)
 		logrus.Tracef("GET %s, rev=%d => rev=%d, kv=%v, err=%v", key, revision, revRet, kvRet != nil, errRet)
 	}()
 
-	rev, event, err := l.get(ctx, key, revision, false)
+	rev, event, err := l.get(ctx, key, rangeEnd, limit, revision, false)
 	if event == nil {
 		return rev, nil, err
 	}
 	return rev, event.KV, err
 }
 
-func (l *LogStructured) get(ctx context.Context, key string, revision int64, includeDeletes bool) (int64, *server.Event, error) {
-	rev, events, err := l.log.List(ctx, key, "", 1, revision, includeDeletes)
+func (l *LogStructured) get(ctx context.Context, key, rangeEnd string, limit, revision int64, includeDeletes bool) (int64, *server.Event, error) {
+	rev, events, err := l.log.List(ctx, key, rangeEnd, limit, revision, includeDeletes)
 	if err == server.ErrCompacted {
 		// ignore compacted when getting by revision
 		err = nil
@@ -91,7 +91,7 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		logrus.Tracef("CREATE %s, size=%d, lease=%d => rev=%d, err=%v", key, len(value), lease, revRet, errRet)
 	}()
 
-	rev, prevEvent, err := l.get(ctx, key, 0, true)
+	rev, prevEvent, err := l.get(ctx, key, "", 1, 0, true)
 	if err != nil {
 		return 0, err
 	}
@@ -123,7 +123,7 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 		logrus.Tracef("DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v", key, revision, revRet, kvRet != nil, deletedRet, errRet)
 	}()
 
-	rev, event, err := l.get(ctx, key, 0, true)
+	rev, event, err := l.get(ctx, key, "", 1, 0, true)
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -150,7 +150,7 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 	if err != nil {
 		// If error on Append we assume it's a UNIQUE constraint error, so we fetch the latest (if we can)
 		// and return that the delete failed
-		latestRev, latestEvent, latestErr := l.get(ctx, key, 0, true)
+		latestRev, latestEvent, latestErr := l.get(ctx, key, "", 1, 0, true)
 		if latestErr != nil || latestEvent == nil {
 			return rev, event.KV, false, nil
 		}
@@ -220,7 +220,7 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 		logrus.Tracef("UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v", key, len(value), revision, lease, revRet, kvRev, updateRet, errRet)
 	}()
 
-	rev, event, err := l.get(ctx, key, 0, false)
+	rev, event, err := l.get(ctx, key, "", 1, 0, false)
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -245,7 +245,7 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 
 	rev, err = l.log.Append(ctx, updateEvent)
 	if err != nil {
-		rev, event, err := l.get(ctx, key, 0, false)
+		rev, event, err := l.get(ctx, key, "", 1, 0, false)
 		if event == nil {
 			return rev, nil, false, err
 		}
