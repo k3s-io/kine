@@ -21,16 +21,16 @@ func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest
 		return nil, unsupported("maxCreateRevision")
 	}
 
-	if r.SortOrder != 0 {
-		return nil, unsupported("sortOrder")
-	}
-
-	if r.SortTarget != 0 {
-		return nil, unsupported("sortTarget")
+	if r.SortTarget != 0 && r.SortTarget != etcdserverpb.RangeRequest_KEY {
+		return nil, unsupported("not key sortTarget")
 	}
 
 	if r.Serializable {
 		return nil, unsupported("serializable")
+	}
+
+	if r.KeysOnly {
+		return nil, unsupported("keysOnly")
 	}
 
 	if r.MinModRevision != 0 {
@@ -94,11 +94,19 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 }
 
 func (k *KVServerBridge) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
-	return nil, fmt.Errorf("put is not supported")
+	res, err := k.limited.Put(ctx, r)
+	if err != nil {
+		logrus.Errorf("error in put: %v", err)
+	}
+	return res, err
 }
 
 func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.DeleteRangeRequest) (*etcdserverpb.DeleteRangeResponse, error) {
-	return nil, fmt.Errorf("delete is not supported")
+	if len(r.RangeEnd) != 0 {
+		return nil, fmt.Errorf("delete range is not supported")
+	}
+	return k.limited.Delete(ctx, r)
+
 }
 
 func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {

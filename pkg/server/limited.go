@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
@@ -17,6 +18,30 @@ func (l *LimitedServer) Range(ctx context.Context, r *etcdserverpb.RangeRequest)
 		return l.get(ctx, r)
 	}
 	return l.list(ctx, r)
+}
+
+func (l *LimitedServer) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
+	return l.put(ctx, r)
+}
+
+func (l *LimitedServer) Delete(ctx context.Context, r *etcdserverpb.DeleteRangeRequest) (*etcdserverpb.DeleteRangeResponse, error) {
+	key := string(r.Key)
+	if len(r.RangeEnd) == 0 && strings.HasSuffix(key, "/") {
+		key = strings.TrimSuffix(key, "/")
+	}
+
+	rev, kv, _, err := l.backend.Delete(ctx, key, 0)
+	if err != nil {
+		return nil, err
+	}
+	deleted := int64(0)
+	if kv != nil {
+		deleted = 1
+	}
+	return &etcdserverpb.DeleteRangeResponse{
+		Header:  txnHeader(rev),
+		Deleted: deleted,
+	}, nil
 }
 
 func txnHeader(rev int64) *etcdserverpb.ResponseHeader {
