@@ -91,6 +91,11 @@ func main() {
 			Destination: &metrics.SlowSQLThreshold,
 			Value:       time.Second,
 		},
+		cli.StringFlag{
+			Name:        "data-dir",
+			Usage:       "Storage path (default is ./ )",
+			Destination: &config.DataDir,
+		},
 		cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run

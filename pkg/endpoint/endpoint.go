@@ -44,6 +44,7 @@ type Config struct {
 	ServerTLSConfig      tls.Config
 	BackendTLSConfig     tls.Config
 	MetricsRegisterer    prometheus.Registerer
+	DataDir              string
 }
 
 type ETCDConfig struct {
@@ -60,6 +61,15 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 			TLSConfig:   config.BackendTLSConfig,
 			LeaderElect: true,
 		}, nil
+	}
+
+        if driver == SQLiteBackend && config.DataDir != "" {
+            dbPath := filepath.Join(config.DataDir, "./db")
+            if err := os.MkdirAll(dbPath, 0700); err != nil {
+		return ETCDConfig{}, errors.Wrap(err, "sqlite db init")
+            }
+            dsn = filepath.Join(dbPath, "/state.db?_journal=WAL&cache=shared")
+            logrus.Info(dsn)
 	}
 
 	leaderelect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
