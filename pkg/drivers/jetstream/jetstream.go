@@ -894,11 +894,11 @@ func (j *JetStream) getPreviousEntry(ctx context.Context, entry nats.KeyValueEnt
 
 // DbSize get the kineBucket size from JetStream.
 func (j *JetStream) DbSize(context.Context) (int64, error) {
-	si, err := j.jetStream.StreamInfo("KV_" + j.kvBucket.Bucket())
+	status, err := j.kvBucket.Status()
 	if err != nil {
 		return -1, err
 	}
-	return int64(si.State.Bytes), nil
+	return int64(status.Bytes()), nil
 }
 
 func encode(v JSValue) ([]byte, error) {
