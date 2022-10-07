@@ -1,12 +1,8 @@
-//go:build cgo
-// +build cgo
-
 package sqlite
 
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"time"
 
@@ -15,13 +11,9 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-
-	// sqlite db driver
-	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -46,11 +38,6 @@ var (
 		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
 )
-
-func New(ctx context.Context, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
-	backend, _, err := NewVariant(ctx, "sqlite3", dataSourceName, connPoolConfig, metricsRegisterer)
-	return backend, err
-}
 
 func NewVariant(ctx context.Context, driverName, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, *generic.Generic, error) {
 	if dataSourceName == "" {
@@ -85,21 +72,8 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 					kd.id <= ?
 			)`
 	dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
-	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return server.ErrKeyExists
-		}
-		return err
-	}
-	dialect.ErrCode = func(err error) string {
-		if err == nil {
-			return ""
-		}
-		if err, ok := err.(sqlite3.Error); ok {
-			return fmt.Sprint(err.ExtendedCode)
-		}
-		return err.Error()
-	}
+	dialect.TranslateErr = translateError
+	dialect.ErrCode = errCode
 
 	// this is the first SQL that will be executed on a new DB conn so
 	// loop on failure here because in the case of dqlite it could still be initializing
