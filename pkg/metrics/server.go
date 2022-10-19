@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/pprof"
 
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -13,6 +14,7 @@ import (
 type Config struct {
 	ServerAddress   string
 	ServerTLSConfig tls.Config
+	EnableProfiling bool
 }
 
 const (
@@ -34,11 +36,21 @@ func Serve(ctx context.Context, config Config) {
 		logrus.Fatalf("error creating the metrics listener: %v", err)
 	}
 
+	mux := http.NewServeMux()
+
 	handler := promhttp.HandlerFor(Registry, promhttp.HandlerOpts{
 		ErrorHandling: promhttp.HTTPErrorOnError,
 	})
-	mux := http.NewServeMux()
 	mux.Handle(metricsPath, handler)
+
+	if config.EnableProfiling {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	}
+
 	server := http.Server{
 		Handler: mux,
 	}

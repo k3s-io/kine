@@ -91,6 +91,11 @@ func main() {
 			Destination: &metrics.SlowSQLThreshold,
 			Value:       time.Second,
 		},
+		cli.BoolFlag{
+			Name:        "metrics-enable-profiling",
+			Usage:       "Enable net/http/pprof handlers on the metrics bind address. Default is false.",
+			Destination: &metricsConfig.EnableProfiling,
+		},
 		cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run
