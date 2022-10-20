@@ -36,11 +36,10 @@ func Serve(ctx context.Context, config Config) {
 		logrus.Fatalf("error creating the metrics listener: %v", err)
 	}
 
-	mux := http.NewServeMux()
-
 	handler := promhttp.HandlerFor(Registry, promhttp.HandlerOpts{
 		ErrorHandling: promhttp.HTTPErrorOnError,
 	})
+	mux := http.NewServeMux()
 	mux.Handle(metricsPath, handler)
 
 	if config.EnableProfiling {
