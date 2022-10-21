@@ -53,7 +53,7 @@ steps:
     - refs/tags/*
 
 - name: docker-publish
-  image: plugins/docker
+  image: plugins/docker:20.13
   settings:
     build_args_from_env:
     - ARCH
@@ -123,7 +123,7 @@ steps:
     - refs/tags/*
 
 - name: docker-publish
-  image: plugins/docker
+  image: plugins/docker:20.13
   settings:
     build_args_from_env:
     - ARCH
@@ -193,7 +193,7 @@ steps:
     - refs/tags/*
 
 - name: docker-publish
-  image: plugins/docker
+  image: plugins/docker:20.13
   settings:
     build_args_from_env:
     - ARCH

@@ -1,4 +1,4 @@
-FROM golang:1.16-alpine3.12 AS dapper
+FROM golang:1.19-alpine3.16 AS dapper
 
 ARG ARCH=amd64
 
