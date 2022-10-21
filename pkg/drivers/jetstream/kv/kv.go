@@ -213,22 +213,22 @@ func (e *EncodedKV) Update(key string, value []byte, last uint64) (revision uint
 	return e.bucket.Update(ek, buf.Bytes(), last)
 }
 
-func (e *EncodedKV) Delete(key string) error {
+func (e *EncodedKV) Delete(key string, opts ...nats.DeleteOpt) error {
 	ek, err := e.keyCodec.Encode(key)
 	if err != nil {
 		return err
 	}
 
-	return e.bucket.Delete(ek)
+	return e.bucket.Delete(ek, opts...)
 }
 
-func (e *EncodedKV) Purge(key string) error {
+func (e *EncodedKV) Purge(key string, opts ...nats.DeleteOpt) error {
 	ek, err := e.keyCodec.Encode(key)
 	if err != nil {
 		return err
 	}
 
-	return e.bucket.Purge(ek)
+	return e.bucket.Purge(ek, opts...)
 }
 
 func (e *EncodedKV) Watch(keys string, opts ...nats.WatchOpt) (nats.KeyWatcher, error) {

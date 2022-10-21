@@ -5,7 +5,7 @@ start-test() {
     local port=$(cat $TEST_DIR/databases/*/metadata/port)
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
     local image=$(cat $TEST_DIR/databases/*/metadata/image)
-    DB_CONNECTION_TEST="docker container run --rm --name connection-test --entrypoint /usr/local/bin/nats natsio/nats-box:0.8.1 server check connection --server=nats://$ip:$port" \
+    DB_CONNECTION_TEST="docker container run --rm --name connection-test --entrypoint /usr/local/bin/nats docker.io/natsio/nats-box:0.13.0 server check connection --server=nats://$ip:$port" \
     timeout --foreground 1m bash -c "wait-for-db-connection"
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://$ip:$port" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
@@ -13,8 +13,10 @@ start-test() {
 }
 export -f start-test
 
+# test minimum supported version and most recent version of NATS
 VERSION_LIST="\
-    nats 2.7.4"
+    nats 2.7.4
+    nats 2.9.1"
 
 while read ENGINE VERSION; do
     LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=NATS_JS_PASSWORD DB_ARGS="-js" DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test
