@@ -3,11 +3,24 @@
 		"disable-all": true,
 		"enable": [
 			"govet",
-			"golint",
-			"goimports"
+			"revive",
+			"goimports",
+			"gofmt"
 		]
 	},
 	"run": {
 		"deadline": "5m"
+	},
+	"issues": {
+		"exclude-rules": [
+			{
+				"linters": "typecheck",
+				"text": "imported but not used"
+			},
+			{
+				"linters": "revive",
+				"text": "should have comment"
+			}
+		]
 	}
 }
