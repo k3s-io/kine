@@ -528,12 +528,12 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 	}
 
 	kvs := make([]*server.KeyValue, 0)
-	var count int64 = 0
+	var count int64
 
 	// startkey provided so get max revision after the startKey matching the prefix
 	if startKey != "" {
 		histories := make(map[string][]nats.KeyValueEntry)
-		var minRev int64 = 0
+		var minRev int64
 		//var innerEntry nats.KeyValueEntry
 		if entries, err := j.kvBucket.History(startKey, nats.Context(ctx)); err == nil {
 			histories[startKey] = entries

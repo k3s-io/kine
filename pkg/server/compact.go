@@ -30,7 +30,7 @@ func (l *LimitedServer) compact(ctx context.Context) (*etcdserverpb.TxnResponse,
 					ResponseRange: &etcdserverpb.RangeResponse{
 						Header: &etcdserverpb.ResponseHeader{},
 						Kvs: []*mvccpb.KeyValue{
-							&mvccpb.KeyValue{},
+							{},
 						},
 						Count: 1,
 					},
