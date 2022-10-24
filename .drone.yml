@@ -206,7 +206,8 @@ steps:
     dockerfile: package/Dockerfile
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
-    DOCKER_BUILDKIT: "1"
+    # Don't enable buildkit on arm, it will barf on the platform variant mismatch
+    #DOCKER_BUILDKIT: "1"
   when:
     event:
     - tag

@@ -13,17 +13,8 @@ else
     VERSION="${COMMIT}${DIRTY}"
 fi
 
-if [ -n "$ARCH" ]; then
-    GOARCH=${ARCH}
-fi
-if [ -z "$GOARCH" ]; then
-    GOARCH=$(go env GOHOSTARCH)
-fi
-if [ "$GOARCH" = "arm" ]; then
-    GOARM=7
-fi
-
-ARCH="${GOARCH}"
+GO=${GO-go}
+ARCH=${ARCH:-$("${GO}" env GOARCH)}
 SUFFIX="-${ARCH}"
 
 TAG=${TAG:-${VERSION}${SUFFIX}}
