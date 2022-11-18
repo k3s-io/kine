@@ -37,10 +37,10 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 		Header: txnHeader(rev),
 		Responses: []*etcdserverpb.ResponseOp{
 			{
-				Response: &etcdserverpb.ResponseOp_ResponseRange{
-					ResponseRange: &etcdserverpb.RangeResponse{
-						Header: txnHeader(rev),
-						Kvs:    toKVs(kv),
+				Response: &etcdserverpb.ResponseOp_ResponseDeleteRange{
+					ResponseDeleteRange: &etcdserverpb.DeleteRangeResponse{
+						Header:  txnHeader(rev),
+						PrevKvs: toKVs(kv),
 					},
 				},
 			},
