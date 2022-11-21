@@ -33,6 +33,23 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 		return nil, err
 	}
 
+	if !ok {
+		return &etcdserverpb.TxnResponse{
+			Header: txnHeader(rev),
+			Responses: []*etcdserverpb.ResponseOp{
+				{
+					Response: &etcdserverpb.ResponseOp_ResponseRange{
+						ResponseRange: &etcdserverpb.RangeResponse{
+							Header: txnHeader(rev),
+							Kvs:    toKVs(kv),
+						},
+					},
+				},
+			},
+			Succeeded: false,
+		}, nil
+	}
+
 	return &etcdserverpb.TxnResponse{
 		Header: txnHeader(rev),
 		Responses: []*etcdserverpb.ResponseOp{
@@ -45,6 +62,6 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 				},
 			},
 		},
-		Succeeded: ok,
+		Succeeded: true,
 	}, nil
 }
