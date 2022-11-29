@@ -123,7 +123,7 @@ func createDBIfNotExist(dataSourceName string) error {
 		return err
 	}
 
-	dbName := strings.SplitN(u.Path, "/", 2)[1]
+	dbName := quoteIdentifier(strings.SplitN(u.Path, "/", 2)[1])
 	db, err := sql.Open("postgres", dataSourceName)
 	if err != nil {
 		return err
@@ -207,4 +207,8 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	}
 	u.RawQuery = params.Encode()
 	return u.String(), nil
+}
+
+func quoteIdentifier(id string) string {
+	return pq.QuoteIdentifier(id)
 }
