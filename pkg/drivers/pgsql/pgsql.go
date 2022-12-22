@@ -3,6 +3,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -93,6 +94,56 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		}
 		return err.Error()
 	}
+
+	columns := "kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
+
+	revSQL := `
+		SELECT MAX(rkv.id) AS id
+		FROM kine AS rkv`
+
+	compactRevSQL := `
+		SELECT MAX(crkv.prev_revision) AS prev_revision
+		FROM kine AS crkv
+		WHERE crkv.name = 'compact_rev_key'`
+
+	listSQL := fmt.Sprintf(`
+		SELECT *
+		FROM (
+			SELECT (%s), (%s), %s
+			FROM kine AS kv
+			JOIN (
+				SELECT MAX(mkv.id) AS id
+				FROM kine AS mkv
+				WHERE
+					mkv.name LIKE ?
+					%%s
+				GROUP BY mkv.name) AS maxkv
+				ON maxkv.id = kv.id
+			WHERE
+				kv.deleted = 0 OR
+				?
+		) AS lkv
+		ORDER BY lkv.theid ASC
+		`, revSQL, compactRevSQL, columns)
+
+	idOfKey := `
+		AND
+		mkv.id <= ? AND
+		mkv.id > (
+			SELECT MAX(ikv.id) AS id
+			FROM kine AS ikv
+			WHERE
+				ikv.name = ? AND
+				ikv.id <= ?)`
+
+	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, ""))
+	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"))
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, idOfKey))
+	dialect.CountSQL = q(fmt.Sprintf(`
+			SELECT (%s), COUNT(c.theid)
+			FROM (
+				%s
+			) c`, revSQL, fmt.Sprintf(listSQL, "")))
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
