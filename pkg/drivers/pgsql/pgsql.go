@@ -113,7 +113,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 				WHERE
 					mkv.name LIKE ?
 					AND %%s
-					%%s
+					AND %%s
 				GROUP BY mkv.name) AS maxkv
 				ON maxkv.id = kv.id
 			WHERE
@@ -123,23 +123,21 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		ORDER BY lkv.theid ASC
 		`, revSQL)
 
-	idOfKey := `
-		AND
-		mkv.id > (
+	idOfKey := `mkv.id > (
 			SELECT MAX(ikv.id) AS id
 			FROM kine AS ikv
 			WHERE
 				ikv.name = ? AND
 				ikv.id <= ?)`
 
-	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "TRUE", ""))
-	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND mkv.id <= ?", ""))
-	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND mkv.id <= ?", idOfKey))
+	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "TRUE", "TRUE"))
+	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "mkv.id <= ?", "TRUE"))
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "mkv.id <= ?", idOfKey))
 	dialect.CountSQL = q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "TRUE", "")))
+			) c`, revSQL, fmt.Sprintf(listSQL, "TRUE", "TRUE")))
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
