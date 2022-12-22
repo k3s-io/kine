@@ -95,8 +95,6 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return err.Error()
 	}
 
-	columns := "kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
-
 	revSQL := `
 		SELECT MAX(rkv.id) AS id
 		FROM kine AS rkv`
@@ -109,7 +107,10 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 	listSQL := fmt.Sprintf(`
 		SELECT *
 		FROM (
-			SELECT (%s), (%s), %s
+			SELECT
+				(%s),
+				(%s),
+				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
 			FROM kine AS kv
 			JOIN (
 				SELECT MAX(mkv.id) AS id
@@ -124,7 +125,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 				?
 		) AS lkv
 		ORDER BY lkv.theid ASC
-		`, revSQL, compactRevSQL, columns)
+		`, revSQL, compactRevSQL)
 
 	idOfKey := `
 		AND
