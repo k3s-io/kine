@@ -132,24 +132,21 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 	dialect.CountSQL = q(fmt.Sprintf(`
 			SELECT (SELECT MAX(rkv.id) AS id FROM kine AS rkv), COUNT(c.theid)
 			FROM (
-				SELECT *
-					FROM (
-						SELECT
-							kv.id AS theid
-						FROM kine AS kv
-						JOIN (
-							SELECT MAX(mkv.id) AS id
-							FROM kine AS mkv
-							WHERE
-								mkv.name LIKE ?
-								AND TRUE
-								AND TRUE
-							GROUP BY mkv.name) AS maxkv
-							ON maxkv.id = kv.id
-						WHERE
-							kv.deleted = 0 OR
-							?
-					) AS lkv
+				SELECT
+					kv.id AS theid
+				FROM kine AS kv
+				JOIN (
+					SELECT MAX(mkv.id) AS id
+					FROM kine AS mkv
+					WHERE
+						mkv.name LIKE ?
+						AND TRUE
+						AND TRUE
+					GROUP BY mkv.name) AS maxkv
+					ON maxkv.id = kv.id
+				WHERE
+					kv.deleted = 0 OR
+					?
 			) c`))
 
 	if err := setup(dialect.DB); err != nil {
