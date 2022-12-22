@@ -150,7 +150,6 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 							kv.deleted = 0 OR
 							?
 					) AS lkv
-					ORDER BY lkv.theid ASC
 			) c`))
 
 	if err := setup(dialect.DB); err != nil {
