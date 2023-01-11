@@ -99,50 +99,41 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		SELECT
 			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
 			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
-			kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
-		FROM kine AS kv
-		JOIN (
-			SELECT MAX(mkv.id) AS id
-			FROM kine AS mkv
+			maxkv.*
+		FROM (
+		    SELECT DISTINCT ON (name)
+				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
+		    FROM
+				kine AS kv
 			WHERE
-				mkv.name LIKE ?
+				kv.name LIKE ?
 				AND %s
 				AND %s
-			GROUP BY mkv.name) AS maxkv
-			ON maxkv.id = kv.id
+			ORDER BY kv.name, theid DESC
+		) AS maxkv
 		WHERE
-			kv.deleted = 0 OR
-			?
-		ORDER BY theid ASC
+		    maxkv.deleted = 0 OR ?
+		ORDER BY maxkv.name, maxkv.theid DESC
 		`
 
-	idOfKey := `mkv.id > (
-			SELECT MAX(ikv.id) AS id
-			FROM kine AS ikv
-			WHERE
-				ikv.name = ? AND
-				ikv.id <= ?)`
-
 	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "TRUE", "TRUE"))
-	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "mkv.id <= ?", "TRUE"))
-	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "mkv.id <= ?", idOfKey))
+	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "kv.id <= ?", "TRUE"))
+	// HACK: "AND ? > 0" is a way to ignore that parameter (it is an auto-incremented id so always positive)
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "kv.id <= ?", "kv.name > ? AND ? > 0"))
 	dialect.CountSQL = q(fmt.Sprintf(`
-			SELECT (SELECT MAX(rkv.id) AS id FROM kine AS rkv), COUNT(c.theid)
+			SELECT
+				(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+				COUNT(c.theid)
 			FROM (
-				SELECT
-					kv.id AS theid
+				SELECT DISTINCT ON (name)
+					kv.id AS theid,
+				    kv.deleted
 				FROM kine AS kv
-				JOIN (
-					SELECT MAX(mkv.id) AS id
-					FROM kine AS mkv
-					WHERE
-						mkv.name LIKE ?
-					GROUP BY mkv.name) AS maxkv
-					ON maxkv.id = kv.id
 				WHERE
-					kv.deleted = 0 OR
-					?
-			) c`))
+					kv.name LIKE ?
+				ORDER BY kv.name, theid DESC
+			) AS c
+			WHERE c.deleted = 0 OR ?`))
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
