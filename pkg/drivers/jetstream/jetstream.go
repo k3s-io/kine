@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"os/signal"
 	"regexp"
 	"sort"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/nats-io/jsm.go/natscontext"
+	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 )
@@ -31,11 +34,15 @@ var (
 )
 
 type Config struct {
-	natsURL    string
-	options    []nats.Option
-	revHistory uint8
-	bucket     string
-	slowMethod time.Duration
+	clientURL     string
+	clientOptions []nats.Option
+	revHistory    uint8
+	bucket        string
+	slowMethod    time.Duration
+	// If true, a server will be embedded and started.
+	embedServer bool
+	// Path to a server configuration file when embedded.
+	serverConfig string
 }
 
 type JetStream struct {
@@ -46,6 +53,7 @@ type JetStream struct {
 	jetStream        nats.JetStreamContext
 	slowMethod       time.Duration
 	server.Backend
+	natsConn *nats.Conn
 }
 
 type JSValue struct {
@@ -100,20 +108,63 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 		return nil, err
 	}
 
+	// Run an embedded server.
+	var ns *natsserver.Server
+	if config.embedServer {
+		opts := &natsserver.Options{}
+		if config.serverConfig == "" {
+			// TODO: Other defaults for easy single node config?
+			opts.JetStream = true
+		} else {
+			// Parse the server config file as options
+			opts, err = natsserver.ProcessConfigFile(config.serverConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to process NATS server config file: %w", err)
+			}
+		}
+
+		// Create the server, ensure the options are all valid.
+		ns, err = natsserver.NewServer(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create embedded NATS server: %w", err)
+		}
+		// Start the server.
+		go ns.Start()
+		logrus.Infof("using an embedded NATS server")
+
+		// Wait for the server to be ready.
+		// TODO: limit the number of retries?
+		for {
+			if ns.ReadyForConnections(5 * time.Second) {
+				break
+			}
+		}
+
+		// TODO: No method on backend.Driver exists to indicate a shutdown.
+		sigch := make(chan os.Signal, 1)
+		signal.Notify(sigch, os.Interrupt)
+		go func() {
+			<-sigch
+			ns.Shutdown()
+		}()
+
+		// Use the local server's client URL.
+		config.clientURL = ns.ClientURL()
+	}
+
 	logrus.Infof("using bucket: %s", config.bucket)
-	logrus.Infof("connecting to %s", config.natsURL)
+	logrus.Infof("connecting to %s", config.clientURL)
 
-	nopts := append(config.options, nats.Name("k3s-server using bucket: "+config.bucket))
+	nopts := append(config.clientOptions, nats.Name("k3s-server using bucket: "+config.bucket))
 
-	conn, err := nats.Connect(config.natsURL, nopts...)
+	conn, err := nats.Connect(config.clientURL, nopts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to NATS server: %w", err)
 	}
 
 	js, err := conn.JetStream()
-
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
 	bucket, err := js.KeyValue(config.bucket)
@@ -144,15 +195,13 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 
 // parseNatsConnection returns nats connection url, bucketName and []nats.Option, error
 func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
-
 	jsConfig := &Config{
 		slowMethod: defaultSlowMethod,
 		revHistory: defaultRevHistory,
 	}
 	connections := strings.Split(dsn, ",")
 	jsConfig.bucket = defaultBucket
-
-	jsConfig.options = make([]nats.Option, 0)
+	jsConfig.clientOptions = make([]nats.Option, 0)
 
 	u, err := url.Parse(connections[0])
 	if err != nil {
@@ -192,11 +241,11 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	}
 
 	if tlsInfo.KeyFile != "" && tlsInfo.CertFile != "" {
-		jsConfig.options = append(jsConfig.options, nats.ClientCert(tlsInfo.CertFile, tlsInfo.KeyFile))
+		jsConfig.clientOptions = append(jsConfig.clientOptions, nats.ClientCert(tlsInfo.CertFile, tlsInfo.KeyFile))
 	}
 
 	if tlsInfo.CAFile != "" {
-		jsConfig.options = append(jsConfig.options, nats.RootCAs(tlsInfo.CAFile))
+		jsConfig.clientOptions = append(jsConfig.clientOptions, nats.RootCAs(tlsInfo.CAFile))
 	}
 
 	if hasContext {
@@ -212,11 +261,11 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		// command line options provided to kine will override the file
 		// https://github.com/nats-io/jsm.go/blob/v0.0.29/natscontext/context.go#L257
 		// allows for user, creds, nke, token, certifcate, ca, inboxprefix from the context.json
-		natsClientOpts, err := natsContext.NATSOptions(jsConfig.options...)
+		natsClientOpts, err := natsContext.NATSOptions(jsConfig.clientOptions...)
 		if err != nil {
 			return nil, err
 		}
-		jsConfig.options = natsClientOpts
+		jsConfig.clientOptions = natsClientOpts
 	}
 
 	connBuilder := strings.Builder{}
@@ -239,14 +288,19 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		if u.User != nil && idx == 0 {
 			userInfo := strings.Split(u.User.String(), ":")
 			if len(userInfo) > 1 {
-				jsConfig.options = append(jsConfig.options, nats.UserInfo(userInfo[0], userInfo[1]))
+				jsConfig.clientOptions = append(jsConfig.clientOptions, nats.UserInfo(userInfo[0], userInfo[1]))
 			} else {
-				jsConfig.options = append(jsConfig.options, nats.Token(userInfo[0]))
+				jsConfig.clientOptions = append(jsConfig.clientOptions, nats.Token(userInfo[0]))
 			}
 		}
 		connBuilder.WriteString(u.Host)
 	}
-	jsConfig.natsURL = connBuilder.String()
+	jsConfig.clientURL = connBuilder.String()
+
+	if queryMap.Has("embedServer") {
+		jsConfig.embedServer = true
+		jsConfig.serverConfig = queryMap.Get("serverConfig")
+	}
 
 	logrus.Infof("using config %v", jsConfig)
 
