@@ -26,7 +26,7 @@ echo "Did test-run-postgres $?"
 . ./scripts/test-run-cockroachdb
 echo "Did test-run-cockroachdb $?"
 
-. ./scripts/test-run-jetstream
-echo "Did test-jetstream $?"
+. ./scripts/test-run-nats
+echo "Did test-nats$?"
 
 exit 0

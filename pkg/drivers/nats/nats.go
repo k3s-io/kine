@@ -1,4 +1,4 @@
-package jetstream
+package nats
 
 import (
 	"context"
@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/drivers/jetstream/kv"
+	"github.com/k3s-io/kine/pkg/drivers/nats/kv"
+	natsserver "github.com/k3s-io/kine/pkg/drivers/nats/server"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/nats-io/jsm.go/natscontext"
-	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 )
@@ -109,22 +109,9 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 	}
 
 	// Run an embedded server.
-	var ns *natsserver.Server
+	var ns natsserver.Server
 	if config.embedServer {
-		opts := &natsserver.Options{}
-		if config.serverConfig == "" {
-			// TODO: Other defaults for easy single node config?
-			opts.JetStream = true
-		} else {
-			// Parse the server config file as options
-			opts, err = natsserver.ProcessConfigFile(config.serverConfig)
-			if err != nil {
-				return nil, fmt.Errorf("failed to process NATS server config file: %w", err)
-			}
-		}
-
-		// Create the server, ensure the options are all valid.
-		ns, err = natsserver.NewServer(opts)
+		ns, err = natsserver.New(config.serverConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create embedded NATS server: %w", err)
 		}
