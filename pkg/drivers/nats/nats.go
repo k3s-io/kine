@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/drivers/nats/kv"
@@ -60,9 +59,6 @@ type Driver struct {
 	js nats.JetStreamContext
 	kv nats.KeyValue
 
-	dirMu  *sync.RWMutex
-	subMus map[string]*sync.RWMutex
-
 	slowThreshold time.Duration
 }
 
@@ -80,23 +76,6 @@ func getTopLevelKey(key string) string {
 		return matches[1]
 	}
 	return ""
-}
-
-func (d *Driver) lockFolder(key string) (unlock func()) {
-	lockFolder := getTopLevelKey(key)
-	if lockFolder == "" {
-		return func() {}
-	}
-
-	d.dirMu.Lock()
-	mu, ok := d.subMus[lockFolder]
-	if !ok {
-		mu = &sync.RWMutex{}
-		d.subMus[lockFolder] = mu
-	}
-	d.dirMu.Unlock()
-	mu.Lock()
-	return mu.Unlock
 }
 
 type JSValue struct {
@@ -218,8 +197,6 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 
 	return &Driver{
 		kv:            kvB,
-		dirMu:         &sync.RWMutex{},
-		subMus:        make(map[string]*sync.RWMutex),
 		js:            js,
 		slowThreshold: config.slowThreshold,
 	}, nil
@@ -480,9 +457,6 @@ func (d *Driver) Create(ctx context.Context, key string, value []byte, lease int
 		d.logMethod(dur, fStr, key, len(value), lease, revRet, errRet, dur)
 	}()
 
-	// Lock the folder containing this key.
-	defer d.lockFolder(key)()
-
 	// check if key exists already
 	rev, prevKV, err := d.get(ctx, key, 0, true)
 	if err != nil && err != nats.ErrKeyNotFound {
@@ -535,9 +509,6 @@ func (d *Driver) Delete(ctx context.Context, key string, revision int64) (revRet
 		fStr := "DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v, duration=%s"
 		d.logMethod(dur, fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, dur)
 	}()
-
-	// Lock the folder containing this key.
-	defer d.lockFolder(key)()
 
 	rev, value, err := d.get(ctx, key, 0, true)
 	if err != nil {
@@ -791,9 +762,6 @@ func (d *Driver) Update(ctx context.Context, key string, value []byte, revision,
 		fStr := "UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v, duration=%s"
 		d.logMethod(dur, fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, dur)
 	}()
-
-	// Lock the folder containing the key.
-	defer d.lockFolder(key)()
 
 	rev, prevKV, err := d.get(ctx, key, 0, false)
 
