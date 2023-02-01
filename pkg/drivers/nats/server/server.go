@@ -9,14 +9,14 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
-func New(configFile string) (Server, error) {
+func New(configFile string, stdoutLogging bool) (Server, error) {
 	opts := &server.Options{}
 
 	if configFile == "" {
 		// TODO: Other defaults for easy single node config?
 		opts.JetStream = true
 	} else {
-		// Parse the server config file as options
+		// Parse the server config file as options.
 		var err error
 		opts, err = server.ProcessConfigFile(configFile)
 		if err != nil {
@@ -24,5 +24,10 @@ func New(configFile string) (Server, error) {
 		}
 	}
 
-	return server.NewServer(opts)
+	srv, err := server.NewServer(opts)
+	if stdoutLogging {
+		srv.ConfigureLogger()
+	}
+
+	return srv, err
 }

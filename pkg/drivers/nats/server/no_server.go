@@ -7,6 +7,6 @@ import (
 	"errors"
 )
 
-func New(configFile string) (Server, error) {
-	return nil, errors.New(`this binary is built without embedded nats support, compile with "-tags nats"`)
+func New(configFile string, stdoutLogging bool) (Server, error) {
+	return nil, errors.New(`this binary is built without embedded NATS support, compile with "-tags nats"`)
 }
