@@ -10,7 +10,6 @@ Kine is an etcdshim that translates etcd API to:
 - SQLite
 - Postgres
 - MySQL
-- Dqlite
 - NATS Jetstream
 
 ## Features
