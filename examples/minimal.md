@@ -93,7 +93,7 @@ clusterName: kubernetes
 controllerManager: {}
 dns:
   type: CoreDNS
-imageRepository: k8s.gcr.io
+imageRepository: registry.k8s.io
 kind: ClusterConfiguration
 kubernetesVersion: v1.17.0
 networking:
