@@ -92,6 +92,7 @@ var (
 		IF index_count = 0 THEN EXECUTE IMMEDIATE 'CREATE UNIQUE INDEX KINE_NAME_PREV_REVISION_UINDEX ON  ' || usr_name || '.' || tbl_name || ' (NAME, PREV_REVISION)';
 		END IF;
 		END;`,
+		`ALTER SESSION SET current_schema = ORACLE`,
 	}
 )
 
@@ -112,16 +113,16 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 	FROM dba_segments
 	WHERE segment_name = 'KINE';`
 	dialect.CompactSQL = `
-	DELETE FROM ORACLE.KINE
+	DELETE FROM KINE
 	WHERE id IN (
     SELECT id
     FROM (
         SELECT prev_revision AS id
-        FROM ORACLE.KINE
+        FROM KINE
         WHERE name <> 'compact_rev_key' AND prev_revision <> 0 AND id <= :1
         UNION
         SELECT id
-        FROM ORACLE.KINE
+        FROM KINE
         WHERE deleted <> 0 AND id <= :2
     )
 );`
