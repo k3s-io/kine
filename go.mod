@@ -85,3 +85,5 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
+
+replace github.com/k3s-io/kine/gopackage => github.com/AdamShannag/kine v1.0.0
