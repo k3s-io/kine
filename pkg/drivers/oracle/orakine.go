@@ -246,7 +246,7 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id INTO ?`, paramCharacter, numbered),
 
 		FillSQL: q(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
+			values(?, ?, ?, ?, ?, ?, ?, EMPTY_BLOB(), EMPTY_BLOB())`, paramCharacter, numbered),
 	}, err
 }
 
@@ -389,7 +389,7 @@ func (d *Generic) After(ctx context.Context, prefix string, rev, limit int64) (*
 }
 
 func (d *Generic) Fill(ctx context.Context, revision int64) error {
-	_, err := d.execute(ctx, d.FillSQL, revision, fmt.Sprintf("gap-%d", revision), 0, 1, 0, 0, 0, nil, nil)
+	_, err := d.execute(ctx, d.FillSQL, revision, fmt.Sprintf("gap-%d", revision), 0, 1, 0, 0, 0)
 	return err
 }
 
@@ -416,6 +416,31 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	if d.LastInsertID {
+		if isNil(prevValue) && isNil(value) {
+			d.InsertLastInsertIDSQL = q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), EMPTY_BLOB())`, ":", true)
+			row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl)
+			if err != nil {
+				return 0, err
+			}
+			return row.LastInsertId()
+		} else if isNil(value) {
+			d.InsertLastInsertIDSQL = q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), ?)`, ":", true)
+			row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, prevValue)
+			if err != nil {
+				return 0, err
+			}
+			return row.LastInsertId()
+		} else if isNil(prevValue) {
+			d.InsertLastInsertIDSQL = q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?,EMPTY_BLOB())`, ":", true)
+			row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value)
+			if err != nil {
+				return 0, err
+			}
+			return row.LastInsertId()
+		}
 		row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 		if err != nil {
 			return 0, err
@@ -423,21 +448,22 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		return row.LastInsertId()
 	}
 
-	if len(prevValue) == 0 && len(value) == 0 {
+	if isNil(prevValue) && isNil(value) {
 		d.InsertSQL = q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), EMPTY_BLOB()) RETURNING id INTO ?`, ":", true)
 		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, sql.Out{Dest: &id})
-	} else if len(value) == 0 {
+	} else if isNil(value) {
 		d.InsertSQL = q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), ?) RETURNING id INTO ?`, ":", true)
 		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, prevValue, sql.Out{Dest: &id})
-	} else if len(prevValue) == 0 {
+	} else if isNil(prevValue) {
 		d.InsertSQL = q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, EMPTY_BLOB()) RETURNING id INTO ?`, ":", true)
 		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, sql.Out{Dest: &id})
 	} else {
 		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue, sql.Out{Dest: &id})
 	}
+
 	return id, err
 }
 
@@ -458,4 +484,8 @@ func boolOracle(sql string, includeDeleted bool) string {
 		return `1`
 	}
 	return `0`
+}
+
+func isNil(val []byte) bool {
+	return len(val) == 0
 }
