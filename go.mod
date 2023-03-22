@@ -6,7 +6,7 @@ require (
 	github.com/Rican7/retry v0.1.0
 	github.com/canonical/go-dqlite v1.5.1
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/k3s-io/kine v0.0.0-00010101000000-000000000000
+	github.com/k3s-io/kine v0.9.9
 	github.com/klauspost/compress v1.14.4
 	github.com/lib/pq v1.10.2
 	github.com/mattn/go-sqlite3 v1.14.15
@@ -86,5 +86,3 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
-
-replace github.com/k3s-io/kine => github.com/AdamShannag/kine v1.2.0
