@@ -1,4 +1,4 @@
-module github.com/AdamShannag/kine
+module github.com/k3s-io/kine
 
 go 1.19
 
