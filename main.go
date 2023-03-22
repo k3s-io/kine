@@ -81,9 +81,9 @@ func main() {
 		},
 		cli.StringFlag{
 			Name:        "metrics-bind-address",
-			Usage:       "The address the metric endpoint binds to. Default :8081, set 0 to disable metrics serving.",
+			Usage:       "The address the metric endpoint binds to. Default :8080, set 0 to disable metrics serving.",
 			Destination: &metricsConfig.ServerAddress,
-			Value:       ":8081",
+			Value:       ":8080",
 		},
 		cli.DurationFlag{
 			Name:        "slow-sql-threshold",
