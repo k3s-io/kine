@@ -247,7 +247,7 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	case PostgresBackend:
 		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
 	case OracleBackend:
-		backend, err = oracle.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
+		backend, err = oracle.New(ctx, dsn, cfg.BackendTLSConfig, OracleConnectionPoolConfig(cfg), cfg.MetricsRegisterer)
 	case MySQLBackend:
 		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
 	case JetStreamBackend:

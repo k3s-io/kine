@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"net/url"
 
-	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
@@ -96,14 +95,13 @@ var (
 	}
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
+func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
 	parsedDSN, err := prepareDSN(dataSourceName)
 
 	if err != nil {
 		return nil, err
 	}
-
-	dialect, err := generic.Open(ctx, "oracle", parsedDSN, connPoolConfig, ":", true, metricsRegisterer)
+	dialect, err := Open(ctx, "oracle", parsedDSN, connPoolConfig, ":", true, metricsRegisterer)
 	if err != nil {
 		return nil, err
 	}
