@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/endpoint"
-	"github.com/k3s-io/kine/pkg/metrics"
-	"github.com/k3s-io/kine/pkg/version"
+	"github.com/AdamShannag/kine/pkg/endpoint"
+	"github.com/AdamShannag/kine/pkg/metrics"
+	"github.com/AdamShannag/kine/pkg/version"
 	"github.com/rancher/wrangler/pkg/signals"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"

@@ -8,8 +8,8 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/k3s-io/kine/pkg/drivers/generic"
-	"github.com/k3s-io/kine/pkg/server"
+	"github.com/AdamShannag/kine/pkg/drivers/generic"
+	"github.com/AdamShannag/kine/pkg/server"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

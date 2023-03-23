@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/metrics"
-	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/util"
+	"github.com/AdamShannag/kine/pkg/metrics"
+	"github.com/AdamShannag/kine/pkg/server"
+	"github.com/AdamShannag/kine/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 

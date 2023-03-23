@@ -11,11 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AdamShannag/kine/pkg/metrics"
+	"github.com/AdamShannag/kine/pkg/server"
+	"github.com/AdamShannag/kine/pkg/util"
 	"github.com/Rican7/retry/backoff"
 	"github.com/Rican7/retry/strategy"
-	"github.com/k3s-io/kine/pkg/metrics"
-	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/util"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
