@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/drivers/jetstream/kv"
-	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/tls"
+	"github.com/AdamShannag/kine/pkg/drivers/jetstream/kv"
+	"github.com/AdamShannag/kine/pkg/server"
+	"github.com/AdamShannag/kine/pkg/tls"
 	"github.com/nats-io/jsm.go/natscontext"
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"

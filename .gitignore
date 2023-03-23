@@ -68,3 +68,5 @@ db/
 # build artifacts
 bin/
 dist/
+
+*kine*

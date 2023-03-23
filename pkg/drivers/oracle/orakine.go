@@ -1,4 +1,4 @@
-package generic
+package oracle
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"github.com/AdamShannag/kine/pkg/util"
 	"github.com/Rican7/retry/backoff"
 	"github.com/Rican7/retry/strategy"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
@@ -31,43 +32,42 @@ var _ server.Dialect = (*Generic)(nil)
 var (
 	columns = "kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
 	revSQL  = `
-		SELECT MAX(rkv.id) AS id
-		FROM kine AS rkv`
+	SELECT MAX(rkv.id) AS id
+	FROM kine rkv`
 
 	compactRevSQL = `
-		SELECT MAX(crkv.prev_revision) AS prev_revision
-		FROM kine AS crkv
-		WHERE crkv.name = 'compact_rev_key'`
+	SELECT MAX(crkv.prev_revision) AS prev_revision
+	FROM kine crkv
+	WHERE crkv.name = 'compact_rev_key'`
 
 	idOfKey = `
-		AND
-		mkv.id <= ? AND
-		mkv.id > (
-			SELECT MAX(ikv.id) AS id
-			FROM kine AS ikv
-			WHERE
-				ikv.name = ? AND
-				ikv.id <= ?)`
+	AND
+	mkv.id <= ? AND
+	mkv.id > (
+		SELECT MAX(ikv.id) AS id
+		FROM kine AS ikv
+		WHERE
+			ikv.name = ? AND
+			ikv.id <= ?)`
 
 	listSQL = fmt.Sprintf(`
-		SELECT *
-		FROM (
-			SELECT (%s), (%s), %s
-			FROM kine AS kv
-			JOIN (
-				SELECT MAX(mkv.id) AS id
-				FROM kine AS mkv
-				WHERE
-					mkv.name LIKE ?
-					%%s
-				GROUP BY mkv.name) AS maxkv
-				ON maxkv.id = kv.id
+	SELECT *
+	FROM (
+		SELECT (%s), (%s), %s
+		FROM kine kv
+		JOIN (
+			SELECT MAX(mkv.id) AS id
+			FROM kine mkv
 			WHERE
-				kv.deleted = 0 OR
-				?
-		) AS lkv
-		ORDER BY lkv.theid ASC
-		`, revSQL, compactRevSQL, columns)
+				mkv.name LIKE ?
+				%%s
+			GROUP BY mkv.name) maxkv
+			ON maxkv.id = kv.id
+			WHERE 
+			CASE WHEN :2 = 1 THEN 1 ELSE kv.deleted END = 0
+	) lkv
+	ORDER BY lkv.theid ASC
+	`, revSQL, compactRevSQL, columns)
 )
 
 type ErrRetry func(error) bool
@@ -210,7 +210,7 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		GetRevisionSQL: q(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
-			FROM kine AS kv
+			FROM kine kv
 			WHERE kv.id = ?`, columns), paramCharacter, numbered),
 
 		GetCurrentSQL:        q(fmt.Sprintf(listSQL, ""), paramCharacter, numbered),
@@ -225,14 +225,14 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 
 		AfterSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
-			FROM kine AS kv
+			FROM kine kv
 			WHERE
 				kv.name LIKE ? AND
 				kv.id > ?
 			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns), paramCharacter, numbered),
 
 		DeleteSQL: q(`
-			DELETE FROM kine AS kv
+			DELETE FROM kine kv
 			WHERE kv.id = ?`, paramCharacter, numbered),
 
 		UpdateCompactSQL: q(`
@@ -243,15 +243,16 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		InsertLastInsertIDSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
 
-		InsertSQL: q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, paramCharacter, numbered),
+		InsertSQL: q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id INTO ?`, paramCharacter, numbered),
 
 		FillSQL: q(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
+			values(?, ?, ?, ?, ?, ?, ?, EMPTY_BLOB(), EMPTY_BLOB())`, paramCharacter, numbered),
 	}, err
 }
 
 func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (result *sql.Rows, err error) {
+	d.execute(ctx, "ALTER SESSION SET current_schema = ORACLE")
 	logrus.Tracef("QUERY %v : %s", args, util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
@@ -337,25 +338,26 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 func (d *Generic) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
 	sql := d.GetCurrentSQL
 	if limit > 0 {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		sql = fmt.Sprintf(" SELECT * FROM( %s ) WHERE rownum <= %d", sql, limit)
 	}
-	return d.query(ctx, sql, prefix, includeDeleted)
+	return d.query(ctx, sql, prefix, boolOracle(sql, includeDeleted))
 }
 
 func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error) {
 	if startKey == "" {
 		sql := d.ListRevisionStartSQL
 		if limit > 0 {
-			sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+			sql = fmt.Sprintf(" SELECT * FROM( %s ) WHERE rownum <= %d", sql, limit)
 		}
-		return d.query(ctx, sql, prefix, revision, includeDeleted)
+
+		return d.query(ctx, sql, prefix, revision, boolOracle(sql, includeDeleted))
 	}
 
 	sql := d.GetRevisionAfterSQL
 	if limit > 0 {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		sql = fmt.Sprintf(" SELECT * FROM( %s ) WHERE rownum <= %d", sql, limit)
 	}
-	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
+	return d.query(ctx, sql, prefix, revision, startKey, revision, boolOracle(sql, includeDeleted))
 }
 
 func (d *Generic) Count(ctx context.Context, prefix string) (int64, int64, error) {
@@ -382,13 +384,13 @@ func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 func (d *Generic) After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error) {
 	sql := d.AfterSQL
 	if limit > 0 {
-		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		sql = fmt.Sprintf(" SELECT * FROM( %s ) WHERE rownum <= %d", sql, limit)
 	}
 	return d.query(ctx, sql, prefix, rev)
 }
 
 func (d *Generic) Fill(ctx context.Context, revision int64) error {
-	_, err := d.execute(ctx, d.FillSQL, revision, fmt.Sprintf("gap-%d", revision), 0, 1, 0, 0, 0, nil, nil)
+	_, err := d.execute(ctx, d.FillSQL, revision, fmt.Sprintf("gap-%d", revision), 0, 1, 0, 0, 0)
 	return err
 }
 
@@ -415,6 +417,31 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	if d.LastInsertID {
+		if isNil(prevValue) && isNil(value) {
+			d.InsertLastInsertIDSQL = q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), EMPTY_BLOB())`, ":", true)
+			row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl)
+			if err != nil {
+				return 0, err
+			}
+			return row.LastInsertId()
+		} else if isNil(value) {
+			d.InsertLastInsertIDSQL = q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), ?)`, ":", true)
+			row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, prevValue)
+			if err != nil {
+				return 0, err
+			}
+			return row.LastInsertId()
+		} else if isNil(prevValue) {
+			d.InsertLastInsertIDSQL = q(`INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?,EMPTY_BLOB())`, ":", true)
+			row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value)
+			if err != nil {
+				return 0, err
+			}
+			return row.LastInsertId()
+		}
 		row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 		if err != nil {
 			return 0, err
@@ -422,8 +449,22 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		return row.LastInsertId()
 	}
 
-	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
-	err = row.Scan(&id)
+	if isNil(prevValue) && isNil(value) {
+		d.InsertSQL = q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), EMPTY_BLOB()) RETURNING id INTO ?`, ":", true)
+		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, sql.Out{Dest: &id})
+	} else if isNil(value) {
+		d.InsertSQL = q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, EMPTY_BLOB(), ?) RETURNING id INTO ?`, ":", true)
+		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, prevValue, sql.Out{Dest: &id})
+	} else if isNil(prevValue) {
+		d.InsertSQL = q(`INSERT INTO ORACLE.kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, EMPTY_BLOB()) RETURNING id INTO ?`, ":", true)
+		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, sql.Out{Dest: &id})
+	} else {
+		_, err = d.execute(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue, sql.Out{Dest: &id})
+	}
+
 	return id, err
 }
 
@@ -437,4 +478,15 @@ func (d *Generic) GetSize(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return size, nil
+}
+
+func boolOracle(sql string, includeDeleted bool) string {
+	if includeDeleted {
+		return `1`
+	}
+	return `0`
+}
+
+func isNil(val []byte) bool {
+	return len(val) == 0
 }

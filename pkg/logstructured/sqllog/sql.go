@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/broadcaster"
-	"github.com/k3s-io/kine/pkg/metrics"
-	"github.com/k3s-io/kine/pkg/server"
+	"github.com/AdamShannag/kine/pkg/broadcaster"
+	"github.com/AdamShannag/kine/pkg/metrics"
+	"github.com/AdamShannag/kine/pkg/server"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
