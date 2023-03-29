@@ -7,7 +7,7 @@ RUN GOPROXY=direct go install golang.org/x/tools/cmd/goimports@gopls/v0.9.5
 RUN rm -rf /go/src /go/pkg
 
 RUN if [ "${ARCH}" == "amd64" ]; then \
-    curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/v1.50.0/install.sh | sh -s;  \
+    curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/v1.52.2/install.sh | sh -s;  \
     fi
 
 ENV DAPPER_RUN_ARGS --privileged -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
