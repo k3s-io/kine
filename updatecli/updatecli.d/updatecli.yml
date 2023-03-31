@@ -35,8 +35,6 @@ sources:
       versionfilter:
         kind: "regex"
         pattern: '^go1\.20\.2$'
-    transformers:
-      - trimprefix: "go"
 
 # Validate read access to local repo
 ## continue to targets if the go version in the validate file doesn't match the goTag source
@@ -76,4 +74,3 @@ actions:
       draft: false
       mergemethod: squash
       parent: false # this would allow for making a PR to an upstream fork, if we ran updatecli from a fork
-
