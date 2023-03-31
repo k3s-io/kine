@@ -149,11 +149,10 @@ outer:
 				// last iteration because another client has compacted, or the requested revision has already been compacted.
 				if err == server.ErrCompacted {
 					break
-				} else {
-					logrus.Errorf("Compact failed: %v", err)
-					metrics.CompactTotal.WithLabelValues(metrics.ResultError).Inc()
-					continue outer
 				}
+				logrus.Errorf("Compact failed: %v", err)
+				metrics.CompactTotal.WithLabelValues(metrics.ResultError).Inc()
+				continue outer
 			}
 		}
 
