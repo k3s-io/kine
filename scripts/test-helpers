@@ -114,13 +114,12 @@ export -f run-test
 
 # ---
 
-inc-count() {(
-    shopt -s extglob
-    local count=$(exec 2>/dev/null; ls -1d $TEST_DIR/$1/+([0-9]) | xargs -n1 basename | sort -n -r | head -1)
+inc-count() {
+    local count=$(find $TEST_DIR -mindepth 2 -maxdepth 2 -type d -regex ".*/$1/[0-9]+" -printf '%f\n' | sort -nr | head -1)
     count=$((count+1))
     mkdir -p $TEST_DIR/$1/$count/metadata
     echo $count
-)}
+}
 export -f inc-count
 
 # ---

@@ -2,7 +2,7 @@ FROM golang:1.20-alpine3.17 AS dapper
 
 ARG ARCH=amd64
 
-RUN apk -U add bash coreutils git gcc musl-dev docker-cli vim less file curl wget ca-certificates
+RUN apk -U add bash ca-certificates coreutils curl docker-cli file findutils gcc git less musl-dev vim wget
 RUN apk -U add py3-pip && pip install kubernetes termplotlib==v0.3.4
 
 ENV DAPPER_RUN_ARGS --privileged -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
