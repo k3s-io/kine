@@ -5,6 +5,7 @@ import (
 	cryptotls "crypto/tls"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
@@ -137,7 +138,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	if err != nil {
 		return err
 	}
-	dbName := config.DBName
+	dbName := quoteIdentifier(config.DBName)
 
 	db, err := sql.Open("mysql", dataSourceName)
 	if err != nil {
@@ -187,4 +188,8 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 	parsedDSN := config.FormatDSN()
 
 	return parsedDSN, nil
+}
+
+func quoteIdentifier(id string) string {
+	return "`" + strings.ReplaceAll(id, "`", "``") + "`"
 }
