@@ -49,6 +49,8 @@ type Config struct {
 	slowThreshold time.Duration
 	// If true, a server will be embedded and started.
 	embedServer bool
+	// If true, use a socket for the embedded server.
+	dontListen bool
 	// Path to a server configuration file when embedded.
 	serverConfig string
 	// If true, the embedded server will log to stdout.
@@ -151,14 +153,21 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 		return nil, err
 	}
 
+	nopts := append(config.clientOptions, nats.Name("k3s-server using bucket: "+config.bucket))
+
 	// Run an embedded server.
 	if config.embedServer {
 		logrus.Infof("using an embedded NATS server")
 
-		ns, err := natsserver.New(config.serverConfig, config.stdoutLogging)
+		ns, err := natsserver.New(config.serverConfig, config.dontListen, config.stdoutLogging)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create embedded NATS server: %w", err)
 		}
+
+		if config.dontListen {
+			nopts = append(nopts, nats.InProcessServer(ns))
+		}
+
 		// Start the server.
 		go ns.Start()
 		logrus.Infof("started embedded NATS server")
@@ -186,8 +195,6 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 
 	logrus.Infof("using bucket: %s", config.bucket)
 	logrus.Infof("connecting to %s", config.clientURL)
-
-	nopts := append(config.clientOptions, nats.Name("k3s-server using bucket: "+config.bucket))
 
 	conn, err := nats.Connect(config.clientURL, nopts...)
 	if err != nil {
@@ -347,6 +354,7 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		config.embedServer = true
 		config.serverConfig = queryMap.Get("serverConfig")
 		config.stdoutLogging = queryMap.Has("stdoutLogging")
+		config.dontListen = queryMap.Has("dontListen")
 	}
 
 	logrus.Debugf("using config %#v", config)

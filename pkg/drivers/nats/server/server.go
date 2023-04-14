@@ -9,7 +9,7 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
-func New(configFile string, stdoutLogging bool) (Server, error) {
+func New(configFile string, dontListen, stdoutLogging bool) (Server, error) {
 	opts := &server.Options{}
 
 	if configFile == "" {
@@ -23,6 +23,9 @@ func New(configFile string, stdoutLogging bool) (Server, error) {
 			return nil, fmt.Errorf("failed to process NATS server config file: %w", err)
 		}
 	}
+
+	opts.DontListen = dontListen
+	opts.Port = 0
 
 	srv, err := server.NewServer(opts)
 	if stdoutLogging {

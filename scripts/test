@@ -32,4 +32,7 @@ echo "did test-nats$?"
 . ./scripts/test-run-nats-embedded
 echo "did test-nats-embedded$?"
 
+. ./scripts/test-run-nats-socket
+echo "did test-nats-socket$?"
+
 exit 0
