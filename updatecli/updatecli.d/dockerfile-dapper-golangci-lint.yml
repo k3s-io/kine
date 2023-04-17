@@ -1,0 +1,64 @@
+# We don't want to actually pull the "latest" channel, we want to get the latest release and pin it
+#  when the PR comes in, we should be testing that this is actually what we want
+---
+name: "Update Dockerfile.dapper to pull the latest golangci-lint version for install"
+scms:
+  kine:
+    kind: "github"
+    spec:
+      user: "{{ .github.user }}"
+      email: "{{ .github.email }}"
+      username: "{{ requiredEnv .github.username }}"
+      token: "{{ requiredEnv .github.token }}"
+      owner: "k3s-io"
+      repository: "kine"
+      branch: "master"
+  golangci-lint:
+    kind: "github"
+    spec:
+      user: "{{ .github.user }}"
+      email: "{{ .github.email }}"
+      username: "{{ requiredEnv .github.username }}"
+      token: "{{ requiredEnv .github.token }}"
+      owner: "golangci"
+      repository: "golangci-lint"
+      branch: "master"
+
+sources:
+  goLintLatestTag:
+    name: "Golangci Lint's most recent tag"
+    kind: "gittag"
+    scmid: "golangci-lint"
+    spec:
+      versionfilter:
+        kind: "latest"
+
+# Only change if the Dockerfile doesn't already match
+conditions:
+  dockerDapperGoLintMatches:
+    name: "Only update dockerfile if there is a newer version of golangci-lint"
+    kind: file
+    sourceid: goLintLatestTag
+    spec:
+      file: "Dockerfile.dapper"
+      matchpattern: 'golangci\/golangci-lint\/(v1\.\d*\.\d*)\/install\.sh'
+
+targets:
+  updateGolangciLint:
+    name: "Update the version of Golangci-lint"
+    kind: "file"
+    scmid: "kine"
+    spec:
+      file: "Dockerfile.dapper"
+      matchpattern: 'golangci\/golangci-lint\/(v1\.\d*\.\d*)\/install\.sh'
+      replacepattern: 'golangci/golangci-lint/{{ source `goLintLatestTag` }}/install.sh'
+
+actions:
+  # create a pull request which is not allowed to automerge
+   github:
+    kind: "github/pullrequest"
+    scmid: "kine"
+    spec:
+      automerge: false
+      draft: false
+      mergemethod: squash
