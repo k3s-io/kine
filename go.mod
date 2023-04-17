@@ -8,10 +8,10 @@ require (
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v5 v5.3.1
-	github.com/klauspost/compress v1.16.4
+	github.com/klauspost/compress v1.16.5
 	github.com/mattn/go-sqlite3 v1.14.15
 	github.com/nats-io/jsm.go v0.0.31-0.20220317133147-fe318f464eee
-	github.com/nats-io/nats-server/v2 v2.9.15
+	github.com/nats-io/nats-server/v2 v2.9.16
 	github.com/nats-io/nats.go v1.25.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.14.0
