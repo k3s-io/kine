@@ -25,7 +25,6 @@ func New(configFile string, dontListen, stdoutLogging bool) (Server, error) {
 	}
 
 	opts.DontListen = dontListen
-	opts.Port = 0
 
 	srv, err := server.NewServer(opts)
 	if stdoutLogging {
