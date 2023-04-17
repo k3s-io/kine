@@ -1,9 +1,7 @@
 #!/bin/bash
 
 start-test() {
-    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
-    local port=$(cat $TEST_DIR/databases/*/metadata/port)
-    KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://$ip:$port?embedServer&dontListen" provision-kine
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://?embedServer&dontListen" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
