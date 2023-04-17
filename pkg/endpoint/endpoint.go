@@ -27,13 +27,14 @@ import (
 )
 
 const (
-	KineSocket      = "unix://kine.sock"
-	SQLiteBackend   = "sqlite"
-	DQLiteBackend   = "dqlite"
-	ETCDBackend     = "etcd3"
-	NATSBackend     = "nats"
-	MySQLBackend    = "mysql"
-	PostgresBackend = "postgres"
+	KineSocket       = "unix://kine.sock"
+	SQLiteBackend    = "sqlite"
+	DQLiteBackend    = "dqlite"
+	ETCDBackend      = "etcd3"
+	JetStreamBackend = "jetstream"
+	NATSBackend      = "nats"
+	MySQLBackend     = "mysql"
+	PostgresBackend  = "postgres"
 )
 
 type Config struct {
@@ -246,7 +247,7 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
 	case MySQLBackend:
 		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case NATSBackend:
+	case NATSBackend, JetStreamBackend:
 		backend, err = nats.New(ctx, dsn, cfg.BackendTLSConfig)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
