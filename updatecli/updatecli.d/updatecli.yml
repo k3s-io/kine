@@ -1,4 +1,9 @@
 # This small test makes sure that updatecli is working properly on a repo.
+# To test this:
+#   have "UPDATECLI_GITHUB_ACTOR" env set to your github username
+#   have "UPDATECLI_GITHUB_TOKEN" env set to your github token
+#   have the latest verison of updatecli installed
+#   'updatecli diff -v updatecli/values.yaml -c updatecli/updatecli.d/updatecli.yml'
 # In the future, more useful files should be added to this directory.
 ---
 name: "Introduce updatecli to repo and validate basic functionality"
@@ -11,9 +16,9 @@ scms:
       email: "{{ .github.email }}"
       username: "{{ requiredEnv .github.username }}"
       token: '{{ requiredEnv .github.token }}'
-      owner: "{{ .kine.org }}"
-      repository: "{{ .kine.repo }}"
-      branch: "{{ .kine.branch }}"
+      owner: k3s-io
+      repository: kine
+      branch: master
   go:
     kind: "github"
     spec:
@@ -21,9 +26,9 @@ scms:
       email: "{{ .github.email }}"
       username: "{{ requiredEnv .github.username }}"
       token: '{{ requiredEnv .github.token }}'
-      owner: "{{ .go.org }}"
-      repository: "{{ .go.repo }}"
-      branch: "{{ .go.branch }}"
+      owner: golang
+      repository: go
+      branch: master
 
 sources:
   # validate gittag parsing external public repos
