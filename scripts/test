@@ -27,12 +27,12 @@ echo "Did test-run-postgres $?"
 echo "Did test-run-cockroachdb $?"
 
 . ./scripts/test-run-nats
-echo "did test-nats$?"
+echo "did test-nats $?"
 
 . ./scripts/test-run-nats-embedded
-echo "did test-nats-embedded$?"
+echo "did test-nats-embedded $?"
 
 . ./scripts/test-run-nats-socket
-echo "did test-nats-socket$?"
+echo "did test-nats-socket $?"
 
 exit 0
