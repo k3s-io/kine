@@ -8,13 +8,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
+	_ "github.com/jackc/pgx/v5/stdlib" // sql driver
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -56,7 +58,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "postgres", parsedDSN, connPoolConfig, "$", true, metricsRegisterer)
+	dialect, err := generic.Open(ctx, "pgx", parsedDSN, connPoolConfig, "$", true, metricsRegisterer)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +81,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		) AS ks
 		WHERE kv.id = ks.id`
 	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(*pq.Error); ok && err.Code == "23505" {
+		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation {
 			return server.ErrKeyExists
 		}
 		return err
@@ -88,8 +90,8 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		if err == nil {
 			return ""
 		}
-		if err, ok := err.(*pq.Error); ok {
-			return string(err.Code)
+		if err, ok := err.(*pgconn.PgError); ok {
+			return err.Code
 		}
 		return err.Error()
 	}
@@ -124,7 +126,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	}
 
 	dbName := strings.SplitN(u.Path, "/", 2)[1]
-	db, err := sql.Open("postgres", dataSourceName)
+	db, err := sql.Open("pgx", dataSourceName)
 	if err != nil {
 		return err
 	}
@@ -132,16 +134,16 @@ func createDBIfNotExist(dataSourceName string) error {
 
 	err = db.Ping()
 	// check if database already exists
-	if _, ok := err.(*pq.Error); !ok {
+	if _, ok := err.(*pgconn.PgError); !ok {
 		return err
 	}
-	if err := err.(*pq.Error); err.Code != "42P04" {
-		if err.Code != "3D000" {
+	if err := err.(*pgconn.PgError); err.Code != pgerrcode.DuplicateDatabase {
+		if err.Code != pgerrcode.InvalidCatalogName {
 			return err
 		}
 		// database doesn't exit, will try to create it
 		u.Path = "/postgres"
-		db, err := sql.Open("postgres", u.String())
+		db, err := sql.Open("pgx", u.String())
 		if err != nil {
 			return err
 		}
