@@ -1,0 +1,84 @@
+# This file updates the version of goimports used in Dockerfile.dapper
+---
+name: "Update the version of goimports used in Dockerfile.dapper"
+scms:
+  kine:
+    kind: "github"
+    spec:
+      user: "{{ .github.user }}"
+      email: "{{ .github.email }}"
+      username: "{{ requiredEnv .github.username }}"
+      token: '{{ requiredEnv .github.token }}'
+      owner: "k3s-io"
+      repository: "kine"
+      branch: "master"
+  golang-tools:
+    kind: "github"
+    spec:
+      user: "{{ .github.user }}"
+      email: "{{ .github.email }}"
+      username: "{{ requiredEnv .github.username }}"
+      token: '{{ requiredEnv .github.token }}'
+      owner: "golang"
+      repository: "tools"
+      branch: "master"
+
+sources:
+  latestGoImportsHash:
+    name: "Get commit hash of latest goimports tag"
+    kind: "gittag"
+    scmid: "golang-tools"
+    spec:
+      versionfilter:
+        kind: "regex"
+        pattern: '^gopls\/v\d*\.\d*\.\d*$' # ex. gopls/v0.11.0
+      key: "hash"
+  latestGoImportsTag:
+    name: "Get latest goimports tag"
+    kind: "gittag"
+    scmid: "golang-tools"
+    spec:
+      versionfilter:
+        kind: "regex"
+        pattern: '^gopls\/v\d*\.\d*\.\d*$' # ex. gopls/v0.11.0
+
+# continue to targets when file doesn't match source
+conditions:
+  testHashShouldMatch:
+    name: "Hash should match latest tag's commit hash"
+    kind: file
+    disablesourceinput: true
+    spec:
+      file: "Dockerfile.dapper"
+      matchpattern: 'go install golang\.org\/x\/tools\/cmd\/goimports@{{ source `latestGoImportsHash` }}'
+    failwhen: true
+
+targets:
+  updateDockerfileHash:
+    name: "Update the hash in Dockerfile.dapper"
+    kind: "file"
+    scmid: "kine"
+    disablesourceinput: true
+    spec:
+      file: "Dockerfile.dapper"
+      matchpattern: 'go install golang\.org\/x\/tools\/cmd\/goimports@(.*)'
+      replacepattern: 'go install golang.org/x/tools/cmd/goimports@{{ source `latestGoImportsHash` }}'
+  updateDockerfileTag:
+    name: "Update the tag in Dockerfile.dapper"
+    kind: "file"
+    scmid: "kine"
+    disablesourceinput: true
+    spec:
+      file: "Dockerfile.dapper"
+      matchpattern: '# go imports version gopls\/v\d*\.\d*\.\d*'
+      replacepattern: '# go imports version {{ source `latestGoImportsTag` }}'
+
+# create a pull request which isn't allowed to automerge
+actions:
+  github:
+    kind: "github/pullrequest"
+    scmid: "kine"
+    spec:
+      automerge: false
+      draft: false
+      mergemethod: squash
