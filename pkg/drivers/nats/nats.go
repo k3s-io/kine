@@ -191,10 +191,11 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 
 		// Use the local server's client URL.
 		config.clientURL = ns.ClientURL()
+	} else {
+		logrus.Infof("connecting to %s", config.clientURL)
 	}
 
 	logrus.Infof("using bucket: %s", config.bucket)
-	logrus.Infof("connecting to %s", config.clientURL)
 
 	conn, err := nats.Connect(config.clientURL, nopts...)
 	if err != nil {
@@ -350,7 +351,7 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	config.clientURL = connBuilder.String()
 
 	// If this option is set, consider the server-specific options.
-	if queryMap.Has("embedServer") {
+	if queryMap.Has("embedServer") || (natsserver.Embedded && dsn == "nats://") {
 		config.embedServer = true
 		config.serverConfig = queryMap.Get("serverConfig")
 		config.stdoutLogging = queryMap.Has("stdoutLogging")

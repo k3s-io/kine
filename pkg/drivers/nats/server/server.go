@@ -9,6 +9,10 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
+const (
+	Embedded = true
+)
+
 func New(configFile string, dontListen, stdoutLogging bool) (Server, error) {
 	opts := &server.Options{}
 
