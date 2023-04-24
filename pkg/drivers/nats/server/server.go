@@ -13,25 +13,35 @@ const (
 	Embedded = true
 )
 
-func New(configFile string, dontListen, stdoutLogging bool) (Server, error) {
+func New(c *Config) (Server, error) {
 	opts := &server.Options{}
 
-	if configFile == "" {
-		// TODO: Other defaults for easy single node config?
-		opts.JetStream = true
-	} else {
+	if c.ConfigFile != "" {
 		// Parse the server config file as options.
 		var err error
-		opts, err = server.ProcessConfigFile(configFile)
+		opts, err = server.ProcessConfigFile(c.ConfigFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process NATS server config file: %w", err)
 		}
 	}
 
-	opts.DontListen = dontListen
+	// Note, if don't listen is set, host and port will be ignored.
+	opts.DontListen = c.DontListen
+
+	// Only override host and port if set explicitly.
+	if c.Host != "" {
+		opts.Host = c.Host
+	}
+	if c.Port != 0 {
+		opts.Port = c.Port
+	}
+
+	// TODO: Other defaults for embedded config?
+	// Explicitly set JetStream to true since we need the KV store.
+	opts.JetStream = true
 
 	srv, err := server.NewServer(opts)
-	if stdoutLogging {
+	if c.StdoutLogging {
 		srv.ConfigureLogger()
 	}
 

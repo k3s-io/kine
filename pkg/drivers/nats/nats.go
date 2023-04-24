@@ -47,14 +47,18 @@ type Config struct {
 	replicas int
 	// Indicates the duration of a method before it is considered slow. Defaults to 500ms.
 	slowThreshold time.Duration
-	// If true, a server will be embedded and started.
-	embedServer bool
+	// If true, an embedded server will not be used.
+	noEmbed bool
 	// If true, use a socket for the embedded server.
 	dontListen bool
 	// Path to a server configuration file when embedded.
 	serverConfig string
 	// If true, the embedded server will log to stdout.
 	stdoutLogging bool
+	// The explicit host to listen on when embedded.
+	host string
+	// The explicit port to listen on when embedded.
+	port int
 }
 
 type Driver struct {
@@ -109,57 +113,26 @@ type JSValue struct {
 }
 
 // New return an implementation of server.Backend using NATS + JetStream.
-// Various connection formats are supported using the nats:// scheme
-// and having the following format:
-//
-//			nats://<auth>@<hostname>:<port>?<params>`
-//
-//	   - auth - optional and can be user/pass or token
-//	   - hostname:port - specifies the NATS server address
-//	   - params - optional query parameters
-//
-// The following query parameters are supported:
-//
-//   - bucket - specifies the name of the NATS key-value bucket. Default is "kine"
-//   - replicas - specifies the number of replicas for the bucket. Default is 1
-//   - revHistory - specifies the number of revisions to keep in history. Default is 10
-//   - slowMethod - specifies the duration of a method before it is considered slow. Default is 500ms
-//   - contextFile - specifies the path to a NATS context file
-//   - embedServer - specifies whether to embed a NATS server. Default is false.
-//   - serverConfig - specifies the path to a NATS server configuration file if embedServer is true.
-//   - stdoutLogging - specifies whether to log to stdout if embedServer is true. Default is false.
-//
-// If contextFile is provided then hostname:port should not be provided.
-//
-// Multiple URLs can be passed in a comma separated format, however only the first URL
-// in the list will be evaluated for query parameters. While auth is valid in the URL, the
-// recommended way to pass auth is through a context file. If user/pass or token are provided
-// in the URL only the first one will be used for all URLs.
-//
-// See https://docs.nats.io/using-nats/nats-tools/nats_cli#configuration-contexts for more information
-// on configuring a NATS context file.
-//
-// Examples:
-//
-//   - nats://localhost:4222?replicas=3
-//   - nats://?contextFile=/path/to/context.json
-//   - nats://user:pass@localhost:4222
-//   - nats://token@localhost:4222
-//   - nats://?embedServer=true
-//   - nats://?embedServer=true&serverConfig=/path/to/server.conf
+// See the `examples/nats.md` file for examples of connection strings.
 func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
-	config, err := parseNatsConnection(connection, tlsInfo)
+	config, err := parseConnection(connection, tlsInfo)
 	if err != nil {
 		return nil, err
 	}
 
-	nopts := append(config.clientOptions, nats.Name("k3s-server using bucket: "+config.bucket))
+	nopts := append(config.clientOptions, nats.Name("kine using bucket: "+config.bucket))
 
-	// Run an embedded server.
-	if config.embedServer {
+	// Run an embedded server if available and not disabled.
+	if natsserver.Embedded && !config.noEmbed {
 		logrus.Infof("using an embedded NATS server")
 
-		ns, err := natsserver.New(config.serverConfig, config.dontListen, config.stdoutLogging)
+		ns, err := natsserver.New(&natsserver.Config{
+			Host:          config.host,
+			Port:          config.port,
+			ConfigFile:    config.serverConfig,
+			DontListen:    config.dontListen,
+			StdoutLogging: config.stdoutLogging,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create embedded NATS server: %w", err)
 		}
@@ -191,7 +164,9 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 
 		// Use the local server's client URL.
 		config.clientURL = ns.ClientURL()
-	} else {
+	}
+
+	if !config.dontListen {
 		logrus.Infof("connecting to %s", config.clientURL)
 	}
 
@@ -233,8 +208,8 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 	}, nil
 }
 
-// parseNatsConnection returns nats connection url, bucketName and []nats.Option, error
-func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
+// parseConnection returns nats connection url, bucketName and []nats.Option, error
+func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	config := &Config{
 		slowThreshold: defaultSlowMethod,
 		revHistory:    defaultRevHistory,
@@ -248,6 +223,12 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	u, err := url.Parse(connections[0])
 	if err != nil {
 		return nil, err
+	}
+
+	// Extract the host and port if embedded server is used.
+	config.host = u.Hostname()
+	if u.Port() != "" {
+		config.port, _ = strconv.Atoi(u.Port())
 	}
 
 	// Extract the query parameters to build configuration.
@@ -350,9 +331,9 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 
 	config.clientURL = connBuilder.String()
 
-	// If this option is set, consider the server-specific options.
-	if queryMap.Has("embedServer") || (natsserver.Embedded && dsn == "nats://") {
-		config.embedServer = true
+	// Config options only relevant if built with embedded NATS.
+	if natsserver.Embedded {
+		config.noEmbed = queryMap.Has("noEmbed")
 		config.serverConfig = queryMap.Get("serverConfig")
 		config.stdoutLogging = queryMap.Has("stdoutLogging")
 		config.dontListen = queryMap.Has("dontListen")

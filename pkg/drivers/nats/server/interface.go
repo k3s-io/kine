@@ -12,3 +12,11 @@ type Server interface {
 	ReadyForConnections(wait time.Duration) bool
 	InProcessConn() (net.Conn, error)
 }
+
+type Config struct {
+	Host          string
+	Port          int
+	ConfigFile    string
+	DontListen    bool
+	StdoutLogging bool
+}
