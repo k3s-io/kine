@@ -1,10 +1,12 @@
-package jetstream
+package nats
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"os/signal"
 	"regexp"
 	"sort"
 	"strconv"
@@ -12,7 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/drivers/jetstream/kv"
+	"github.com/k3s-io/kine/pkg/drivers/nats/kv"
+	natsserver "github.com/k3s-io/kine/pkg/drivers/nats/server"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/nats-io/jsm.go/natscontext"
@@ -22,6 +25,7 @@ import (
 
 const (
 	defaultBucket     = "kine"
+	defaultReplicas   = 1
 	defaultRevHistory = 10
 	defaultSlowMethod = 500 * time.Millisecond
 )
@@ -31,21 +35,74 @@ var (
 )
 
 type Config struct {
-	natsURL    string
-	options    []nats.Option
+	// Client URL which could be a list of comma separated URLs.
+	clientURL string
+	// Client connection options.
+	clientOptions []nats.Option
+	// Number of revisions to keep in history. Defaults to 10.
 	revHistory uint8
-	bucket     string
-	slowMethod time.Duration
+	// Name of the bucket. Defaults to "kine".
+	bucket string
+	// Number of replicas for the bucket. Defaults to 1
+	replicas int
+	// Indicates the duration of a method before it is considered slow. Defaults to 500ms.
+	slowThreshold time.Duration
+	// If true, an embedded server will not be used.
+	noEmbed bool
+	// If true, use a socket for the embedded server.
+	dontListen bool
+	// Path to a server configuration file when embedded.
+	serverConfig string
+	// If true, the embedded server will log to stdout.
+	stdoutLogging bool
+	// The explicit host to listen on when embedded.
+	host string
+	// The explicit port to listen on when embedded.
+	port int
 }
 
-type JetStream struct {
-	kvBucket         nats.KeyValue
-	kvBucketMutex    *sync.RWMutex
-	kvDirectoryMutex *sync.RWMutex
-	kvDirectoryMuxes map[string]*sync.RWMutex
-	jetStream        nats.JetStreamContext
-	slowMethod       time.Duration
-	server.Backend
+type Driver struct {
+	nc *nats.Conn
+	js nats.JetStreamContext
+	kv nats.KeyValue
+
+	dirMu  *sync.RWMutex
+	subMus map[string]*sync.RWMutex
+
+	slowThreshold time.Duration
+}
+
+func (d *Driver) logMethod(dur time.Duration, str string, args ...any) {
+	if dur > d.slowThreshold {
+		logrus.Warnf(str, args...)
+	} else {
+		logrus.Tracef(str, args...)
+	}
+}
+
+func getTopLevelKey(key string) string {
+	if toplevelKeyMatch.MatchString(key) {
+		matches := toplevelKeyMatch.FindStringSubmatch(key)
+		return matches[1]
+	}
+	return ""
+}
+
+func (d *Driver) lockFolder(key string) (unlock func()) {
+	lockFolder := getTopLevelKey(key)
+	if lockFolder == "" {
+		return func() {}
+	}
+
+	d.dirMu.Lock()
+	mu, ok := d.subMus[lockFolder]
+	if !ok {
+		mu = &sync.RWMutex{}
+		d.subMus[lockFolder] = mu
+	}
+	d.dirMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
 }
 
 type JSValue struct {
@@ -55,65 +112,74 @@ type JSValue struct {
 	Delete       bool
 }
 
-// New get the JetStream Backend, establish connection to NATS JetStream. At the moment nats.go does not have
-// connection string support so kine will use:
-//		nats://(token|username:password)hostname:port?bucket=bucketName&contextFile=nats-context&slowMethod=<duration>&revHistory=<revCount>`.
-//
-// If contextFile is provided then do not provide a hostname:port in the endpoint URL, instead use the context file to
-// provide the NATS server url(s).
-//
-//		bucket: specifies the bucket on the nats server for the k8s key/values for this cluster (optional)
-//		contextFile: specifies the nats context file to load e.g. /etc/nats/context.json
-//		revHistory: controls the rev history for JetStream defaults to 10 must be > 2 and <= 64
-//		slowMethod: used to log methods slower than provided duration default 500ms
-//
-// Multiple urls can be passed in a comma separated format - only the first in the list will be evaluated for query
-// parameters. While auth is valid in the url, the preferred way to pass auth is through a context file. If user/pass or
-// token are provided in the url only the first one will be used for all urls.
-///
-// If no bucket query parameter is provided it will default to kine
-//
-// https://docs.nats.io/using-nats/nats-tools/nats_cli#configuration-contexts
-//
-// example nats-context.json:
-/*
-{
-  "description": "optional context description",
-  "url": "nats://127.0.0.1:4222",
-  "token": "",
-  "user": "",
-  "password": "",
-  "creds": "",
-  "nkey": "",
-  "cert": "",
-  "key": "",
-  "ca": "",
-  "nsc": "",
-  "jetstream_domain": "",
-  "jetstream_api_prefix": "",
-  "jetstream_event_prefix": ""
-}
-*/
+// New return an implementation of server.Backend using NATS + JetStream.
+// See the `examples/nats.md` file for examples of connection strings.
 func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
-	config, err := parseNatsConnection(connection, tlsInfo)
+	config, err := parseConnection(connection, tlsInfo)
 	if err != nil {
 		return nil, err
+	}
+
+	nopts := append(config.clientOptions, nats.Name("kine using bucket: "+config.bucket))
+
+	// Run an embedded server if available and not disabled.
+	if natsserver.Embedded && !config.noEmbed {
+		logrus.Infof("using an embedded NATS server")
+
+		ns, err := natsserver.New(&natsserver.Config{
+			Host:          config.host,
+			Port:          config.port,
+			ConfigFile:    config.serverConfig,
+			DontListen:    config.dontListen,
+			StdoutLogging: config.stdoutLogging,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create embedded NATS server: %w", err)
+		}
+
+		if config.dontListen {
+			nopts = append(nopts, nats.InProcessServer(ns))
+		}
+
+		// Start the server.
+		go ns.Start()
+		logrus.Infof("started embedded NATS server")
+
+		// Wait for the server to be ready.
+		// TODO: limit the number of retries?
+		for {
+			if ns.ReadyForConnections(5 * time.Second) {
+				break
+			}
+		}
+
+		// TODO: No method on backend.Driver exists to indicate a shutdown.
+		sigch := make(chan os.Signal, 1)
+		signal.Notify(sigch, os.Interrupt)
+		go func() {
+			<-sigch
+			ns.Shutdown()
+			logrus.Infof("embedded NATS server shutdown")
+		}()
+
+		// Use the local server's client URL.
+		config.clientURL = ns.ClientURL()
+	}
+
+	if !config.dontListen {
+		logrus.Infof("connecting to %s", config.clientURL)
 	}
 
 	logrus.Infof("using bucket: %s", config.bucket)
-	logrus.Infof("connecting to %s", config.natsURL)
 
-	nopts := append(config.options, nats.Name("k3s-server using bucket: "+config.bucket))
-
-	conn, err := nats.Connect(config.natsURL, nopts...)
+	conn, err := nats.Connect(config.clientURL, nopts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to NATS server: %w", err)
 	}
 
 	js, err := conn.JetStream()
-
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
 	bucket, err := js.KeyValue(config.bucket)
@@ -123,6 +189,7 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 				Bucket:      config.bucket,
 				Description: "Holds kine key/values",
 				History:     config.revHistory,
+				Replicas:    config.replicas,
 			})
 	}
 
@@ -132,77 +199,92 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 		return nil, err
 	}
 
-	return &JetStream{
-		kvBucket:         kvB,
-		kvBucketMutex:    &sync.RWMutex{},
-		kvDirectoryMutex: &sync.RWMutex{},
-		kvDirectoryMuxes: make(map[string]*sync.RWMutex),
-		jetStream:        js,
-		slowMethod:       config.slowMethod,
+	return &Driver{
+		kv:            kvB,
+		dirMu:         &sync.RWMutex{},
+		subMus:        make(map[string]*sync.RWMutex),
+		js:            js,
+		slowThreshold: config.slowThreshold,
 	}, nil
 }
 
-// parseNatsConnection returns nats connection url, bucketName and []nats.Option, error
-func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
-
-	jsConfig := &Config{
-		slowMethod: defaultSlowMethod,
-		revHistory: defaultRevHistory,
+// parseConnection returns nats connection url, bucketName and []nats.Option, error
+func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
+	config := &Config{
+		slowThreshold: defaultSlowMethod,
+		revHistory:    defaultRevHistory,
+		bucket:        defaultBucket,
+		replicas:      defaultReplicas,
 	}
+
+	// Parse the first URL in the connection string which contains the
+	// query parameters.
 	connections := strings.Split(dsn, ",")
-	jsConfig.bucket = defaultBucket
-
-	jsConfig.options = make([]nats.Option, 0)
-
 	u, err := url.Parse(connections[0])
 	if err != nil {
 		return nil, err
 	}
 
+	// Extract the host and port if embedded server is used.
+	config.host = u.Hostname()
+	if u.Port() != "" {
+		config.port, _ = strconv.Atoi(u.Port())
+	}
+
+	// Extract the query parameters to build configuration.
 	queryMap, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
 		return nil, err
 	}
 
-	if b, ok := queryMap["bucket"]; ok {
-		jsConfig.bucket = b[0]
+	if v := queryMap.Get("bucket"); v != "" {
+		config.bucket = v
 	}
 
-	if r, ok := queryMap["slowMethod"]; ok {
-		if dur, err := time.ParseDuration(r[0]); err == nil {
-			jsConfig.slowMethod = dur
-		} else {
-			return nil, err
-		}
-	}
-
-	if r, ok := queryMap["revHistory"]; ok {
-		if revs, err := strconv.ParseUint(r[0], 10, 8); err == nil {
-			if revs >= 2 && revs <= 64 {
-				jsConfig.revHistory = uint8(revs)
+	if v := queryMap.Get("replicas"); v != "" {
+		if r, err := strconv.ParseUint(v, 10, 8); err == nil {
+			if r >= 1 && r <= 5 {
+				config.replicas = int(r)
 			} else {
-				return nil, fmt.Errorf("invalid revHistory, must be => 2 and <= 64")
+				return nil, fmt.Errorf("invalid replicas, must be >= 1 and <= 5")
 			}
 		}
 	}
 
-	contextFile, hasContext := queryMap["contextFile"]
-	if hasContext && u.Host != "" {
-		return jsConfig, fmt.Errorf("when using context endpoint no host should be provided")
+	if d := queryMap.Get("slowMethod"); d != "" {
+		if dur, err := time.ParseDuration(d); err == nil {
+			config.slowThreshold = dur
+		} else {
+			return nil, fmt.Errorf("invalid slowMethod duration: %w", err)
+		}
+	}
+
+	if r := queryMap.Get("revHistory"); r != "" {
+		if revs, err := strconv.ParseUint(r, 10, 8); err == nil {
+			if revs >= 2 && revs <= 64 {
+				config.revHistory = uint8(revs)
+			} else {
+				return nil, fmt.Errorf("invalid revHistory, must be >= 2 and <= 64")
+			}
+		}
 	}
 
 	if tlsInfo.KeyFile != "" && tlsInfo.CertFile != "" {
-		jsConfig.options = append(jsConfig.options, nats.ClientCert(tlsInfo.CertFile, tlsInfo.KeyFile))
+		config.clientOptions = append(config.clientOptions, nats.ClientCert(tlsInfo.CertFile, tlsInfo.KeyFile))
 	}
 
 	if tlsInfo.CAFile != "" {
-		jsConfig.options = append(jsConfig.options, nats.RootCAs(tlsInfo.CAFile))
+		config.clientOptions = append(config.clientOptions, nats.RootCAs(tlsInfo.CAFile))
 	}
 
-	if hasContext {
-		logrus.Infof("loading nats contextFile=%s", contextFile[0])
+	if f := queryMap.Get("contextFile"); f != "" {
+		if u.Host != "" {
+			return config, fmt.Errorf("when using context endpoint no host should be provided")
+		}
 
-		natsContext, err := natscontext.NewFromFile(contextFile[0])
+		logrus.Debugf("loading nats context file: %s", f)
+
+		natsContext, err := natscontext.NewFromFile(f)
 		if err != nil {
 			return nil, err
 		}
@@ -212,11 +294,11 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		// command line options provided to kine will override the file
 		// https://github.com/nats-io/jsm.go/blob/v0.0.29/natscontext/context.go#L257
 		// allows for user, creds, nke, token, certifcate, ca, inboxprefix from the context.json
-		natsClientOpts, err := natsContext.NATSOptions(jsConfig.options...)
+		natsClientOpts, err := natsContext.NATSOptions(config.clientOptions...)
 		if err != nil {
 			return nil, err
 		}
-		jsConfig.options = natsClientOpts
+		config.clientOptions = natsClientOpts
 	}
 
 	connBuilder := strings.Builder{}
@@ -239,23 +321,32 @@ func parseNatsConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		if u.User != nil && idx == 0 {
 			userInfo := strings.Split(u.User.String(), ":")
 			if len(userInfo) > 1 {
-				jsConfig.options = append(jsConfig.options, nats.UserInfo(userInfo[0], userInfo[1]))
+				config.clientOptions = append(config.clientOptions, nats.UserInfo(userInfo[0], userInfo[1]))
 			} else {
-				jsConfig.options = append(jsConfig.options, nats.Token(userInfo[0]))
+				config.clientOptions = append(config.clientOptions, nats.Token(userInfo[0]))
 			}
 		}
 		connBuilder.WriteString(u.Host)
 	}
-	jsConfig.natsURL = connBuilder.String()
 
-	logrus.Infof("using config %v", jsConfig)
+	config.clientURL = connBuilder.String()
 
-	return jsConfig, nil
+	// Config options only relevant if built with embedded NATS.
+	if natsserver.Embedded {
+		config.noEmbed = queryMap.Has("noEmbed")
+		config.serverConfig = queryMap.Get("serverConfig")
+		config.stdoutLogging = queryMap.Has("stdoutLogging")
+		config.dontListen = queryMap.Has("dontListen")
+	}
+
+	logrus.Debugf("using config %#v", config)
+
+	return config, nil
 }
 
-func (j *JetStream) Start(ctx context.Context) error {
+func (d *Driver) Start(ctx context.Context) error {
 	// See https://github.com/kubernetes/kubernetes/blob/442a69c3bdf6fe8e525b05887e57d89db1e2f3a5/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go#L97
-	if _, err := j.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
+	if _, err := d.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
 		if err != server.ErrKeyExists {
 			logrus.Errorf("Failed to create health check key: %v", err)
 		}
@@ -263,14 +354,14 @@ func (j *JetStream) Start(ctx context.Context) error {
 	return nil
 }
 
-func (j *JetStream) isKeyExpired(_ context.Context, createTime time.Time, value *JSValue) bool {
+func (d *Driver) isKeyExpired(_ context.Context, createTime time.Time, value *JSValue) bool {
 
 	requestTime := time.Now()
 	expired := false
 	if value.KV.Lease > 0 {
 		if requestTime.After(createTime.Add(time.Second * time.Duration(value.KV.Lease))) {
 			expired = true
-			if err := j.kvBucket.Delete(value.KV.Key); err != nil {
+			if err := d.kv.Delete(value.KV.Key); err != nil {
 				logrus.Warnf("problem deleting expired key=%s, error=%v", value.KV.Key, err)
 			}
 		}
@@ -280,51 +371,48 @@ func (j *JetStream) isKeyExpired(_ context.Context, createTime time.Time, value 
 }
 
 // Get returns the associated server.KeyValue
-func (j *JetStream) Get(ctx context.Context, key, rangeEnd string, limit, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
-	//logrus.Tracef("GET %s, rev=%d", key, revision)
+func (d *Driver) Get(ctx context.Context, key, rangeEnd string, limit, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
 	start := time.Now()
 	defer func() {
-		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
+		dur := time.Since(start)
 		size := 0
 		if kvRet != nil {
 			size = len(kvRet.Value)
 		}
 		fStr := "GET %s, rev=%d => revRet=%d, kv=%v, size=%d, err=%v, duration=%s"
-		if duration > j.slowMethod {
-			logrus.Warnf(fStr, key, revision, revRet, kvRet != nil, size, errRet, duration.String())
-		} else {
-			logrus.Tracef(fStr, key, revision, revRet, kvRet != nil, size, errRet, duration.String())
-		}
+		d.logMethod(dur, fStr, key, revision, revRet, kvRet != nil, size, errRet, dur)
 	}()
 
-	currentRev, err := j.currentRevision()
+	currentRev, err := d.currentRevision()
 	if err != nil {
 		return currentRev, nil, err
 	}
 
-	if rev, kv, err := j.get(ctx, key, revision, false); err == nil {
+	rev, kv, err := d.get(ctx, key, revision, false)
+	if err == nil {
 		if kv == nil {
 			return currentRev, nil, nil
 		}
 		return rev, kv.KV, nil
-	} else if err == nats.ErrKeyNotFound {
-		return currentRev, nil, nil
-	} else {
-		return rev, nil, err
 	}
+
+	if err == nats.ErrKeyNotFound {
+		return currentRev, nil, nil
+	}
+
+	return rev, nil, err
 }
 
-func (j *JetStream) get(ctx context.Context, key string, revision int64, includeDeletes bool) (int64, *JSValue, error) {
-
-	compactRev, err := j.compactRevision()
+func (d *Driver) get(ctx context.Context, key string, revision int64, includeDeletes bool) (int64, *JSValue, error) {
+	compactRev, err := d.compactRevision()
 	if err != nil {
 		return 0, nil, err
 	}
 
 	// Get latest revision
 	if revision <= 0 {
-		if entry, err := j.kvBucket.Get(key); err == nil {
-
+		entry, err := d.kv.Get(key)
+		if err == nil {
 			val, err := decode(entry)
 			if err != nil {
 				return 0, nil, err
@@ -334,67 +422,59 @@ func (j *JetStream) get(ctx context.Context, key string, revision int64, include
 				return 0, nil, nats.ErrKeyNotFound
 			}
 
-			if j.isKeyExpired(ctx, entry.Created(), &val) {
+			if d.isKeyExpired(ctx, entry.Created(), &val) {
 				return 0, nil, nats.ErrKeyNotFound
 			}
 			return val.KV.ModRevision, &val, nil
-		} else if err == nats.ErrKeyNotFound {
-			return 0, nil, err
-		} else {
+		}
+		if err == nats.ErrKeyNotFound {
 			return 0, nil, err
 		}
-	} else {
-		if revision < compactRev {
-			logrus.Warnf("requested revision that has been compacted")
-		}
-		if entry, err := j.kvBucket.GetRevision(key, uint64(revision)); err == nil {
-			val, err := decode(entry)
-			if err != nil {
-				return 0, nil, err
-			}
-
-			if val.Delete && !includeDeletes {
-				return 0, nil, nats.ErrKeyNotFound
-			}
-
-			if j.isKeyExpired(ctx, entry.Created(), &val) {
-				return 0, nil, nats.ErrKeyNotFound
-			}
-			return val.KV.ModRevision, &val, nil
-		} else if err == nats.ErrKeyNotFound {
-			return 0, nil, err
-		} else {
-			return 0, nil, err
-		}
+		return 0, nil, err
 	}
+
+	if revision < compactRev {
+		logrus.Warnf("requested revision has been compacted")
+	}
+
+	entry, err := d.kv.GetRevision(key, uint64(revision))
+	if err == nil {
+		val, err := decode(entry)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		if val.Delete && !includeDeletes {
+			return 0, nil, nats.ErrKeyNotFound
+		}
+
+		if d.isKeyExpired(ctx, entry.Created(), &val) {
+			return 0, nil, nats.ErrKeyNotFound
+		}
+		return val.KV.ModRevision, &val, nil
+	}
+
+	if err == nats.ErrKeyNotFound {
+		return 0, nil, err
+	}
+
+	return 0, nil, err
 }
 
 // Create
-func (j *JetStream) Create(ctx context.Context, key string, value []byte, lease int64) (revRet int64, errRet error) {
+func (d *Driver) Create(ctx context.Context, key string, value []byte, lease int64) (revRet int64, errRet error) {
 	start := time.Now()
 	defer func() {
-		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
+		dur := time.Since(start)
 		fStr := "CREATE %s, size=%d, lease=%d => rev=%d, err=%v, duration=%s"
-		if duration > j.slowMethod {
-			logrus.Warnf(fStr, key, len(value), lease, revRet, errRet, duration.String())
-		} else {
-			logrus.Tracef(fStr, key, len(value), lease, revRet, errRet, duration.String())
-		}
+		d.logMethod(dur, fStr, key, len(value), lease, revRet, errRet, dur)
 	}()
 
-	lockFolder := getTopLevelKey(key)
-	if lockFolder != "" {
-		j.kvDirectoryMutex.Lock()
-		if _, ok := j.kvDirectoryMuxes[lockFolder]; !ok {
-			j.kvDirectoryMuxes[lockFolder] = &sync.RWMutex{}
-		}
-		j.kvDirectoryMutex.Unlock()
-		j.kvDirectoryMuxes[lockFolder].Lock()
-		defer j.kvDirectoryMuxes[lockFolder].Unlock()
-	}
+	// Lock the folder containing this key.
+	defer d.lockFolder(key)()
 
 	// check if key exists already
-	rev, prevKV, err := j.get(ctx, key, 0, true)
+	rev, prevKV, err := d.get(ctx, key, 0, true)
 	if err != nil && err != nats.ErrKeyNotFound {
 		return 0, err
 	}
@@ -425,42 +505,31 @@ func (j *JetStream) Create(ctx context.Context, key string, value []byte, lease 
 	}
 
 	if prevKV != nil {
-		seq, err := j.kvBucket.Put(key, event)
+		seq, err := d.kv.Put(key, event)
 		if err != nil {
 			return 0, err
 		}
 		return int64(seq), nil
 	}
-	seq, err := j.kvBucket.Create(key, event)
+	seq, err := d.kv.Create(key, event)
 	if err != nil {
 		return 0, err
 	}
 	return int64(seq), nil
 }
 
-func (j *JetStream) Delete(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, deletedRet bool, errRet error) {
+func (d *Driver) Delete(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, deletedRet bool, errRet error) {
 	start := time.Now()
 	defer func() {
-		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
+		dur := time.Since(start)
 		fStr := "DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v, duration=%s"
-		if duration > j.slowMethod {
-			logrus.Warnf(fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, duration.String())
-		} else {
-			logrus.Tracef(fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, duration.String())
-		}
+		d.logMethod(dur, fStr, key, revision, revRet, kvRet != nil, deletedRet, errRet, dur)
 	}()
-	lockFolder := getTopLevelKey(key)
-	if lockFolder != "" {
-		j.kvDirectoryMutex.Lock()
-		if _, ok := j.kvDirectoryMuxes[lockFolder]; !ok {
-			j.kvDirectoryMuxes[lockFolder] = &sync.RWMutex{}
-		}
-		j.kvDirectoryMutex.Unlock()
-		j.kvDirectoryMuxes[lockFolder].Lock()
-		defer j.kvDirectoryMuxes[lockFolder].Unlock()
-	}
 
-	rev, value, err := j.get(ctx, key, 0, true)
+	// Lock the folder containing this key.
+	defer d.lockFolder(key)()
+
+	rev, value, err := d.get(ctx, key, 0, true)
 	if err != nil {
 		if err == nats.ErrKeyNotFound {
 			return rev, nil, true, nil
@@ -490,12 +559,12 @@ func (j *JetStream) Delete(ctx context.Context, key string, revision int64) (rev
 		return rev, nil, false, err
 	}
 
-	deleteRev, err := j.kvBucket.Put(key, deleteEventBytes)
+	deleteRev, err := d.kv.Put(key, deleteEventBytes)
 	if err != nil {
 		return rev, value.KV, false, nil
 	}
 
-	err = j.kvBucket.Delete(key)
+	err = d.kv.Delete(key)
 	if err != nil {
 		return rev, value.KV, false, nil
 	}
@@ -503,16 +572,12 @@ func (j *JetStream) Delete(ctx context.Context, key string, revision int64) (rev
 	return int64(deleteRev), value.KV, true, nil
 }
 
-func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, revision int64) (revRet int64, kvRet []*server.KeyValue, errRet error) {
+func (d *Driver) List(ctx context.Context, prefix, startKey string, limit, revision int64) (revRet int64, kvRet []*server.KeyValue, errRet error) {
 	start := time.Now()
 	defer func() {
-		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
+		dur := time.Since(start)
 		fStr := "LIST %s, start=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v, duration=%s"
-		if duration > j.slowMethod {
-			logrus.Warnf(fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, duration.String())
-		} else {
-			logrus.Tracef(fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, duration.String())
-		}
+		d.logMethod(dur, fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, dur)
 	}()
 
 	// its assumed that when there is a start key that that key exists.
@@ -522,7 +587,7 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 		}
 	}
 
-	rev, err := j.currentRevision()
+	rev, err := d.currentRevision()
 	if err != nil {
 		return 0, nil, err
 	}
@@ -535,7 +600,7 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 		histories := make(map[string][]nats.KeyValueEntry)
 		var minRev int64
 		//var innerEntry nats.KeyValueEntry
-		if entries, err := j.kvBucket.History(startKey, nats.Context(ctx)); err == nil {
+		if entries, err := d.kv.History(startKey, nats.Context(ctx)); err == nil {
 			histories[startKey] = entries
 			for i := len(entries) - 1; i >= 0; i-- {
 				// find the matching startKey
@@ -549,14 +614,14 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 			return 0, nil, err
 		}
 
-		keys, err := j.getKeys(ctx, prefix, true)
+		keys, err := d.getKeys(ctx, prefix, true)
 		if err != nil {
 			return 0, nil, err
 		}
 
 		for _, key := range keys {
 			if key != startKey {
-				if history, err := j.kvBucket.History(key, nats.Context(ctx)); err == nil {
+				if history, err := d.kv.History(key, nats.Context(ctx)); err == nil {
 					histories[key] = history
 				} else {
 					// should not happen
@@ -599,14 +664,14 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 
 	if current {
 
-		entries, err := j.getKeyValues(ctx, prefix, true)
+		entries, err := d.getKeyValues(ctx, prefix, true)
 		if err != nil {
 			return 0, nil, err
 		}
 		for _, e := range entries {
 			if count < limit || limit == 0 {
 				kv, err := decode(e)
-				if !j.isKeyExpired(ctx, e.Created(), &kv) && err == nil {
+				if !d.isKeyExpired(ctx, e.Created(), &kv) && err == nil {
 					kvs = append(kvs, kv.KV)
 					count++
 				}
@@ -616,7 +681,7 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 		}
 
 	} else {
-		keys, err := j.getKeys(ctx, prefix, true)
+		keys, err := d.getKeys(ctx, prefix, true)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -626,7 +691,7 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 
 		for _, key := range keys {
 			if count < limit || limit == 0 {
-				if history, err := j.kvBucket.History(key, nats.Context(ctx)); err == nil {
+				if history, err := d.kv.History(key, nats.Context(ctx)); err == nil {
 					for i := len(history) - 1; i >= 0; i-- {
 						if int64(history[i].Revision()) <= revision {
 							if entry, err := decode(history[i]); err == nil {
@@ -649,15 +714,15 @@ func (j *JetStream) List(ctx context.Context, prefix, startKey string, limit, re
 	return rev, kvs, nil
 }
 
-func (j *JetStream) listAfter(ctx context.Context, prefix string, revision int64) (revRet int64, eventRet []*server.Event, errRet error) {
+func (d *Driver) listAfter(ctx context.Context, prefix string, revision int64) (revRet int64, eventRet []*server.Event, errRet error) {
 
-	entries, err := j.getKeyValues(ctx, prefix, false)
+	entries, err := d.getKeyValues(ctx, prefix, false)
 
 	if err != nil {
 		return 0, nil, err
 	}
 
-	rev, err := j.currentRevision()
+	rev, err := d.currentRevision()
 	if err != nil {
 		return 0, nil, err
 	}
@@ -674,7 +739,7 @@ func (j *JetStream) listAfter(ctx context.Context, prefix string, revision int64
 				KV:     kv.KV,
 				PrevKV: &server.KeyValue{},
 			}
-			if _, prevKV, err := j.Get(ctx, kv.KV.Key, "", 1, kv.PrevRevision); err == nil && prevKV != nil {
+			if _, prevKV, err := d.Get(ctx, kv.KV.Key, "", 1, kv.PrevRevision); err == nil && prevKV != nil {
 				event.PrevKV = prevKV
 			}
 
@@ -685,58 +750,42 @@ func (j *JetStream) listAfter(ctx context.Context, prefix string, revision int64
 }
 
 // Count returns an exact count of the number of matching keys and the current revision of the database
-func (j *JetStream) Count(ctx context.Context, prefix string) (revRet int64, count int64, err error) {
+func (d *Driver) Count(ctx context.Context, prefix string) (revRet int64, count int64, err error) {
 	start := time.Now()
 	defer func() {
-		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
+		dur := time.Since(start)
 		fStr := "COUNT %s => rev=%d, count=%d, err=%v, duration=%s"
-		if duration > j.slowMethod {
-			logrus.Warnf(fStr, prefix, revRet, count, err, duration.String())
-		} else {
-			logrus.Tracef(fStr, prefix, revRet, count, err, duration.String())
-		}
+		d.logMethod(dur, fStr, prefix, revRet, count, err, dur)
 	}()
 
-	entries, err := j.getKeys(ctx, prefix, false)
+	entries, err := d.getKeys(ctx, prefix, false)
 	if err != nil {
 		return 0, 0, err
 	}
 	// current revision
-	currentRev, err := j.currentRevision()
+	currentRev, err := d.currentRevision()
 	if err != nil {
 		return 0, 0, err
 	}
 	return currentRev, int64(len(entries)), nil
 }
 
-func (j *JetStream) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {
+func (d *Driver) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {
 	start := time.Now()
 	defer func() {
-		duration := time.Duration(time.Now().Nanosecond() - start.Nanosecond())
+		dur := time.Since(start)
 		kvRev := int64(0)
 		if kvRet != nil {
 			kvRev = kvRet.ModRevision
 		}
 		fStr := "UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v, duration=%s"
-		if duration > j.slowMethod {
-			logrus.Warnf(fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, duration.String())
-		} else {
-			logrus.Tracef(fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, duration.String())
-		}
+		d.logMethod(dur, fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, dur)
 	}()
 
-	lockFolder := getTopLevelKey(key)
-	if lockFolder != "" {
-		j.kvDirectoryMutex.Lock()
-		if _, ok := j.kvDirectoryMuxes[lockFolder]; !ok {
-			j.kvDirectoryMuxes[lockFolder] = &sync.RWMutex{}
-		}
-		j.kvDirectoryMutex.Unlock()
-		j.kvDirectoryMuxes[lockFolder].Lock()
-		defer j.kvDirectoryMuxes[lockFolder].Unlock()
-	}
+	// Lock the folder containing the key.
+	defer d.lockFolder(key)()
 
-	rev, prevKV, err := j.get(ctx, key, 0, false)
+	rev, prevKV, err := d.get(ctx, key, 0, false)
 
 	if err != nil {
 		if err == nats.ErrKeyNotFound {
@@ -773,7 +822,7 @@ func (j *JetStream) Update(ctx context.Context, key string, value []byte, revisi
 		return 0, nil, false, err
 	}
 
-	seq, err := j.kvBucket.Put(key, valueBytes)
+	seq, err := d.kv.Put(key, valueBytes)
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -784,14 +833,14 @@ func (j *JetStream) Update(ctx context.Context, key string, value []byte, revisi
 
 }
 
-func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-chan []*server.Event {
+func (d *Driver) Watch(ctx context.Context, prefix string, revision int64) <-chan []*server.Event {
 
-	watcher, err := j.kvBucket.(*kv.EncodedKV).Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
+	watcher, err := d.kv.(*kv.EncodedKV).Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
 
 	if revision > 0 {
 		revision--
 	}
-	_, events, err := j.listAfter(ctx, prefix, revision)
+	_, events, err := d.listAfter(ctx, prefix, revision)
 
 	if err != nil {
 		logrus.Errorf("failed to create watcher %s for revision %d", prefix, revision)
@@ -831,7 +880,7 @@ func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-
 						if err != nil {
 							logrus.Warnf("watch event: could not decode %s seq %d", i.Key(), i.Revision())
 						}
-						if _, prevEntry, prevErr := j.get(ctx, i.Key(), value.PrevRevision, false); prevErr == nil {
+						if _, prevEntry, prevErr := d.get(ctx, i.Key(), value.PrevRevision, false); prevErr == nil {
 							if prevEntry != nil {
 								prevValue = *prevEntry
 							}
@@ -865,7 +914,7 @@ func (j *JetStream) Watch(ctx context.Context, prefix string, revision int64) <-
 
 // getPreviousEntry returns the nats.KeyValueEntry previous to the one provided, if the previous entry is a nats.KeyValuePut
 // operation. If it is not a KeyValuePut then it will return nil.
-func (j *JetStream) getPreviousEntry(ctx context.Context, entry nats.KeyValueEntry) (result *nats.KeyValueEntry, e error) {
+func (d *Driver) getPreviousEntry(ctx context.Context, entry nats.KeyValueEntry) (result *nats.KeyValueEntry, e error) {
 	defer func() {
 		if result != nil {
 			logrus.Debugf("getPreviousEntry %s:%d found=true %d", entry.Key(), entry.Revision(), (*result).Revision())
@@ -874,7 +923,7 @@ func (j *JetStream) getPreviousEntry(ctx context.Context, entry nats.KeyValueEnt
 		}
 	}()
 	found := false
-	entries, err := j.kvBucket.History(entry.Key(), nats.Context(ctx))
+	entries, err := d.kv.History(entry.Key(), nats.Context(ctx))
 	if err == nil {
 		for idx := len(entries) - 1; idx >= 0; idx-- {
 			if found {
@@ -893,8 +942,8 @@ func (j *JetStream) getPreviousEntry(ctx context.Context, entry nats.KeyValueEnt
 }
 
 // DbSize get the kineBucket size from JetStream.
-func (j *JetStream) DbSize(context.Context) (int64, error) {
-	status, err := j.kvBucket.Status()
+func (d *Driver) DbSize(context.Context) (int64, error) {
+	status, err := d.kv.Status()
 	if err != nil {
 		return -1, err
 	}
@@ -921,16 +970,16 @@ func decode(e nats.KeyValueEntry) (JSValue, error) {
 	return v, nil
 }
 
-func (j *JetStream) currentRevision() (int64, error) {
-	status, err := j.kvBucket.Status()
+func (d *Driver) currentRevision() (int64, error) {
+	status, err := d.kv.Status()
 	if err != nil {
 		return 0, err
 	}
 	return int64(status.(*nats.KeyValueBucketStatus).StreamInfo().State.LastSeq), nil
 }
 
-func (j *JetStream) compactRevision() (int64, error) {
-	status, err := j.kvBucket.Status()
+func (d *Driver) compactRevision() (int64, error) {
+	status, err := d.kv.Status()
 	if err != nil {
 		return 0, err
 	}
@@ -938,8 +987,8 @@ func (j *JetStream) compactRevision() (int64, error) {
 }
 
 // getKeyValues returns a []nats.KeyValueEntry matching prefix
-func (j *JetStream) getKeyValues(ctx context.Context, prefix string, sortResults bool) ([]nats.KeyValueEntry, error) {
-	watcher, err := j.kvBucket.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
+func (d *Driver) getKeyValues(ctx context.Context, prefix string, sortResults bool) ([]nats.KeyValueEntry, error) {
+	watcher, err := d.kv.Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -968,8 +1017,8 @@ func (j *JetStream) getKeyValues(ctx context.Context, prefix string, sortResults
 }
 
 // getKeys returns a list of keys matching a prefix
-func (j *JetStream) getKeys(ctx context.Context, prefix string, sortResults bool) ([]string, error) {
-	watcher, err := j.kvBucket.Watch(prefix, nats.MetaOnly(), nats.IgnoreDeletes(), nats.Context(ctx))
+func (d *Driver) getKeys(ctx context.Context, prefix string, sortResults bool) ([]string, error) {
+	watcher, err := d.kv.Watch(prefix, nats.MetaOnly(), nats.IgnoreDeletes(), nats.Context(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -994,12 +1043,4 @@ func (j *JetStream) getKeys(ctx context.Context, prefix string, sortResults bool
 	}
 
 	return keys, nil
-}
-
-func getTopLevelKey(key string) string {
-	if toplevelKeyMatch.MatchString(key) {
-		matches := toplevelKeyMatch.FindStringSubmatch(key)
-		return matches[1]
-	}
-	return ""
 }

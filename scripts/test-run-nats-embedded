@@ -1,0 +1,11 @@
+#!/bin/bash
+
+start-test() {
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://?embedServer" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+LABEL=nats-embedded run-test
+
