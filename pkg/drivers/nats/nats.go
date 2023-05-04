@@ -115,6 +115,16 @@ type JSValue struct {
 // New return an implementation of server.Backend using NATS + JetStream.
 // See the `examples/nats.md` file for examples of connection strings.
 func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
+	return newBackend(ctx, connection, tlsInfo, false)
+}
+
+// NewLegacy return an implementation of server.Backend using NATS + JetStream
+// with legacy jetstream:// behavior, ignoring the embedded server.
+func NewLegacy(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
+	return newBackend(ctx, connection, tlsInfo, true)
+}
+
+func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, legacy bool) (server.Backend, error) {
 	config, err := parseConnection(connection, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -123,7 +133,7 @@ func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Bac
 	nopts := append(config.clientOptions, nats.Name("kine using bucket: "+config.bucket))
 
 	// Run an embedded server if available and not disabled.
-	if natsserver.Embedded && !config.noEmbed {
+	if !legacy && natsserver.Embedded && !config.noEmbed {
 		logrus.Infof("using an embedded NATS server")
 
 		ns, err := natsserver.New(&natsserver.Config{
