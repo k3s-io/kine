@@ -247,7 +247,9 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
 	case MySQLBackend:
 		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case NATSBackend, JetStreamBackend:
+	case JetStreamBackend:
+		backend, err = nats.NewLegacy(ctx, dsn, cfg.BackendTLSConfig)
+	case NATSBackend:
 		backend, err = nats.New(ctx, dsn, cfg.BackendTLSConfig)
 	default:
 		return false, nil, fmt.Errorf("storage backend is not defined")
