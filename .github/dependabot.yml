@@ -4,16 +4,28 @@ updates:
   # Maintain dependencies for Docker Images
   - package-ecosystem: "docker"
     directory: "/"
+    labels:
+      - "kind/dependabot"
+    reviewers:
+      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: "docker"
     directory: "/package"
+    labels:
+      - "kind/dependabot"
+    reviewers:
+      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
   # Maintain dependencies for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
+    labels:
+      - "kind/dependabot"
+    reviewers:
+      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
