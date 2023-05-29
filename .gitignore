@@ -68,3 +68,6 @@ db/
 # build artifacts
 bin/
 dist/
+
+# dapper binaries
+.dapper
