@@ -47,7 +47,7 @@ These query parameters are relevant when the server is embedded:
 
 ### Examples
 
-KINE can be built with our without embedding NATS.
+KINE can be built with or without embedding NATS.
 
 If NATS is embedded, `nats://` defaults to running an embedded server using the default `host` and `port`.
 
