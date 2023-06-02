@@ -3,7 +3,7 @@ FROM golang:1.20-alpine3.17 AS dapper
 ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev docker-cli vim less file curl wget ca-certificates
-# go imports version gopls/v0.12.0
+# go imports version gopls/v0.12.1
 # https://github.com/golang/tools/releases/latest
 RUN go install golang.org/x/tools/cmd/goimports@236850463aea0b1949167349b44c37f97aefd9c5
 RUN rm -rf /go/src /go/pkg
