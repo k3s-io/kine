@@ -104,7 +104,7 @@ controlPlaneEndpoint: "0.0.0.0:6443"
 etcd:
   external:
     endpoints:
-    - http://k3s:2379
+    - http://kine:2379
     caFile: ./ca.crt
     certFile: ./server.crt
     keyFile: ./server.key
