@@ -2,14 +2,13 @@ package server
 
 import (
 	"net"
-	"time"
 )
 
 type Server interface {
 	Start()
+	Ready() bool
 	Shutdown()
 	ClientURL() string
-	ReadyForConnections(wait time.Duration) bool
 	InProcessConn() (net.Conn, error)
 }
 
@@ -19,4 +18,5 @@ type Config struct {
 	ConfigFile    string
 	DontListen    bool
 	StdoutLogging bool
+	DataDir       string
 }
