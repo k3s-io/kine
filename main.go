@@ -111,7 +111,8 @@ func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.TraceLevel)
 	}
-	ctx := signals.SetupSignalHandler(context.Background())
+	ctx := signals.SetupSignalContext()
+
 	metricsConfig.ServerTLSConfig = config.ServerTLSConfig
 	go metrics.Serve(ctx, metricsConfig)
 	config.MetricsRegisterer = metrics.Registry
