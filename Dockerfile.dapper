@@ -5,7 +5,7 @@ ARG ARCH=amd64
 RUN apk -U add bash coreutils git gcc musl-dev docker-cli vim less file curl wget ca-certificates
 # go imports version gopls/v0.13.0
 # https://github.com/golang/tools/releases/latest
-RUN go install golang.org/x/tools/cmd/goimports@0d76b522a598a5fec760eee7c20049e6d1720ef9
+RUN go install golang.org/x/tools/cmd/goimports@6888018a4a5fcc03b1c31df9ebaca094648b175b
 RUN rm -rf /go/src /go/pkg
 
 RUN if [ "${ARCH}" == "amd64" ]; then \
