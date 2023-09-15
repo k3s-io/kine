@@ -107,7 +107,6 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 // This logic is directly cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compactor(interval time.Duration) {
 	t := time.NewTicker(interval)
-	defer t.Stop()
 	compactRev, _ := s.d.GetCompactRevision(s.ctx)
 	targetCompactRev, _ := s.d.CurrentRevision(s.ctx)
 	logrus.Tracef("COMPACT starting compactRev=%d targetCompactRev=%d", compactRev, targetCompactRev)
