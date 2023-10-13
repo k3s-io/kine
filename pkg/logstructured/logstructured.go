@@ -287,10 +287,18 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 
 	go func() {
 		defer wg.Done()
-		for events := range l.log.Watch(ctx, "/") {
-			for _, event := range events {
-				if event.KV.Lease > 0 {
-					result <- event
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			for events := range l.log.Watch(ctx, "/") {
+				for _, event := range events {
+					if event.KV.Lease > 0 {
+						result <- event
+					}
 				}
 			}
 		}
