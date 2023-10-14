@@ -271,7 +271,7 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 		rev, events, err := l.log.List(ctx, "/", "", 1000, 0, false)
 		for len(events) > 0 {
 			if err != nil {
-				logrus.Errorf("failed to read old events for ttl")
+				logrus.Errorf("failed to read old events for ttl: %v", err)
 				return
 			}
 
@@ -287,21 +287,14 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 
 	go func() {
 		defer wg.Done()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			for events := range l.log.Watch(ctx, "/") {
-				for _, event := range events {
-					if event.KV.Lease > 0 {
-						result <- event
-					}
+		for events := range l.log.Watch(ctx, "/") {
+			for _, event := range events {
+				if event.KV.Lease > 0 {
+					result <- event
 				}
 			}
 		}
+		logrus.Error("watch channel for ttl was closed due to slow processing")
 	}()
 
 	return result
@@ -309,20 +302,46 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 
 func (l *LogStructured) ttl(ctx context.Context) {
 	// vary naive TTL support
+	eventRecords := make(map[int64]struct{})
+	eventRecordsRWMutex := &sync.RWMutex{}
 	mutex := &sync.Mutex{}
-	for event := range l.ttlEvents(ctx) {
-		go func(event *server.Event) {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Duration(event.KV.Lease) * time.Second):
-			}
-			mutex.Lock()
-			if _, _, _, err := l.Delete(ctx, event.KV.Key, event.KV.ModRevision); err != nil {
-				logrus.Errorf("failed to delete expired key: %v", err)
-			}
-			mutex.Unlock()
-		}(event)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		logrus.Info("start processing ttl events")
+		for event := range l.ttlEvents(ctx) {
+			go func(event *server.Event) {
+				eventRecordsRWMutex.RLock()
+				if _, ok := eventRecords[event.KV.ModRevision]; ok {
+					eventRecordsRWMutex.RUnlock()
+					return
+				}
+				eventRecordsRWMutex.RUnlock()
+
+				eventRecordsRWMutex.Lock()
+				eventRecords[event.KV.ModRevision] = struct{}{}
+				eventRecordsRWMutex.Unlock()
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(event.KV.Lease) * time.Second):
+				}
+				mutex.Lock()
+				if _, _, _, err := l.Delete(ctx, event.KV.Key, event.KV.ModRevision); err != nil {
+					logrus.Errorf("failed to delete expired key: %v", err)
+				}
+				mutex.Unlock()
+
+				eventRecordsRWMutex.Lock()
+				delete(eventRecords, event.KV.ModRevision)
+				eventRecordsRWMutex.Unlock()
+			}(event)
+		}
 	}
 }
 
