@@ -302,8 +302,7 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 
 func (l *LogStructured) ttl(ctx context.Context) {
 	// vary naive TTL support
-	eventRecords := make(map[int64]struct{})
-	eventRecordsRWMutex := &sync.RWMutex{}
+	eventRecords := &sync.Map{}
 	mutex := &sync.Mutex{}
 	for {
 		select {
@@ -315,16 +314,10 @@ func (l *LogStructured) ttl(ctx context.Context) {
 		logrus.Info("start processing ttl events")
 		for event := range l.ttlEvents(ctx) {
 			go func(event *server.Event) {
-				eventRecordsRWMutex.RLock()
-				if _, ok := eventRecords[event.KV.ModRevision]; ok {
-					eventRecordsRWMutex.RUnlock()
+				if _, ok := eventRecords.Load(event.KV.ModRevision); ok {
 					return
 				}
-				eventRecordsRWMutex.RUnlock()
-
-				eventRecordsRWMutex.Lock()
-				eventRecords[event.KV.ModRevision] = struct{}{}
-				eventRecordsRWMutex.Unlock()
+				eventRecords.Store(event.KV.ModRevision, nil)
 
 				select {
 				case <-ctx.Done():
@@ -336,10 +329,7 @@ func (l *LogStructured) ttl(ctx context.Context) {
 					logrus.Errorf("failed to delete expired key: %v", err)
 				}
 				mutex.Unlock()
-
-				eventRecordsRWMutex.Lock()
-				delete(eventRecords, event.KV.ModRevision)
-				eventRecordsRWMutex.Unlock()
+				eventRecords.Delete(event.KV.ModRevision)
 			}(event)
 		}
 	}
