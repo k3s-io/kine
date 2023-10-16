@@ -294,7 +294,10 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 				}
 			}
 		}
-		logrus.Error("watch channel for ttl was closed due to slow processing")
+
+		if ctx.Err() == nil {
+			logrus.Error("ttl events watch channel was closed due to slow processing")
+		}
 	}()
 
 	return result
