@@ -2,17 +2,12 @@ package endpoint
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"strings"
 
-	"github.com/k3s-io/kine/pkg/drivers/dqlite"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
-	"github.com/k3s-io/kine/pkg/drivers/mysql"
-	"github.com/k3s-io/kine/pkg/drivers/nats"
-	"github.com/k3s-io/kine/pkg/drivers/pgsql"
-	"github.com/k3s-io/kine/pkg/drivers/sqlite"
+	"github.com/k3s-io/kine/pkg/drivers/msobjectstore"
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
@@ -27,14 +22,15 @@ import (
 )
 
 const (
-	KineSocket       = "unix://kine.sock"
-	SQLiteBackend    = "sqlite"
-	DQLiteBackend    = "dqlite"
-	ETCDBackend      = "etcd3"
-	JetStreamBackend = "jetstream"
-	NATSBackend      = "nats"
-	MySQLBackend     = "mysql"
-	PostgresBackend  = "postgres"
+	KineSocket           = "unix://kine.sock"
+	SQLiteBackend        = "sqlite"
+	DQLiteBackend        = "dqlite"
+	ETCDBackend          = "etcd3"
+	JetStreamBackend     = "jetstream"
+	NATSBackend          = "nats"
+	MySQLBackend         = "mysql"
+	PostgresBackend      = "postgres"
+	MSObjectStoreBackend = "ms-object-store"
 )
 
 type Config struct {
@@ -54,15 +50,21 @@ type ETCDConfig struct {
 }
 
 func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
-	driver, dsn := ParseStorageEndpoint(config.Endpoint)
-	if driver == ETCDBackend {
-		return ETCDConfig{
-			Endpoints:   strings.Split(config.Endpoint, ","),
-			TLSConfig:   config.BackendTLSConfig,
-			LeaderElect: true,
-		}, nil
-	}
+	var (
+		driver = MSObjectStoreBackend
+		dsn    = ""
+	)
 
+	//driver, dsn := ParseStorageEndpoint(config.Endpoint)
+	//if driver == ETCDBackend {
+	//	return ETCDConfig{
+	//		Endpoints:   strings.Split(config.Endpoint, ","),
+	//		TLSConfig:   config.BackendTLSConfig,
+	//		LeaderElect: true,
+	//	}, nil
+	//}
+
+	logrus.Info("getting backend for endpoint: " + config.Endpoint)
 	leaderelect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
 	if err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "building kine")
@@ -79,6 +81,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	if err := backend.Start(ctx); err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "starting kine backend")
 	}
+	logrus.Info("started kine backend: " + config.Endpoint)
 
 	// set up GRPC server and register services
 	b := server.New(backend, endpointScheme(config))
@@ -232,30 +235,9 @@ func grpcServer(config Config) (*grpc.Server, error) {
 // indicating whether the backend requires leader election, and a suitable
 // backend datastore connection.
 func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) (bool, server.Backend, error) {
-	var (
-		backend     server.Backend
-		leaderElect = true
-		err         error
-	)
-	switch driver {
-	case SQLiteBackend:
-		leaderElect = false
-		backend, err = sqlite.New(ctx, dsn, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case DQLiteBackend:
-		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case PostgresBackend:
-		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case MySQLBackend:
-		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case JetStreamBackend:
-		backend, err = nats.NewLegacy(ctx, dsn, cfg.BackendTLSConfig)
-	case NATSBackend:
-		backend, err = nats.New(ctx, dsn, cfg.BackendTLSConfig)
-	default:
-		return false, nil, fmt.Errorf("storage backend is not defined")
-	}
+	backend, err := msobjectstore.New(ctx, dsn, cfg.BackendTLSConfig)
 
-	return leaderElect, backend, err
+	return true, backend, err
 }
 
 // ParseStorageEndpoint returns the driver name and endpoint string from a datastore endpoint URL.

@@ -41,7 +41,7 @@ func serveVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // allowMethod returns true if a method is allowed, or false (after sending a
-// MethodNotAllowed error to the client) if it is not.
+// MethodNotAllowed error to the osclient) if it is not.
 func allowMethod(w http.ResponseWriter, r *http.Request, m string) bool {
 	if m == r.Method {
 		return true
