@@ -443,6 +443,12 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 					case s.notify <- next:
 					default:
 					}
+					// Some drivers increment the revision sequence at the start of the insert
+					// transaction, but the row does not become visible to us until the transaction
+					// completes. This looks like a skip, but creating a fill record too quickly
+					// will cause the insert to fail and the transaction to roll back. Allow the
+					// driver to inject an extra delay into the retry before filling.
+					s.d.FillRetryDelay(s.ctx)
 					break
 				} else {
 					if err := s.d.Fill(s.ctx, next); err == nil {
