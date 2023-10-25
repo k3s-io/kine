@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -80,6 +81,13 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 				kd.id <= $2
 		) AS ks
 		WHERE kv.id = ks.id`
+	dialect.FillRetryDuration = time.Millisecond + 5
+	dialect.InsertRetry = func(err error) bool {
+		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
+			return true
+		}
+		return false
+	}
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation {
 			return server.ErrKeyExists
