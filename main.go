@@ -108,6 +108,10 @@ func main() {
 }
 
 func run(c *cli.Context) error {
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC3339Nano,
+	})
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.TraceLevel)
 	}

@@ -102,8 +102,10 @@ type Generic struct {
 	InsertLastInsertIDSQL string
 	GetSizeSQL            string
 	Retry                 ErrRetry
+	InsertRetry           ErrRetry
 	TranslateErr          TranslateErr
 	ErrCode               ErrCode
+	FillRetryDuration     time.Duration
 }
 
 func q(sql, param string, numbered bool) string {
@@ -422,9 +424,22 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		return row.LastInsertId()
 	}
 
-	row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
-	err = row.Scan(&id)
-	return id, err
+	// Drivers without LastInsertID support may conflict on the serial id key when inserting rows,
+	// as the ID is reserved at the begining of the implicit transaction, but does not become
+	// visible until the transaction completes, at which point we may have already created a gap fill record.
+	// Retry the insert if the driver indicates a retriable insert error, to avoid presenting a spurious
+	// duplicate key error to the client.
+	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
+	for i := uint(0); i < 20; i++ {
+		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
+		err = row.Scan(&id)
+		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
+			wait(i)
+			continue
+		}
+		return id, err
+	}
+	return
 }
 
 func (d *Generic) GetSize(ctx context.Context) (int64, error) {
@@ -437,4 +452,8 @@ func (d *Generic) GetSize(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return size, nil
+}
+
+func (d *Generic) FillRetryDelay(ctx context.Context) {
+	time.Sleep(d.FillRetryDuration)
 }
