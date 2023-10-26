@@ -19,7 +19,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/soheilhy/cmux"
 	"go.etcd.io/etcd/server/v3/embed"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -88,45 +87,15 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}
 	b.Register(grpcServer)
 
-	// set up HTTP server with basic mux
-	httpServer := httpServer()
-
 	// Create raw listener and wrap in cmux for protocol switching
 	listener, err := createListener(config)
 	if err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "creating listener")
 	}
-	m := cmux.New(listener)
-
-	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
-		// If using TLS, wrap handler in GRPC/HTTP switching handler and serve TLS
-		httpServer.Handler = grpcHandlerFunc(grpcServer, httpServer.Handler)
-		anyl := m.Match(cmux.Any())
-		go func() {
-			if err := httpServer.ServeTLS(anyl, config.ServerTLSConfig.CertFile, config.ServerTLSConfig.KeyFile); err != nil {
-				logrus.Errorf("Kine TLS server shutdown: %v", err)
-			}
-		}()
-	} else {
-		// If using plaintext, use cmux matching for GRPC/HTTP switching
-		grpcl := m.Match(cmux.HTTP2())
-		go func() {
-			if err := grpcServer.Serve(grpcl); err != nil {
-				logrus.Errorf("Kine GRPC server shutdown: %v", err)
-			}
-		}()
-		httpl := m.Match(cmux.HTTP1())
-		go func() {
-			if err := httpServer.Serve(httpl); err != nil {
-				logrus.Errorf("Kine HTTP server shutdown: %v", err)
-			}
-		}()
-	}
 
 	go func() {
-		if err := m.Serve(); err != nil {
-			logrus.Errorf("Kine listener shutdown: %v", err)
-			grpcServer.Stop()
+		if err := grpcServer.Serve(listener); err != nil {
+			logrus.Errorf("Kine GPRC server exited: %v", err)
 		}
 	}()
 
