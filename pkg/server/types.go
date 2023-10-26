@@ -5,9 +5,13 @@ import (
 	"database/sql"
 
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
+	ErrNotSupported = status.New(codes.InvalidArgument, "etcdserver: unsupported operations in txn request").Err()
+
 	ErrKeyExists = rpctypes.ErrGRPCDuplicateKey
 	ErrCompacted = rpctypes.ErrGRPCCompacted
 )
@@ -69,4 +73,8 @@ type Event struct {
 	Create bool
 	KV     *KeyValue
 	PrevKV *KeyValue
+}
+
+func unsupported(field string) error {
+	return status.New(codes.Unimplemented, field+" is not implemented by kine").Err()
 }

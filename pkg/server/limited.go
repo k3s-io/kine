@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
@@ -38,7 +37,7 @@ func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (
 	if isCompact(txn) {
 		return l.compact(ctx)
 	}
-	return nil, fmt.Errorf("unsupported transaction: %v", txn)
+	return nil, ErrNotSupported
 }
 
 type ResponseHeader struct {
