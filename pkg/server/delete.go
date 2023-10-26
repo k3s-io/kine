@@ -42,6 +42,7 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 						ResponseRange: &etcdserverpb.RangeResponse{
 							Header: txnHeader(rev),
 							Kvs:    toKVs(kv),
+							Count:  1,
 						},
 					},
 				},

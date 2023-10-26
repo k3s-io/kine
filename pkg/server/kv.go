@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -94,17 +93,17 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 }
 
 func (k *KVServerBridge) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
-	return nil, fmt.Errorf("put is not supported")
+	return nil, unsupported("put")
 }
 
 func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.DeleteRangeRequest) (*etcdserverpb.DeleteRangeResponse, error) {
-	return nil, fmt.Errorf("delete is not supported")
+	return nil, unsupported("delete")
 }
 
 func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	res, err := k.limited.Txn(ctx, r)
 	if err != nil {
-		logrus.Errorf("error in txn: %v", err)
+		logrus.Errorf("error in txn %s: %v", r, err)
 	}
 	return res, err
 }
@@ -115,8 +114,4 @@ func (k *KVServerBridge) Compact(ctx context.Context, r *etcdserverpb.Compaction
 			Revision: r.Revision,
 		},
 	}, nil
-}
-
-func unsupported(field string) error {
-	return fmt.Errorf("%s is unsupported", field)
 }
