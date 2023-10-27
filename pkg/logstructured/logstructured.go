@@ -362,6 +362,7 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 	go func() {
 		defer wg.Done()
 		var lastRev int64
+
 		rev, events, err := l.log.List(ctx, "/", "", 1000, 0, false)
 		for len(events) > 0 {
 			if err != nil {
