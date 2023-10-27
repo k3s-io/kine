@@ -22,6 +22,7 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 	}
 	if kv != nil {
 		resp.Kvs = []*KeyValue{kv}
+		resp.Count = 1
 	}
 	return resp, nil
 }
