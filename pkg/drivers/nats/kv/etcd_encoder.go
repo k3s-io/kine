@@ -3,7 +3,6 @@ package kv
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strings"
 
 	"github.com/klauspost/compress/s2"
@@ -94,7 +93,7 @@ func (*PlainCodec) Encode(src []byte, dst io.Writer) error {
 }
 
 func (*PlainCodec) Decode(src io.Reader, dst io.Writer) error {
-	b, err := ioutil.ReadAll(src)
+	b, err := io.ReadAll(src)
 	if err != nil {
 		return err
 	}
