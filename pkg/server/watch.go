@@ -8,6 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 var watchID int64
@@ -138,7 +139,7 @@ func (w *watcher) Cancel(watchID int64, err error) {
 		CancelReason: "watch closed",
 		WatchId:      watchID,
 	})
-	if serr != nil && err != nil {
+	if serr != nil && err != nil && !clientv3.IsConnCanceled(serr) {
 		logrus.Errorf("WATCH Failed to send cancel response for watchID %d: %v", watchID, serr)
 	}
 }
