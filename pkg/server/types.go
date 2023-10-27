@@ -14,6 +14,7 @@ var (
 
 	ErrKeyExists = rpctypes.ErrGRPCDuplicateKey
 	ErrCompacted = rpctypes.ErrGRPCCompacted
+	ErrFutureRev = rpctypes.ErrGRPCFutureRev
 )
 
 type Backend interface {
