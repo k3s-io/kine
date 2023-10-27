@@ -287,11 +287,19 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 	}
 
 	if revision > 0 && len(result) == 0 {
-		// a zero length result won't have the compact revision so get it manually
+		// a zero length result won't have the compact or current revisions so get them manually
+		rev, err = s.d.CurrentRevision(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
 		compact, err = s.d.GetCompactRevision(ctx)
 		if err != nil {
 			return 0, nil, err
 		}
+	}
+
+	if revision > rev {
+		return rev, result, server.ErrFutureRev
 	}
 
 	if revision > 0 && revision < compact {
