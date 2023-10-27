@@ -309,6 +309,7 @@ func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMut
 		return false
 	}
 	defer queue.Done(key)
+
 	eventKV := loadTTLEventKV(rwMutex, store, key.(string))
 	if eventKV == nil {
 		logrus.Errorf("Failed to find ttl event for key %v", key)
