@@ -64,7 +64,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	//	}, nil
 	//}
 
-	logrus.Info("getting backend for endpoint: " + config.Endpoint)
+	logrus.Info("getting backend for endpoint: 12 " + config.Endpoint)
 	leaderelect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
 	if err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "building kine")

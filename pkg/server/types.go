@@ -57,11 +57,11 @@ type Transaction interface {
 }
 
 type KeyValue struct {
-	Key            string
-	CreateRevision int64
-	ModRevision    int64
-	Value          []byte
-	Lease          int64
+	Key            string `json:"key"`
+	CreateRevision int64  `json:"createRevision,omitempty"`
+	ModRevision    int64  `json:"modRevision,omitempty"`
+	Value          []byte `json:"value,omitempty"`
+	Lease          int64  `json:"lease,omitempty"`
 }
 
 type Event struct {
