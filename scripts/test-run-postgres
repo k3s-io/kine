@@ -30,6 +30,6 @@ VERSION_LIST="\
     postgres 11.21-alpine" # A generic 11.21 image is not available
 
 while read ENGINE VERSION; do
-    LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test
+    echo "LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test"
 done <<< $VERSION_LIST
 
