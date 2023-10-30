@@ -36,9 +36,6 @@ Session.vim
 # cscope-related files
 cscope.*
 
-# Go test binaries
-*.test
-
 # JUnit test output from ginkgo e2e tests
 /junit*.xml
 
