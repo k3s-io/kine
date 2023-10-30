@@ -5,14 +5,19 @@ cd $(dirname $0)/..
 
 . ./scripts/test-helpers
 
-#echo Running go unit tests
-go test -cover -tags=test ./...
-
 # ---
 
 docker ps
 
 # ---
+
+# Selectively run tests
+if [ -n "$1" ]; then
+    . ./scripts/test-run-"$1"
+    echo "Did test-run-$1 $?"
+    exit 0
+fi
+
 
 . ./scripts/test-run-sqlite
 echo "Did test-run-sqlite $?"

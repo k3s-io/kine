@@ -18,23 +18,97 @@ steps:
   - name: docker
     path: /var/run/docker.sock
 
-- name: test
-  image: rancher/dapper:v0.6.0
+- name: test-image
+  image: rancher/dapper:v0.5.0
   commands:
   - docker build -t kine:test-${DRONE_COMMIT} -f Dockerfile.test .
-  - >
-   docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
-   -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
-   --privileged kine:test-${DRONE_COMMIT}
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
-    DOCKER_BUILDKIT: "1"
   volumes:
   - name: docker
     path: /var/run/docker.sock
   when:
     instance:
     - drone-pr.k3s.io
+
+- name: test-sqlite
+  image: rancher/dapper:v0.5.0
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test sqlite"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+
+- name: test-mysql
+  image: rancher/dapper:v0.5.0
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test mysql"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+
+- name: test-postgres
+  image: rancher/dapper:v0.5.0
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test postgres"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+
+- name: test-cockroachdb
+  image: rancher/dapper:v0.5.0
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test cockroachdb"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+
+- name: test-nats
+  image: rancher/dapper:v0.5.0
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test nats"
+  - >
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test nats-embedded"
+  - >
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test nats-socket"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+
 
 - name: github_binary_release
   image: plugins/github-release

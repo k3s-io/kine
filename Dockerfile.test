@@ -12,5 +12,5 @@ WORKDIR ${KINE_SOURCE}
 
 COPY . ${KINE_SOURCE}
 
-ENTRYPOINT ["./scripts/entry"]
-CMD ["test"]
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["./scripts/test"]
