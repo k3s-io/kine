@@ -172,7 +172,7 @@ func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, lega
 			logrus.Infof("embedded NATS server shutdown")
 		}()
 
-		// Use the local server's osclient URL.
+		// Use the local server's client URL.
 		config.clientURL = ns.ClientURL()
 	}
 
@@ -477,7 +477,7 @@ func (d *Driver) Create(ctx context.Context, key string, value []byte, lease int
 	defer func() {
 		dur := time.Since(start)
 		fStr := "CREATE %s, size=%d, lease=%d => rev=%d, err=%v, duration=%s"
-		d.logMethod(dur, fStr, key, len(value), "", revRet, errRet, dur)
+		d.logMethod(dur, fStr, key, len(value), lease, revRet, errRet, dur)
 	}()
 
 	// Lock the folder containing this key.
@@ -789,7 +789,7 @@ func (d *Driver) Update(ctx context.Context, key string, value []byte, revision,
 			kvRev = kvRet.ModRevision
 		}
 		fStr := "UPDATE %s, value=%d, rev=%d, lease=%v => rev=%d, kvrev=%d, updated=%v, err=%v, duration=%s"
-		d.logMethod(dur, fStr, key, len(value), revision, lease, revRet, kvRev, nil, errRet, dur)
+		d.logMethod(dur, fStr, key, len(value), revision, lease, revRet, kvRev, updateRet, errRet, dur)
 	}()
 
 	// Lock the folder containing the key.

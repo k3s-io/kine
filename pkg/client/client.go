@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/k3s-io/kine/pkg/endpoint"
-	clientv3 "go.etcd.io/etcd/osclient/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 type Value struct {

@@ -42,7 +42,7 @@ func (s *KVServerBridge) MemberPromote(context.Context, *etcdserverpb.MemberProm
 	return nil, fmt.Errorf("member promote is not supported")
 }
 
-// authorityURL returns the URL of the authority (host) that the osclient connected to.
+// authorityURL returns the URL of the authority (host) that the client connected to.
 // If no scheme is included in the authority data, the provided scheme is used. If no
 // authority data is provided, the default etcd endpoint is used.
 func authorityURL(ctx context.Context, scheme string) string {

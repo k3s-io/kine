@@ -147,7 +147,7 @@ outer:
 			compactedRev, currentRev, err = s.compact(compactedRev, iterCompactRev)
 			if err != nil {
 				// ErrCompacted indicates that no further work is necessary - either compactRev changed since the
-				// last iteration because another osclient has compacted, or the requested revision has already been compacted.
+				// last iteration because another client has compacted, or the requested revision has already been compacted.
 				if err == server.ErrCompacted {
 					break
 				}

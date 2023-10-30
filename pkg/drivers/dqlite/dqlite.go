@@ -100,7 +100,7 @@ func New(ctx context.Context, datasourceName string, connPoolConfig generic.Conn
 	sql.Register("dqlite", d)
 	backend, generic, err := sqlite.NewVariant(ctx, "dqlite", opts.dsn, connPoolConfig, metricsRegisterer)
 	if err != nil {
-		return nil, errors.Wrap(err, "sqlite osclient")
+		return nil, errors.Wrap(err, "sqlite client")
 	}
 	if err := migrate(ctx, generic.DB); err != nil {
 		return nil, errors.Wrap(err, "failed to migrate DB from sqlite")

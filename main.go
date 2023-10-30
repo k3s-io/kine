@@ -83,7 +83,7 @@ func main() {
 			Name:        "metrics-bind-address",
 			Usage:       "The address the metric endpoint binds to. Default :8080, set 0 to disable metrics serving.",
 			Destination: &metricsConfig.ServerAddress,
-			Value:       ":8080",
+			Value:       ":8180",
 		},
 		cli.DurationFlag{
 			Name:        "slow-sql-threshold",
