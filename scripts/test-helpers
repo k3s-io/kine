@@ -205,7 +205,7 @@ provision-server() {
         -p 6443:6443 \
         -e K3S_DEBUG=true \
         -e K3S_DATASTORE_ENDPOINT=$K3S_DATASTORE_ENDPOINT \
-        ${K3S_IMAGE:-docker.io/rancher/k3s:v1.25.2-k3s1} server \
+        ${K3S_IMAGE:-docker.io/rancher/k3s:v1.26.9-k3s1} server \
         --disable=coredns,servicelb,traefik,local-storage,metrics-server \
         --disable-agent --disable-scheduler --disable-cloud-controller --disable-kube-proxy --disable-network-policy
 
