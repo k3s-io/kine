@@ -843,23 +843,29 @@ func (d *Driver) Update(ctx context.Context, key string, value []byte, revision,
 
 }
 
-func (d *Driver) Watch(ctx context.Context, prefix string, revision int64) <-chan []*server.Event {
-
+func (d *Driver) Watch(ctx context.Context, prefix string, revision int64) server.WatchResult {
+	ctx, cancel := context.WithCancel(ctx)
 	watcher, err := d.kv.(*kv.EncodedKV).Watch(prefix, nats.IgnoreDeletes(), nats.Context(ctx))
 
 	if revision > 0 {
 		revision--
 	}
-	_, events, err := d.listAfter(ctx, prefix, revision)
-
-	if err != nil {
-		logrus.Errorf("failed to create watcher %s for revision %d", prefix, revision)
-	}
 
 	result := make(chan []*server.Event, 100)
+	wr := server.WatchResult{Events: result}
+
+	rev, events, err := d.listAfter(ctx, prefix, revision)
+	if err != nil {
+		logrus.Errorf("failed to create watcher %s for revision %d", prefix, revision)
+		if err == server.ErrCompacted {
+			compact, _ := d.compactRevision()
+			wr.CompactRevision = compact
+			wr.CurrentRevision = rev
+		}
+		cancel()
+	}
 
 	go func() {
-
 		if len(events) > 0 {
 			result <- events
 			revision = events[len(events)-1].KV.ModRevision
@@ -915,11 +921,13 @@ func (d *Driver) Watch(ctx context.Context, prefix string, revision int64) <-cha
 				if err := watcher.Stop(); err != nil && err != nats.ErrBadSubscription {
 					logrus.Warnf("error stopping %s watcher: %v", prefix, err)
 				}
+				close(result)
+				cancel()
 				return
 			}
 		}
 	}()
-	return result
+	return wr
 }
 
 // getPreviousEntry returns the nats.KeyValueEntry previous to the one provided, if the previous entry is a nats.KeyValuePut

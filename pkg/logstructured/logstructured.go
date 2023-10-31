@@ -17,6 +17,7 @@ const (
 
 type Log interface {
 	Start(ctx context.Context) error
+	CompactRevision(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeletes bool) (int64, []*server.Event, error)
 	After(ctx context.Context, prefix string, revision, limit int64) (int64, []*server.Event, error)
@@ -288,13 +289,13 @@ func (l *LogStructured) ttl(ctx context.Context) {
 
 			eventKV := loadTTLEventKV(rwMutex, ttlEventKVMap, event.KV.Key)
 			if eventKV == nil {
-				logrus.Tracef("Add ttl event key %v, modRev %v", event.KV.Key, event.KV.ModRevision)
 				expires := storeTTLEventKV(rwMutex, ttlEventKVMap, event.KV)
+				logrus.Tracef("TTL add event key=%v, modRev=%v, ttl=%v", event.KV.Key, event.KV.ModRevision, expires)
 				queue.AddAfter(event.KV.Key, expires)
 			} else {
 				if event.KV.ModRevision > eventKV.modRevision {
-					logrus.Tracef("Update ttl event key %v, modRev %v", event.KV.Key, event.KV.ModRevision)
 					expires := storeTTLEventKV(rwMutex, ttlEventKVMap, event.KV)
+					logrus.Tracef("TTL update event key=%v, modRev=%v, ttl=%v", event.KV.Key, event.KV.ModRevision, expires)
 					queue.AddAfter(event.KV.Key, expires)
 				}
 			}
@@ -312,13 +313,13 @@ func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMut
 
 	eventKV := loadTTLEventKV(rwMutex, store, key.(string))
 	if eventKV == nil {
-		logrus.Errorf("Failed to find ttl event for key %v", key)
+		logrus.Errorf("TTL event not found for key=%v", key)
 		return true
 	}
 
-	if eventKV.expiredAt.After(time.Now()) {
-		logrus.Tracef("TTL event key %v has not expired yet, the latest expiration time is %v, requeuing", key, eventKV.expiredAt)
-		queue.AddAfter(key, time.Until(eventKV.expiredAt))
+	if expires := time.Until(eventKV.expiredAt); expires > 0 {
+		logrus.Tracef("TTL has not expired for key=%v, ttl=%v, requeuing", key, expires)
+		queue.AddAfter(key, expires)
 		return true
 	}
 
@@ -327,19 +328,19 @@ func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMut
 }
 
 func (l *LogStructured) deleteTTLEvent(ctx context.Context, rwMutex *sync.RWMutex, queue workqueue.DelayingInterface, store map[string]*ttlEventKV, preEventKV *ttlEventKV) {
-	logrus.Tracef("Delete ttl event key %v, modRev %v", preEventKV.key, preEventKV.modRevision)
+	logrus.Tracef("TTL delete key=%v, modRev=%v", preEventKV.key, preEventKV.modRevision)
 	_, _, _, err := l.Delete(ctx, preEventKV.key, preEventKV.modRevision)
 
 	rwMutex.Lock()
 	defer rwMutex.Unlock()
 	curEventKV := store[preEventKV.key]
-	if curEventKV.expiredAt.After(preEventKV.expiredAt) {
-		logrus.Tracef("TTL event key %v has updated, requeuing", curEventKV.key)
-		queue.AddAfter(curEventKV.key, time.Until(curEventKV.expiredAt))
+	if expires := time.Until(preEventKV.expiredAt); expires > 0 {
+		logrus.Tracef("TTL changed for key=%v, ttl=%v, requeuing", curEventKV.key, expires)
+		queue.AddAfter(curEventKV.key, expires)
 		return
 	}
 	if err != nil {
-		logrus.Errorf("Failed to delete key %v at end of lease: %v, requeuing", curEventKV.key, err)
+		logrus.Errorf("TTL delete trigger failed for key=%v: %v, requeuing", curEventKV.key, err)
 		queue.AddAfter(curEventKV.key, retryInterval)
 		return
 	}
@@ -366,7 +367,7 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 		rev, events, err := l.log.List(ctx, "/", "", 1000, 0, false)
 		for len(events) > 0 {
 			if err != nil {
-				logrus.Errorf("Failed to read old events for ttl: %v", err)
+				logrus.Errorf("TTL event list failed: %v", err)
 				break
 			}
 
@@ -389,17 +390,22 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 		defer wg.Done()
 		revision := <-lastListRevision
 		if revision == 0 {
-			logrus.Error("TTL events last list revision is zero, retry to process ttl events")
+			logrus.Error("TTL event watch failed to get start revision")
 			return
 		}
-		for events := range l.Watch(ctx, "/", revision) {
+		wr := l.Watch(ctx, "/", revision)
+		if wr.CompactRevision != 0 {
+			logrus.Errorf("TTL event watch failed: %v", server.ErrCompacted)
+			return
+		}
+		for events := range wr.Events {
 			for _, event := range events {
 				if event.KV.Lease > 0 {
 					result <- event
 				}
 			}
 		}
-		logrus.Info("TTL events watch channel was closed")
+		logrus.Info("TTL events watch channel closed")
 	}()
 
 	return result
@@ -423,7 +429,7 @@ func storeTTLEventKV(rwMutex *sync.RWMutex, store map[string]*ttlEventKV, eventK
 	return expires
 }
 
-func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64) <-chan []*server.Event {
+func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64) server.WatchResult {
 	logrus.Tracef("WATCH %s, revision=%d", prefix, revision)
 
 	// starting watching right away so we don't miss anything
@@ -436,10 +442,16 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	}
 
 	result := make(chan []*server.Event, 100)
+	wr := server.WatchResult{Events: result}
 
 	rev, kvs, err := l.log.After(ctx, prefix, revision, 0)
 	if err != nil {
-		logrus.Errorf("failed to list %s for revision %d", prefix, revision)
+		logrus.Errorf("Failed to list %s for revision %d: %v", prefix, revision, err)
+		if err == server.ErrCompacted {
+			compact, _ := l.log.CompactRevision(ctx)
+			wr.CompactRevision = compact
+			wr.CurrentRevision = rev
+		}
 		cancel()
 	}
 
@@ -463,7 +475,7 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 		cancel()
 	}()
 
-	return result
+	return wr
 }
 
 func filter(events []*server.Event, rev int64) []*server.Event {
