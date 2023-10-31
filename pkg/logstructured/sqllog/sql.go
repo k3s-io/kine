@@ -236,6 +236,10 @@ func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
 	return s.d.CurrentRevision(ctx)
 }
 
+func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
+	return s.d.GetCompactRevision(ctx)
+}
+
 func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64) (int64, []*server.Event, error) {
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
@@ -247,8 +251,21 @@ func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64
 	}
 
 	rev, compact, result, err := RowsToEvents(rows)
+
+	if revision > 0 && len(result) == 0 {
+		// a zero length result won't have the compact or current revisions so get them manually
+		rev, err = s.d.CurrentRevision(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		compact, err = s.d.GetCompactRevision(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+	}
+
 	if revision > 0 && revision < compact {
-		return rev, result, server.ErrCompacted
+		return rev, nil, server.ErrCompacted
 	}
 
 	return rev, result, err
@@ -299,11 +316,11 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 	}
 
 	if revision > rev {
-		return rev, result, server.ErrFutureRev
+		return rev, nil, server.ErrFutureRev
 	}
 
 	if revision > 0 && revision < compact {
-		return rev, result, server.ErrCompacted
+		return rev, nil, server.ErrCompacted
 	}
 
 	select {
@@ -419,6 +436,8 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
 		}
+
+		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", last, pollBatchSize, len(events))
 
 		if len(events) == 0 {
 			continue

@@ -25,7 +25,7 @@ type Backend interface {
 	List(ctx context.Context, prefix, startKey string, limit, revision int64) (int64, []*KeyValue, error)
 	Count(ctx context.Context, prefix string) (int64, int64, error)
 	Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *KeyValue, bool, error)
-	Watch(ctx context.Context, key string, revision int64) <-chan []*Event
+	Watch(ctx context.Context, key string, revision int64) WatchResult
 	DbSize(ctx context.Context) (int64, error)
 }
 
@@ -75,6 +75,12 @@ type Event struct {
 	Create bool
 	KV     *KeyValue
 	PrevKV *KeyValue
+}
+
+type WatchResult struct {
+	CurrentRevision int64
+	CompactRevision int64
+	Events          <-chan []*Event
 }
 
 func unsupported(field string) error {
