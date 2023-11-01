@@ -69,7 +69,7 @@ def main(type, *args, **kwargs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--type', '-t', type=str, required=False, default='core.ConfigMap')
+    parser.add_argument('--type', '-t', type=str, required=False, default='configmaps')
     parser.add_argument('--log-level', '-l', type=str, required=False, default='INFO')
     parser.add_argument('--backend-name', '-b', type=str, required=False, default='etcd')
     args = parser.parse_args()
