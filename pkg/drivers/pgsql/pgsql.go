@@ -134,34 +134,28 @@ func createDBIfNotExist(dataSourceName string) error {
 	}
 
 	dbName := strings.SplitN(u.Path, "/", 2)[1]
-	db, err := sql.Open("pgx", dataSourceName)
+	u.Path = "/postgres"
+	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	err = db.Ping()
-	// check if database already exists
-	if _, ok := err.(*pgconn.PgError); !ok {
+	var exists bool
+	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
+	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
-	if err := err.(*pgconn.PgError); err.Code != pgerrcode.DuplicateDatabase {
-		if err.Code != pgerrcode.InvalidCatalogName {
-			return err
-		}
-		// database doesn't exit, will try to create it
-		u.Path = "/postgres"
-		db, err := sql.Open("pgx", u.String())
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-		stmt := createDB + dbName + ";"
+
+	stmt := createDB + dbName + ";"
+
+	if !exists {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err = db.Exec(stmt)
 		if err != nil {
 			return err
 		}
+		logrus.Tracef("created database: %s", dbName)
 	}
 	return nil
 }
