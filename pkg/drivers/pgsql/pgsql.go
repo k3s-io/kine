@@ -3,6 +3,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -40,13 +41,22 @@ var (
  				value bytea,
  				old_value bytea
  			);`,
+
+		// Note: indexes below assume the 'C' locale, otherwise LIKE queries on `name` will not be able to use them
+		// To support non-C locales, new indexes should be added for each index involving the `name` column with the
+		// adding the varchar_pattern_ops operator class, eg.
+		//   `CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`
+		//  +`CREATE INDEX IF NOT EXISTS kine_name_index_patterns ON kine (name varchar_pattern_ops)`
+		// See: https://www.postgresql.org/docs/15/indexes-opclass.html
+
 		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
 		`CREATE INDEX IF NOT EXISTS kine_name_id_index ON kine (name,id)`,
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS kine_list_query_index on kine(name, id DESC, deleted)`,
 	}
-	createDB = "CREATE DATABASE "
+	createDB = "CREATE DATABASE %s LOCALE 'C' TEMPLATE 'template0';"
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
@@ -104,6 +114,46 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return err.Error()
 	}
 
+	listSQL := `
+		SELECT
+			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
+			maxkv.*
+		FROM (
+		    SELECT DISTINCT ON (name)
+				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
+		    FROM
+				kine AS kv
+			WHERE
+				kv.name LIKE ?
+				AND %s
+				AND %s
+			ORDER BY kv.name, theid DESC
+		) AS maxkv
+		WHERE
+		    maxkv.deleted = 0 OR ?
+		ORDER BY maxkv.name, maxkv.theid DESC
+		`
+
+	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "TRUE", "TRUE"))
+	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "kv.id <= ?", "TRUE"))
+	// HACK: "AND ? > 0" is a way to ignore that parameter (it is an auto-incremented id so always positive)
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "kv.id <= ?", "kv.name > ? AND ? > 0"))
+	dialect.CountSQL = q(fmt.Sprintf(`
+			SELECT
+				(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+				COUNT(c.theid)
+			FROM (
+				SELECT DISTINCT ON (name)
+					kv.id AS theid,
+				    kv.deleted
+				FROM kine AS kv
+				WHERE
+					kv.name LIKE ?
+				ORDER BY kv.name, theid DESC
+			) AS c
+			WHERE c.deleted = 0 OR ?`))
+
 	if err := setup(dialect.DB); err != nil {
 		return nil, err
 	}
@@ -156,7 +206,7 @@ func createDBIfNotExist(dataSourceName string) error {
 			return err
 		}
 		defer db.Close()
-		stmt := createDB + dbName + ";"
+		stmt := fmt.Sprintf(createDB, dbName)
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err = db.Exec(stmt)
 		if err != nil {
