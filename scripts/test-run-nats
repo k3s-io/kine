@@ -15,8 +15,8 @@ export -f start-test
 
 # test minimum supported version and most recent version of NATS
 VERSION_LIST="\
-    nats 2.9.23
-    nats 2.10.4"
+    nats 2.9.24
+    nats 2.10.5"
 
 while read ENGINE VERSION; do
     LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=NATS_JS_PASSWORD DB_ARGS="-js" DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test
