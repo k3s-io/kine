@@ -1,11 +1,6 @@
 # Kine (Kine is not etcd)
 ==========================
 
-_NOTE: On 2020-11-19, this repository was moved out of the github.com/rancher org to github.com/k3s-io
-supporting the [acceptance of K3s as a CNCF sandbox project](https://github.com/cncf/toc/pull/447)_.
-
----
-
 Kine is an etcdshim that translates etcd API to:
 - SQLite
 - Postgres
@@ -18,3 +13,7 @@ Kine is an etcdshim that translates etcd API to:
 - Translates etcdTX calls into the desired API (Create, Update, Delete)
 
 See an [example](/examples/minimal.md).
+
+## Developer Documentation
+
+A high level flow diagram and overview of code structure is available at [docs/flow.md](/docs/flow.md).
