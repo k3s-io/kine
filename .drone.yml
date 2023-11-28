@@ -18,6 +18,55 @@ steps:
   - name: docker
     path: /var/run/docker.sock
 
+- name: github_binary_release
+  image: plugins/github-release
+  depends_on:
+   - build
+  settings:
+    api_key:
+      from_secret: github_token
+    checksum:
+    - sha256
+    checksum_file: CHECKSUMsum-amd64.txt
+    checksum_flatten: true
+    files:
+    - dist/artifacts/*
+    prerelease: true
+  when:
+    event:
+    - tag
+    instance:
+    - drone-publish.k3s.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+
+- name: docker-publish
+  image: plugins/docker:20.13
+  depends_on:
+   - build
+  settings:
+    build_args_from_env:
+    - ARCH
+    username:
+      from_secret: docker_username
+    password:
+      from_secret: docker_password
+    repo: rancher/kine
+    tag: "${DRONE_TAG}-${DRONE_STAGE_ARCH}"
+    dockerfile: package/Dockerfile
+  environment:
+    ARCH: "${DRONE_STAGE_ARCH}"
+    DOCKER_BUILDKIT: "1"
+  when:
+    event:
+    - tag
+    instance:
+    - drone-publish.k3s.io
+    ref:
+    - refs/head/master
+    - refs/tags/*
+
 - name: test-image
   image: rancher/dapper:v0.5.0
   commands:
@@ -124,52 +173,6 @@ steps:
     event:
     - pull_request
 
-
-- name: github_binary_release
-  image: plugins/github-release
-  settings:
-    api_key:
-      from_secret: github_token
-    checksum:
-    - sha256
-    checksum_file: CHECKSUMsum-amd64.txt
-    checksum_flatten: true
-    files:
-    - dist/artifacts/*
-    prerelease: true
-  when:
-    event:
-    - tag
-    instance:
-    - drone-publish.k3s.io
-    ref:
-    - refs/head/master
-    - refs/tags/*
-
-- name: docker-publish
-  image: plugins/docker:20.13
-  settings:
-    build_args_from_env:
-    - ARCH
-    username:
-      from_secret: docker_username
-    password:
-      from_secret: docker_password
-    repo: rancher/kine
-    tag: "${DRONE_TAG}-${DRONE_STAGE_ARCH}"
-    dockerfile: package/Dockerfile
-  environment:
-    ARCH: "${DRONE_STAGE_ARCH}"
-    DOCKER_BUILDKIT: "1"
-  when:
-    event:
-    - tag
-    instance:
-    - drone-publish.k3s.io
-    ref:
-    - refs/head/master
-    - refs/tags/*
-
 volumes:
 - name: docker
   host:
@@ -197,6 +200,8 @@ steps:
 
 - name: github_binary_release
   image: plugins/github-release
+  depends_on:
+   - build
   settings:
     api_key:
       from_secret: github_token
@@ -218,6 +223,8 @@ steps:
 
 - name: docker-publish
   image: plugins/docker:20.13
+  depends_on:
+   - build
   settings:
     build_args_from_env:
     - ARCH
@@ -267,6 +274,8 @@ steps:
 
 - name: github_binary_release
   image: plugins/github-release:linux-arm
+  depends_on:
+   - build
   settings:
     api_key:
       from_secret: github_token
@@ -288,6 +297,8 @@ steps:
 
 - name: docker-publish
   image: plugins/docker:linux-arm
+  depends_on:
+   - build
   settings:
     build_args_from_env:
     - ARCH
