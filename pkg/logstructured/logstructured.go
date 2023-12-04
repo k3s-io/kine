@@ -489,3 +489,7 @@ func filter(events []*server.Event, rev int64) []*server.Event {
 func (l *LogStructured) DbSize(ctx context.Context) (int64, error) {
 	return l.log.DbSize(ctx)
 }
+
+func (l *LogStructured) CurrentRevision(ctx context.Context) (int64, error) {
+	return l.log.CurrentRevision(ctx)
+}
