@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -12,19 +14,39 @@ import (
 )
 
 var watchID int64
+var progressReportInterval = 10 * time.Minute
 
 // explicit interface check
 var _ etcdserverpb.WatchServer = (*KVServerBridge)(nil)
 
+// GetProgressReportInterval returns the current progress report interval, with some jitter
+func GetProgressReportInterval() time.Duration {
+	interval := progressReportInterval
+
+	// add rand(1/10*progressReportInterval) as jitter so that kine will not
+	// send progress notifications to watchers at the same time even when watchers
+	// are created at the same time.
+	jitter := time.Duration(rand.Int63n(int64(interval) / 10))
+
+	return interval + jitter
+}
+
 func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
+	interval := GetProgressReportInterval()
+	progressTicker := time.NewTicker(interval)
+	defer progressTicker.Stop()
+
 	w := watcher{
-		server:  ws,
-		backend: s.limited.backend,
-		watches: map[int64]func(){},
+		server:   ws,
+		backend:  s.limited.backend,
+		watches:  map[int64]func(){},
+		progress: map[int64]int64{},
 	}
 	defer w.Close()
 
 	logrus.Tracef("WATCH SERVER CREATE")
+
+	go w.DoProgress(ws.Context(), progressTicker)
 
 	for {
 		msg, err := ws.Recv()
@@ -45,10 +67,12 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 type watcher struct {
 	sync.Mutex
 
-	wg      sync.WaitGroup
-	backend Backend
-	server  etcdserverpb.Watch_WatchServer
-	watches map[int64]func()
+	wg          sync.WaitGroup
+	backend     Backend
+	server      etcdserverpb.Watch_WatchServer
+	watches     map[int64]func()
+	progress    map[int64]int64
+	progressRev int64
 }
 
 func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest) {
@@ -63,7 +87,11 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 
 	key := string(r.Key)
 
-	logrus.Tracef("WATCH START id=%d, count=%d, key=%s, revision=%d", id, len(w.watches), key, r.StartRevision)
+	if r.ProgressNotify {
+		w.progress[id] = w.progressRev
+	}
+
+	logrus.Tracef("WATCH START id=%d, count=%d, key=%s, revision=%d, progressNotify=%v", id, len(w.watches), key, r.StartRevision, r.ProgressNotify)
 
 	go func() {
 		defer w.wg.Done()
@@ -111,13 +139,19 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 
 			// Send collected events in a single response
 			if len(events) > 0 {
+				revision := events[len(events)-1].KV.ModRevision
+				w.Lock()
+				if r, ok := w.progress[id]; ok && r == w.progressRev {
+					w.progress[id] = revision
+				}
+				w.Unlock()
 				if logrus.IsLevelEnabled(logrus.TraceLevel) {
 					for _, event := range events {
 						logrus.Tracef("WATCH READ id=%d, key=%s, revision=%d", id, event.KV.Key, event.KV.ModRevision)
 					}
 				}
 				wr := &etcdserverpb.WatchResponse{
-					Header:  txnHeader(events[len(events)-1].KV.ModRevision),
+					Header:  txnHeader(revision),
 					WatchId: id,
 					Events:  toEvents(events...),
 				}
@@ -159,6 +193,7 @@ func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
 	if cancel, ok := w.watches[watchID]; ok {
 		cancel()
 		delete(w.watches, watchID)
+		delete(w.progress, watchID)
 	}
 	w.Unlock()
 
@@ -183,9 +218,36 @@ func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
 func (w *watcher) Close() {
 	logrus.Tracef("WATCH SERVER CLOSE")
 	w.Lock()
-	for _, v := range w.watches {
+	for id, v := range w.watches {
+		delete(w.progress, id)
 		v()
 	}
 	w.Unlock()
 	w.wg.Wait()
+}
+
+func (w *watcher) DoProgress(ctx context.Context, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rev, err := w.backend.CurrentRevision(ctx)
+			if err != nil {
+				logrus.Errorf("Failed to get current revision for ProgressNotify: %v", err)
+				continue
+			}
+
+			w.Lock()
+			for id, r := range w.progress {
+				if r == w.progressRev {
+					logrus.Tracef("WATCH SEND PROGRESS id=%d, revision=%d", id, rev)
+					go w.server.Send(&etcdserverpb.WatchResponse{Header: txnHeader(rev), WatchId: id})
+				}
+				w.progress[id] = rev
+			}
+			w.progressRev = rev
+			w.Unlock()
+		}
+	}
 }

@@ -129,6 +129,11 @@ func (b *Backend) DbSize(ctx context.Context) (int64, error) {
 	return b.kv.BucketSize(ctx)
 }
 
+// CurrentRevision returns the current revision of the database.
+func (b *Backend) CurrentRevision(ctx context.Context) (int64, error) {
+	return b.kv.BucketRevision(), nil
+}
+
 // Count returns an exact count of the number of matching keys and the current revision of the database.
 func (b *Backend) Count(ctx context.Context, prefix string) (int64, int64, error) {
 	count, err := b.kv.Count(ctx, prefix)

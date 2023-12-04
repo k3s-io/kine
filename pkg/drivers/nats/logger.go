@@ -115,3 +115,8 @@ func (b *BackendLogger) Watch(ctx context.Context, prefix string, revision int64
 func (b *BackendLogger) DbSize(ctx context.Context) (int64, error) {
 	return b.backend.DbSize(ctx)
 }
+
+// CurrentRevision returns the current revision of the database.
+func (b *BackendLogger) CurrentRevision(ctx context.Context) (int64, error) {
+	return b.backend.CurrentRevision(ctx)
+}

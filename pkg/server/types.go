@@ -27,6 +27,7 @@ type Backend interface {
 	Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *KeyValue, bool, error)
 	Watch(ctx context.Context, key string, revision int64) WatchResult
 	DbSize(ctx context.Context) (int64, error)
+	CurrentRevision(ctx context.Context) (int64, error)
 }
 
 type Dialect interface {
