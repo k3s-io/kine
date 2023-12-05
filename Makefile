@@ -14,7 +14,11 @@ $(TARGETS): .dapper
 
 ARCH ?= amd64
 REPO ?= rancher
-DEFAULT_BUILD_ARGS=--build-arg="REPO=$(REPO)" --build-arg="TAG=$(TAG)" --build-arg="ARCH=$(ARCH)"
+DEFAULT_BUILD_ARGS=--build-arg="REPO=$(REPO)" --build-arg="TAG=$(TAG)" --build-arg="ARCH=$(ARCH)" --build-arg="DIRTY=$(DIRTY)"
+DIRTY := $(shell git status --porcelain --untracked-files=no)
+ifneq ($(DIRTY),)
+	DIRTY="-dirty"
+endif
 
 .PHONY: no-dapper
 no-dapper:
@@ -26,4 +30,4 @@ no-dapper:
 		-f Dockerfile --target=binary --output=. .
 	DOCKER_BUILDKIT=1 docker build -t kine-package -f Dockerfile --target=package .
 	DOCKER_BUILDKIT=1 docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./dist:/go/src/github.com/k3s-io/kine/dist \
-		-e IMAGE_NAME -e DRONE_TAG kine-package
+		-e IMAGE_NAME -e DRONE_TAG -e DIRTY=$(DIRTY) kine-package
