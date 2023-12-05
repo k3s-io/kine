@@ -9,7 +9,7 @@ platform:
 
 steps:
 - name: build
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   commands:
   - dapper ci
   environment:
@@ -68,7 +68,7 @@ steps:
     - refs/tags/*
 
 - name: test-image
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   commands:
   - docker build -t kine:test-${DRONE_COMMIT} -f Dockerfile.test .
   environment:
@@ -81,7 +81,7 @@ steps:
     - pull_request
 
 - name: test-sqlite
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   depends_on:
    - build
    - test-image
@@ -98,7 +98,7 @@ steps:
     - pull_request
 
 - name: test-mysql
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   depends_on:
    - build
    - test-image
@@ -115,7 +115,7 @@ steps:
     - pull_request
 
 - name: test-postgres
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   depends_on:
    - build
    - test-image
@@ -132,7 +132,7 @@ steps:
     - pull_request
 
 - name: test-cockroachdb
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   depends_on:
    - build
    - test-image
@@ -149,7 +149,7 @@ steps:
     - pull_request
 
 - name: test-nats
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   depends_on:
    - build
    - test-image
@@ -189,7 +189,7 @@ platform:
 
 steps:
 - name: build
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   commands:
   - dapper ci
   environment:
@@ -263,7 +263,7 @@ platform:
 
 steps:
 - name: build
-  image: rancher/dapper:v0.5.0
+  image: rancher/dapper:v0.6.0
   commands:
   - dapper ci
   environment:
