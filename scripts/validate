@@ -1,19 +1,32 @@
 #!/bin/bash
 set -e
 
+if [ -n "$SKIP_VALIDATE" ]; then
+    echo Skipping validation
+    exit 0
+fi
+
 cd $(dirname $0)/..
 
 echo Running validation
 
 PACKAGES="$(go list ./...)"
 
-if ! command -v golangci-lint; then
-    echo Skipping validation: no golangci-lint available
-    exit
+if command -v golangci-lint; then
+    echo Running: golangci-lint
+    golangci-lint run
 fi
-
-echo Running: golangci-lint
-golangci-lint run
 
 echo Running: go fmt
 test -z "$(go fmt ${PACKAGES} | tee /dev/stderr)"
+
+go generate
+
+source ./scripts/version
+
+if [ -n "$DIRTY" ]; then
+    echo Git is dirty
+    git status
+    git diff
+    exit 1
+fi
