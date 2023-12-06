@@ -14,13 +14,15 @@ RUN if [ "${ARCH}" == "amd64" ]; then \
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 WORKDIR ${SRC_DIR}/
 
-# Validate needs everything in the project, so we seperate it out better caching
+# Validate needs everything in the project, so we separate it out better caching
 FROM infra as validate
 ARG SKIP_VALIDATE
 ENV SKIP_VALIDATE=${SKIP_VALIDATE}
 COPY . .
-
-RUN ./scripts/validate
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild,target=/root/.cache/go-build \
+    --mount=type=cache,id=lint,target=/root/.cache/golangci-lint \
+    ./scripts/validate
 
 FROM infra AS build
 ARG CROSS
@@ -35,13 +37,14 @@ COPY ./pkg ./pkg
 COPY ./.git ./.git
 COPY ./.golangci.json ./.golangci.json
 
-RUN ./scripts/build
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    --mount=type=cache,id=gobuild,target=/root/.cache/go-build \
+    ./scripts/build
+
+COPY ./scripts/package ./scripts/entry ./scripts/
+COPY ./package ./package
+CMD ./scripts/entry package
 
 FROM scratch as binary
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 COPY --from=build ${SRC_DIR}/bin /bin
-
-FROM build as package
-COPY ./scripts/package ./scripts/package
-COPY ./package ./package
-CMD ./scripts/package
