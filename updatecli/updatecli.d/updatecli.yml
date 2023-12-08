@@ -2,7 +2,7 @@
 # To test this:
 #   have "UPDATECLI_GITHUB_ACTOR" env set to your github username
 #   have "UPDATECLI_GITHUB_TOKEN" env set to your github token
-#   have the latest verison of updatecli installed
+#   have the latest version of updatecli installed
 #   'updatecli diff -v updatecli/values.yaml -c updatecli/updatecli.d/updatecli.yml'
 # In the future, more useful files should be added to this directory.
 ---
