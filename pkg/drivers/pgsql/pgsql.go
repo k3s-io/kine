@@ -135,7 +135,6 @@ func createDBIfNotExist(dataSourceName string) error {
 
 	dbName := strings.SplitN(u.Path, "/", 2)[1]
 	u.Path = "/postgres"
-	var exists bool
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		logrus.Warnf("failed to ensure existence of database %s; unable to connect to database postgres: %v", dbName, err)
@@ -143,6 +142,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	}
 	defer db.Close()
 
+	var exists bool
 	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
