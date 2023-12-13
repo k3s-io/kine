@@ -137,7 +137,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	u.Path = "/postgres"
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
-		logrus.Warnf("failed to ensure existence of database %s; unable to connect to database postgres: %v", dbName, err)
+		logrus.Warnf("failed to ensure existence of database %s: unable to connect to default postgres database: %v", dbName, err)
 		return nil
 	}
 	defer db.Close()
