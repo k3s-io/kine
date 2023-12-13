@@ -138,14 +138,14 @@ func createDBIfNotExist(dataSourceName string) error {
 	var exists bool
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
-		logrus.Warnf("failed to check existence of database %s; unable to connect to postgres database: %v", dbName, err)
-	} else {
-		defer db.Close()
+		logrus.Warnf("failed to ensure existence of database %s; unable to connect to database postgres: %v", dbName, err)
+		return nil
+	}
+	defer db.Close()
 
-		err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
-		if err != nil && err != sql.ErrNoRows {
-			logrus.Warnf("failed to check existence of database %s: %v", dbName, err)
-		}
+	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
+	if err != nil && err != sql.ErrNoRows {
+		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
 
 	stmt := createDB + dbName + ";"
