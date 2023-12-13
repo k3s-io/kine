@@ -137,14 +137,15 @@ func createDBIfNotExist(dataSourceName string) error {
 	u.Path = "/postgres"
 	db, err := sql.Open("pgx", u.String())
 	if err != nil {
-		return err
+		logrus.Warnf("failed to ensure existence of database %s: unable to connect to default postgres database: %v", dbName, err)
+		return nil
 	}
 	defer db.Close()
 
 	var exists bool
 	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
-		return err
+		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
 
 	stmt := createDB + dbName + ";"
@@ -153,9 +154,10 @@ func createDBIfNotExist(dataSourceName string) error {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err = db.Exec(stmt)
 		if err != nil {
-			return err
+			logrus.Warnf("failed to create database %s: %v", dbName, err)
+		} else {
+			logrus.Tracef("created database: %s", dbName)
 		}
-		logrus.Tracef("created database: %s", dbName)
 	}
 	return nil
 }
