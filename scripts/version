@@ -1,6 +1,7 @@
 #!/bin/bash
 
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+# Without Dapper, DIRTY is determined in the Makefile and passed in as a build arg/env var
+if [ -z "$DIRTY" ] && [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     DIRTY="-dirty"
 fi
 

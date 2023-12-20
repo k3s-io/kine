@@ -425,7 +425,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	// Drivers without LastInsertID support may conflict on the serial id key when inserting rows,
-	// as the ID is reserved at the begining of the implicit transaction, but does not become
+	// as the ID is reserved at the beginning of the implicit transaction, but does not become
 	// visible until the transaction completes, at which point we may have already created a gap fill record.
 	// Retry the insert if the driver indicates a retriable insert error, to avoid presenting a spurious
 	// duplicate key error to the client.

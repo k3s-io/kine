@@ -134,7 +134,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 
 		// command line options provided to kine will override the file
 		// https://github.com/nats-io/jsm.go/blob/v0.0.29/natscontext/context.go#L257
-		// allows for user, creds, nke, token, certifcate, ca, inboxprefix from the context.json
+		// allows for user, creds, nke, token, certificate, ca, inboxprefix from the context.json
 		natsClientOpts, err := natsContext.NATSOptions(config.clientOptions...)
 		if err != nil {
 			return nil, err
