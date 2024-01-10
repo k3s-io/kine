@@ -7,14 +7,15 @@ import (
 	"fmt"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
+
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -116,14 +117,21 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 }
 
 func setup(db *sql.DB) error {
-	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+	var exists bool
+	err := db.QueryRow("SELECT 1 FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_name = ?", "kine").Scan(&exists)
+	if err != nil && err != sql.ErrNoRows {
+		logrus.Warnf("failed to check existence of database table %s, going to attempt create: %v", "kine", err)
+	}
 
-	for _, stmt := range schema {
-		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
-		_, err := db.Exec(stmt)
-		if err != nil {
-			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
-				return err
+	if !exists {
+		logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+		for _, stmt := range schema {
+			logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+			_, err := db.Exec(stmt)
+			if err != nil {
+				if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
+					return err
+				}
 			}
 		}
 	}
@@ -143,19 +151,28 @@ func createDBIfNotExist(dataSourceName string) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(createDB + dbName)
-	if err != nil {
-		if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
-			return err
-		}
-		config.DBName = ""
-		db, err = sql.Open("mysql", config.FormatDSN())
-		if err != nil {
-			return err
-		}
+
+	var exists bool
+	err = db.QueryRow("SELECT 1 FROM information_schema.SCHEMATA WHERE schema_name = ?", dbName).Scan(&exists)
+	if err != nil && err != sql.ErrNoRows {
+		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
+	}
+
+	if !exists {
 		_, err = db.Exec(createDB + dbName)
 		if err != nil {
-			return err
+			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
+				return err
+			}
+			config.DBName = ""
+			db, err = sql.Open("mysql", config.FormatDSN())
+			if err != nil {
+				return err
+			}
+			_, err = db.Exec(createDB + dbName)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
