@@ -44,7 +44,7 @@ var (
 		`CREATE INDEX kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
-	createDB = "CREATE DATABASE "
+	createDB = "CREATE DATABASE IF NOT EXISTS "
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
