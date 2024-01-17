@@ -143,7 +143,7 @@
   "liveNow": false,
   "panels": [
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -151,125 +151,126 @@
         "y": 0
       },
       "id": 35,
-      "panels": [],
-      "title": "Kine Pod bandwidth",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_DS_PROMETHEUS_HA_DATASTORE_DIRECT_MANUAL}"
-      },
-      "description": "container_network_receive_bytes_total cumulative bytes received excluding eth0\nSee https://github.com/google/cadvisor/issues/2615",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_DS_PROMETHEUS_HA_DATASTORE_DIRECT_MANUAL}"
           },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+          "description": "container_network_receive_bytes_total cumulative bytes received excluding eth0\nSee https://github.com/google/cadvisor/issues/2615",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "Bps"
             },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 11,
+            "w": 24,
+            "x": 0,
+            "y": 1
+          },
+          "id": 39,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "mean",
+                "max",
+                "stdDev"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "sortBy": "Mean",
+              "sortDesc": true
             },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
             }
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_DS_PROMETHEUS_HA_DATASTORE_DIRECT_MANUAL}"
               },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "Bps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 11,
-        "w": 24,
-        "x": 0,
-        "y": 1
-      },
-      "id": 39,
-      "options": {
-        "legend": {
-          "calcs": [
-            "min",
-            "mean",
-            "max",
-            "stdDev"
+              "editorMode": "code",
+              "expr": "sum by(node) (\r\n    sum by(pod) (rate(container_network_receive_bytes_total{namespace=\"$namespace\", interface!=\"eth0\"}[$__rate_interval]))\r\n     + on(pod) group_left(node) sum by(pod, node) (kube_pod_info{namespace=\"$namespace\"})\r\n)",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "receive by {{node}}",
+              "range": true,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_DS_PROMETHEUS_HA_DATASTORE_DIRECT_MANUAL}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (node) (\r\nsum by(pod) (rate(container_network_transmit_bytes_total{namespace=\"$namespace\", interface!=\"eth0\"}[$__rate_interval]))\r\n+ on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"$namespace\"})\r\n  )",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "transmit by {{node}}",
+              "range": true,
+              "refId": "B"
+            }
           ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "sortBy": "Mean",
-          "sortDesc": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_DS_PROMETHEUS_HA_DATASTORE_DIRECT_MANUAL}"
-          },
-          "editorMode": "code",
-          "expr": "sum by(node) (\r\n    sum by(pod) (rate(container_network_receive_bytes_total{namespace=\"$namespace\", interface!=\"eth0\"}[$__rate_interval]))\r\n     + on(pod) group_left(node) sum by(pod, node) (kube_pod_info{namespace=\"$namespace\"})\r\n)",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "receive by {{node}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_DS_PROMETHEUS_HA_DATASTORE_DIRECT_MANUAL}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (node) (\r\nsum by(pod) (rate(container_network_transmit_bytes_total{namespace=\"$namespace\", interface!=\"eth0\"}[$__rate_interval]))\r\n+ on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"$namespace\"})\r\n  )",
-          "hide": false,
-          "interval": "",
-          "legendFormat": "transmit by {{node}}",
-          "range": true,
-          "refId": "B"
+          "title": "Pod network bandwidth",
+          "type": "timeseries"
         }
       ],
-      "title": "Pod network bandwidth",
-      "type": "timeseries"
+      "title": "Kine Pod bandwidth",
+      "type": "row"
     },
     {
       "collapsed": true,
@@ -277,7 +278,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 1
       },
       "id": 51,
       "panels": [
@@ -327,7 +328,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -343,7 +345,7 @@
             "h": 15,
             "w": 24,
             "x": 0,
-            "y": 13
+            "y": 2
           },
           "id": 49,
           "options": {
@@ -406,7 +408,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 2
       },
       "id": 42,
       "panels": [
@@ -456,7 +458,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -471,7 +474,7 @@
             "h": 9,
             "w": 24,
             "x": 0,
-            "y": 14
+            "y": 3
           },
           "id": 46,
           "options": {
@@ -535,7 +538,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 3
       },
       "id": 44,
       "panels": [
@@ -549,7 +552,7 @@
             "h": 12,
             "w": 23,
             "x": 0,
-            "y": 15
+            "y": 4
           },
           "id": 48,
           "options": {
@@ -598,7 +601,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 4
       },
       "id": 27,
       "panels": [
@@ -607,7 +610,7 @@
             "type": "prometheus",
             "uid": "${DS_DS_PROMETHEUS}"
           },
-          "description": "The number of connections currently in use.",
+          "description": "The number of established connections both in use and idle.    \ngo_sql_max_open_connections{db_name=\"kine\"}\n\nMaximum number of open connections to the database.\ngo_sql_max_open_connections ",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -648,7 +651,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -664,7 +668,7 @@
             "h": 11,
             "w": 12,
             "x": 0,
-            "y": 42
+            "y": 5
           },
           "id": 29,
           "options": {
@@ -713,121 +717,7 @@
               "refId": "A"
             }
           ],
-          "title": "kine ",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_DS_PROMETHEUS}"
-          },
-          "description": "The number of connections currently in use.",
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 0,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green"
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              },
-              "unit": "connections"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 11,
-            "w": 12,
-            "x": 12,
-            "y": 42
-          },
-          "id": 33,
-          "options": {
-            "legend": {
-              "calcs": [
-                "min",
-                "mean",
-                "max"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true,
-              "sortBy": "Max",
-              "sortDesc": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${DS_DS_PROMETHEUS}"
-              },
-              "editorMode": "code",
-              "expr": "sum by (node) (\r\n   sum by(pod) (go_sql_in_use_connections ) \r\n   + on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"94-shared-services-kine\"})\r\n)",
-              "format": "time_series",
-              "hide": false,
-              "legendFormat": "active on pod {{pod}} on node {{node}}",
-              "range": true,
-              "refId": "C"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${DS_DS_PROMETHEUS}"
-              },
-              "editorMode": "code",
-              "expr": "sum by (node) (\r\n   sum by(pod) (go_sql_max_open_connections  ) \r\n   + on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"94-shared-services-kine\"})\r\n)",
-              "format": "time_series",
-              "hide": false,
-              "legendFormat": "max nb cnx for pod {{pod}} on node {{node}}",
-              "range": true,
-              "refId": "A"
-            }
-          ],
-          "title": "kine sql active connections",
+          "title": "kine active and max connections",
           "type": "timeseries"
         },
         {
@@ -876,7 +766,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -891,8 +782,8 @@
           "gridPos": {
             "h": 9,
             "w": 12,
-            "x": 0,
-            "y": 53
+            "x": 12,
+            "y": 5
           },
           "id": 30,
           "options": {
@@ -964,235 +855,236 @@
       "type": "row"
     },
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 5
       },
       "id": 24,
-      "panels": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_DS_PROMETHEUS}"
+          },
+          "description": "each dot represents a change in the kine_compact_total metric\nThe metric is updated by kine after the compaction ends, see source at https://github.com/k3s-io/kine/blob/c1da9bfb3f95dc329f7bacdd6f46b6c824d29ec2/pkg/logstructured/sqllog/sql.go#L168",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisGridShow": true,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "points",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "compactions par seconds"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 6
+          },
+          "id": 25,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "sortBy": "Max",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (node) (\r\nsum by(pod) (rate(kine_compact_total[$__rate_interval]))\r\n* on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"$namespace\"})\r\n  )\r\n",
+              "format": "time_series",
+              "hide": false,
+              "legendFormat": "pod on node={{node}}",
+              "range": true,
+              "refId": "C"
+            }
+          ],
+          "title": "compaction completion events per pod",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_DS_PROMETHEUS}"
+          },
+          "description": "number of compactions",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "requests per hour"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 40,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "mean",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "sortBy": "Max",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by(pod, result) (rate(kine_compact_total{}[$__rate_interval])) * 3600",
+              "format": "time_series",
+              "hide": true,
+              "legendFormat": "pod {{pod}} on node {{node}}",
+              "range": true,
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_DS_PROMETHEUS}"
+              },
+              "editorMode": "code",
+              "expr": "sum by (node,result) (\r\n  sum by(pod, result) (rate(kine_compact_total{}[$__rate_interval])) * 3600\r\n  * on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"$namespace\"})\r\n)",
+              "format": "time_series",
+              "hide": false,
+              "legendFormat": "__auto",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "rate of compactions per node and result",
+          "type": "timeseries"
+        }
+      ],
       "title": "Compactor",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_DS_PROMETHEUS}"
-      },
-      "description": "each dot represents a change in the kine_compact_total metric\nThe metric is updated by kine after the compaction ends, see source at https://github.com/k3s-io/kine/blob/c1da9bfb3f95dc329f7bacdd6f46b6c824d29ec2/pkg/logstructured/sqllog/sql.go#L168",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisGridShow": true,
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "points",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "compactions par seconds"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 17
-      },
-      "id": 25,
-      "options": {
-        "legend": {
-          "calcs": [
-            "min",
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "sortBy": "Max",
-          "sortDesc": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (node) (\r\nsum by(pod) (rate(kine_compact_total[$__rate_interval]))\r\n* on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"$namespace\"})\r\n  )\r\n",
-          "format": "time_series",
-          "hide": false,
-          "legendFormat": "pod on node={{node}}",
-          "range": true,
-          "refId": "C"
-        }
-      ],
-      "title": "compaction completion events per pod",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_DS_PROMETHEUS}"
-      },
-      "description": "number of compactions",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "requests per hour"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 27
-      },
-      "id": 40,
-      "options": {
-        "legend": {
-          "calcs": [
-            "min",
-            "mean",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "sortBy": "Max",
-          "sortDesc": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by(pod, result) (rate(kine_compact_total{}[$__rate_interval])) * 3600",
-          "format": "time_series",
-          "hide": true,
-          "legendFormat": "pod {{pod}} on node {{node}}",
-          "range": true,
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (node,result) (\r\n  sum by(pod, result) (rate(kine_compact_total{}[$__rate_interval])) * 3600\r\n  * on(pod) group_left(node) sum by(pod,node) (kube_pod_info{namespace=\"$namespace\"})\r\n)",
-          "format": "time_series",
-          "hide": false,
-          "legendFormat": "__auto",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "rate of compactions per node and result",
-      "type": "timeseries"
     },
     {
       "collapsed": true,
@@ -1200,7 +1092,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 6
       },
       "id": 10,
       "panels": [
@@ -1250,7 +1142,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1266,7 +1159,7 @@
             "h": 9,
             "w": 12,
             "x": 0,
-            "y": 73
+            "y": 7
           },
           "id": 14,
           "options": {
@@ -1351,7 +1244,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1367,7 +1261,7 @@
             "h": 9,
             "w": 12,
             "x": 12,
-            "y": 73
+            "y": 7
           },
           "id": 18,
           "options": {
@@ -1465,7 +1359,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1481,7 +1376,7 @@
             "h": 9,
             "w": 12,
             "x": 0,
-            "y": 82
+            "y": 16
           },
           "id": 7,
           "options": {
@@ -1529,7 +1424,7 @@
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 82
+            "y": 16
           },
           "id": 20,
           "options": {
@@ -1591,7 +1486,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1607,7 +1503,7 @@
             "h": 9,
             "w": 12,
             "x": 12,
-            "y": 90
+            "y": 24
           },
           "id": 6,
           "options": {
@@ -1692,7 +1588,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1708,7 +1605,7 @@
             "h": 9,
             "w": 12,
             "x": 0,
-            "y": 91
+            "y": 25
           },
           "id": 11,
           "options": {
@@ -1768,7 +1665,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 7
       },
       "id": 13,
       "panels": [
@@ -1818,7 +1715,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1834,7 +1732,7 @@
             "h": 9,
             "w": 12,
             "x": 0,
-            "y": 74
+            "y": 8
           },
           "id": 17,
           "options": {
@@ -1923,7 +1821,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -1939,7 +1838,7 @@
             "h": 9,
             "w": 12,
             "x": 12,
-            "y": 74
+            "y": 8
           },
           "id": 5,
           "options": {
@@ -1988,7 +1887,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 8
       },
       "id": 32,
       "panels": [
@@ -2038,7 +1937,8 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green"
+                    "color": "green",
+                    "value": null
                   },
                   {
                     "color": "red",
@@ -2054,7 +1954,7 @@
             "h": 9,
             "w": 12,
             "x": 0,
-            "y": 50
+            "y": 9
           },
           "id": 28,
           "options": {
@@ -2104,7 +2004,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 9
       },
       "id": 16,
       "panels": [
@@ -2303,6 +2203,6 @@
   "timezone": "",
   "title": "k3s kine",
   "uid": "8498173060965e3cddc99c10671de88b6801acfd",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
