@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -12,11 +14,12 @@ type KVServerBridge struct {
 	limited *LimitedServer
 }
 
-func New(backend Backend, scheme string) *KVServerBridge {
+func New(backend Backend, scheme string, notifyInterval time.Duration) *KVServerBridge {
 	return &KVServerBridge{
 		limited: &LimitedServer{
-			backend: backend,
-			scheme:  scheme,
+			notifyInterval: notifyInterval,
+			backend:        backend,
+			scheme:         scheme,
 		},
 	}
 }

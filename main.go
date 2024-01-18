@@ -96,6 +96,12 @@ func main() {
 			Usage:       "Enable net/http/pprof handlers on the metrics bind address. Default is false.",
 			Destination: &metricsConfig.EnableProfiling,
 		},
+		cli.DurationFlag{
+			Name:        "watch-progress-notify-interval",
+			Usage:       "Interval between periodic watch progress notifications. Default is 10m.",
+			Destination: &config.NotifyInterval,
+			Value:       time.Minute * 10,
+		},
 		cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run

@@ -15,18 +15,17 @@ import (
 )
 
 var watchID int64
-var progressReportInterval = 10 * time.Minute
 
 // explicit interface check
 var _ etcdserverpb.WatchServer = (*KVServerBridge)(nil)
 
-// GetProgressReportInterval returns the current progress report interval, with some jitter
-func GetProgressReportInterval() time.Duration {
-	// add rand(1/10*progressReportInterval) as jitter so that kine will not
+// getProgressReportInterval returns the configured progress report interval, with some jitter
+func (s *KVServerBridge) getProgressReportInterval() time.Duration {
+	// add rand(1/10*notifyInterval) as jitter so that kine will not
 	// send progress notifications to watchers at the same time even when watchers
 	// are created at the same time.
-	jitter := time.Duration(rand.Int63n(int64(progressReportInterval) / 10))
-	return progressReportInterval + jitter
+	jitter := time.Duration(rand.Int63n(int64(s.limited.notifyInterval) / 10))
+	return s.limited.notifyInterval + jitter
 }
 
 func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
@@ -40,7 +39,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 
 	logrus.Tracef("WATCH SERVER CREATE")
 
-	go wait.PollInfiniteWithContext(ws.Context(), GetProgressReportInterval(), w.ProgressIfSynced)
+	go wait.PollInfiniteWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced)
 
 	for {
 		msg, err := ws.Recv()

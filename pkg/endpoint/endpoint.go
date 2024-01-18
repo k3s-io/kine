@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/k3s-io/kine/pkg/drivers/dqlite"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
@@ -44,6 +45,7 @@ type Config struct {
 	ServerTLSConfig      tls.Config
 	BackendTLSConfig     tls.Config
 	MetricsRegisterer    prometheus.Registerer
+	NotifyInterval       time.Duration
 }
 
 type ETCDConfig struct {
@@ -80,7 +82,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}
 
 	// set up GRPC server and register services
-	b := server.New(backend, endpointScheme(config))
+	b := server.New(backend, endpointScheme(config), config.NotifyInterval)
 	grpcServer, err := grpcServer(config)
 	if err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "creating GRPC server")

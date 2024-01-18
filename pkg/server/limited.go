@@ -2,13 +2,15 @@ package server
 
 import (
 	"context"
+	"time"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
 
 type LimitedServer struct {
-	backend Backend
-	scheme  string
+	notifyInterval time.Duration
+	backend        Backend
+	scheme         string
 }
 
 func (l *LimitedServer) Range(ctx context.Context, r *etcdserverpb.RangeRequest) (*RangeResponse, error) {
