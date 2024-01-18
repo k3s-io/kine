@@ -26,6 +26,7 @@ type SQLLog struct {
 	broadcaster broadcaster.Broadcaster
 	ctx         context.Context
 	notify      chan int64
+	currentRev  int64
 }
 
 func New(d server.Dialect) *SQLLog {
@@ -109,7 +110,7 @@ func (s *SQLLog) compactor(interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	compactRev, _ := s.d.GetCompactRevision(s.ctx)
-	targetCompactRev, _ := s.d.CurrentRevision(s.ctx)
+	targetCompactRev, _ := s.CurrentRevision(s.ctx)
 	logrus.Tracef("COMPACT starting compactRev=%d targetCompactRev=%d", compactRev, targetCompactRev)
 
 outer:
@@ -233,6 +234,9 @@ func (s *SQLLog) postCompact() error {
 }
 
 func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
+	if s.currentRev != 0 {
+		return s.currentRev, nil
+	}
 	return s.d.CurrentRevision(ctx)
 }
 
@@ -254,7 +258,7 @@ func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64
 
 	if revision > 0 && len(result) == 0 {
 		// a zero length result won't have the compact or current revisions so get them manually
-		rev, err = s.d.CurrentRevision(ctx)
+		rev, err = s.CurrentRevision(ctx)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -305,7 +309,7 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 
 	if revision > 0 && len(result) == 0 {
 		// a zero length result won't have the compact or current revisions so get them manually
-		rev, err = s.d.CurrentRevision(ctx)
+		rev, err = s.CurrentRevision(ctx)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -386,7 +390,7 @@ func filter(events interface{}, checkPrefix bool, prefix string) ([]*server.Even
 }
 
 func (s *SQLLog) startWatch() (chan interface{}, error) {
-	pollStart, err := s.d.GetCompactRevision(s.ctx)
+	pollStart, err := s.d.CurrentRevision(s.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -400,8 +404,9 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 }
 
 func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
+	s.currentRev = pollStart
+
 	var (
-		last        = pollStart
 		skip        int64
 		skipTime    time.Time
 		waitForMore = true
@@ -417,7 +422,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			case <-s.ctx.Done():
 				return
 			case check := <-s.notify:
-				if check <= last {
+				if check <= s.currentRev {
 					continue
 				}
 			case <-wait.C:
@@ -425,7 +430,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		}
 		waitForMore = true
 
-		rows, err := s.d.After(s.ctx, "%", last, pollBatchSize)
+		rows, err := s.d.After(s.ctx, "%", s.currentRev, pollBatchSize)
 		if err != nil {
 			logrus.Errorf("fail to list latest changes: %v", err)
 			continue
@@ -437,7 +442,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			continue
 		}
 
-		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", last, pollBatchSize, len(events))
+		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", s.currentRev, pollBatchSize, len(events))
 
 		if len(events) == 0 {
 			continue
@@ -445,7 +450,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 
 		waitForMore = len(events) < 100
 
-		rev := last
+		rev := s.currentRev
 		var (
 			sequential []*server.Event
 			saveLast   bool
@@ -507,7 +512,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		}
 
 		if saveLast {
-			last = rev
+			s.currentRev = rev
 			if len(sequential) > 0 {
 				result <- sequential
 			}
