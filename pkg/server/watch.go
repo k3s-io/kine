@@ -86,6 +86,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 	w.wg.Add(1)
 
 	key := string(r.Key)
+	startRevision := r.StartRevision
 
 	var progressCh chan int64
 	if r.ProgressNotify {
@@ -93,8 +94,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 		w.progress[id] = progressCh
 	}
 
-	logrus.Tracef("WATCH START id=%d, count=%d, key=%s, revision=%d, progressNotify=%v", id, len(w.watches), key, r.StartRevision, r.ProgressNotify)
-	startRevision := r.StartRevision
+	logrus.Tracef("WATCH START id=%d, key=%s, revision=%d, progressNotify=%v, watchCount=%d", id, key, startRevision, r.ProgressNotify, len(w.watches))
 
 	go func() {
 		defer w.wg.Done()
@@ -107,7 +107,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			return
 		}
 
-		wr := w.backend.Watch(ctx, key, r.StartRevision)
+		wr := w.backend.Watch(ctx, key, startRevision)
 
 		// If the watch result has a non-zero CompactRevision, then the watch request failed due to
 		// the requested start revision having been compacted.  Pass the current and and compact
@@ -117,6 +117,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			return
 		}
 
+		trace := logrus.IsLevelEnabled(logrus.TraceLevel)
 		outer := true
 		for outer {
 			var reads int
@@ -150,7 +151,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			// get max revision from collected events
 			if len(events) > 0 {
 				revision = events[len(events)-1].KV.ModRevision
-				if logrus.IsLevelEnabled(logrus.TraceLevel) {
+				if trace {
 					for _, event := range events {
 						logrus.Tracef("WATCH READ id=%d, key=%s, revision=%d", id, event.KV.Key, event.KV.ModRevision)
 					}
@@ -164,7 +165,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 					WatchId: id,
 					Events:  toEvents(events...),
 				}
-				logrus.Tracef("WATCH SEND id=%d, revision=%d, events=%d, size=%d reads=%d", id, revision, len(wr.Events), wr.Size(), reads)
+				logrus.Tracef("WATCH SEND id=%d, key=%s, revision=%d, events=%d, size=%d, reads=%d", id, key, revision, len(wr.Events), wr.Size(), reads)
 				if err := w.server.Send(wr); err != nil {
 					w.Cancel(id, 0, 0, err)
 				}
