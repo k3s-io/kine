@@ -53,6 +53,14 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	if limit > 0 && resp.Count > r.Limit {
 		resp.More = true
 		resp.Kvs = kvs[0 : limit-1]
+
+		// count the actual number of results if there are more items in the db.
+		_, count, err := l.backend.Count(ctx, prefix)
+		if err != nil {
+			return nil, err
+		}
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, r.Revision, rev, count)
+		resp.Count = count
 	}
 
 	return resp, nil
