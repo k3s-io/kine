@@ -524,11 +524,15 @@ func canSkipRevision(rev, skip int64, skipTime time.Time) bool {
 	return rev == skip && time.Since(skipTime) > time.Second
 }
 
-func (s *SQLLog) Count(ctx context.Context, prefix string) (int64, int64, error) {
+func (s *SQLLog) Count(ctx context.Context, prefix string, revision int64) (int64, int64, error) {
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
 	}
-	return s.d.Count(ctx, prefix)
+
+	if revision == 0 {
+		return s.d.CountCurrent(ctx, prefix)
+	}
+	return s.d.Count(ctx, prefix, revision)
 }
 
 func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error) {

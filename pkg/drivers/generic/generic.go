@@ -91,7 +91,8 @@ type Generic struct {
 	RevisionSQL           string
 	ListRevisionStartSQL  string
 	GetRevisionAfterSQL   string
-	CountSQL              string
+	CountCurrentSQL       string
+	CountRevisionSQL      string
 	AfterSQL              string
 	DeleteSQL             string
 	CompactSQL            string
@@ -219,11 +220,17 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		ListRevisionStartSQL: q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
 		GetRevisionAfterSQL:  q(fmt.Sprintf(listSQL, idOfKey), paramCharacter, numbered),
 
-		CountSQL: q(fmt.Sprintf(`
+		CountCurrentSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
 			) c`, revSQL, fmt.Sprintf(listSQL, "")), paramCharacter, numbered),
+
+		CountRevisionSQL: q(fmt.Sprintf(`
+			SELECT (%s), COUNT(c.theid)
+			FROM (
+				%s
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.id <= ?")), paramCharacter, numbered),
 
 		AfterSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
@@ -360,13 +367,24 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
 }
 
-func (d *Generic) Count(ctx context.Context, prefix string) (int64, int64, error) {
+func (d *Generic) CountCurrent(ctx context.Context, prefix string) (int64, int64, error) {
 	var (
 		rev sql.NullInt64
 		id  int64
 	)
 
-	row := d.queryRow(ctx, d.CountSQL, prefix, false)
+	row := d.queryRow(ctx, d.CountCurrentSQL, prefix, false)
+	err := row.Scan(&rev, &id)
+	return rev.Int64, id, err
+}
+
+func (d *Generic) Count(ctx context.Context, prefix string, revision int64) (int64, int64, error) {
+	var (
+		rev sql.NullInt64
+		id  int64
+	)
+
+	row := d.queryRow(ctx, d.CountRevisionSQL, prefix, revision, false)
 	err := row.Scan(&rev, &id)
 	return rev.Int64, id, err
 }
