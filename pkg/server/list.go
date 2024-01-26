@@ -20,13 +20,14 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		prefix = prefix + "/"
 	}
 	start := string(bytes.TrimRight(r.Key, "\x00"))
+	revision := r.Revision
 
 	if r.CountOnly {
-		rev, count, err := l.backend.Count(ctx, prefix)
+		rev, count, err := l.backend.Count(ctx, prefix, revision)
 		if err != nil {
 			return nil, err
 		}
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, r.Revision, rev, count)
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, count)
 		return &RangeResponse{
 			Header: txnHeader(rev),
 			Count:  count,
@@ -38,29 +39,33 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		limit++
 	}
 
-	rev, kvs, err := l.backend.List(ctx, prefix, start, limit, r.Revision)
+	rev, kvs, err := l.backend.List(ctx, prefix, start, limit, revision)
 	if err != nil {
 		return nil, err
 	}
 
-	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d", r.Key, r.RangeEnd, r.Revision, rev, len(kvs), r.Limit)
+	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d", r.Key, r.RangeEnd, revision, rev, len(kvs), r.Limit)
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 		Count:  int64(len(kvs)),
 		Kvs:    kvs,
 	}
 
+	// count the actual number of results if there are more items in the db.
 	if limit > 0 && resp.Count > r.Limit {
 		resp.More = true
 		resp.Kvs = kvs[0 : limit-1]
 
-		// count the actual number of results if there are more items in the db.
-		_, count, err := l.backend.Count(ctx, prefix)
+		if revision == 0 {
+			revision = rev
+		}
+
+		rev, resp.Count, err = l.backend.Count(ctx, prefix, revision)
 		if err != nil {
 			return nil, err
 		}
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, r.Revision, rev, count)
-		resp.Count = count
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, resp.Count)
+		resp.Header = txnHeader(rev)
 	}
 
 	return resp, nil

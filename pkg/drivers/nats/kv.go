@@ -376,7 +376,7 @@ type keySeq struct {
 	seq uint64
 }
 
-func (e *KeyValue) Count(ctx context.Context, prefix string) (int64, error) {
+func (e *KeyValue) Count(ctx context.Context, prefix string, revision int64) (int64, error) {
 	it := e.bt.Iter()
 
 	if prefix != "" {
@@ -396,11 +396,27 @@ func (e *KeyValue) Count(ctx context.Context, prefix string) (int64, error) {
 			break
 		}
 		v := it.Value()
-		so := v[len(v)-1]
 
-		if so.op == jetstream.KeyValuePut {
-			if so.ex.IsZero() || so.ex.After(now) {
-				count++
+		// Get the latest update for the key.
+		if revision <= 0 {
+			so := v[len(v)-1]
+			if so.op == jetstream.KeyValuePut {
+				if so.ex.IsZero() || so.ex.After(now) {
+					count++
+				}
+			}
+		} else {
+			// Find the latest update below the given revision.
+			for i := len(v) - 1; i >= 0; i-- {
+				so := v[i]
+				if so.seq <= uint64(revision) {
+					if so.op == jetstream.KeyValuePut {
+						if so.ex.IsZero() || so.ex.After(now) {
+							count++
+						}
+					}
+					break
+				}
 			}
 		}
 
@@ -429,6 +445,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 	}
 
 	var matches []*keySeq
+	now := time.Now()
 
 	e.btm.RLock()
 
@@ -448,7 +465,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 		if revision <= 0 {
 			so := v[len(v)-1]
 			if so.op == jetstream.KeyValuePut {
-				if so.ex.IsZero() || so.ex.After(time.Now()) {
+				if so.ex.IsZero() || so.ex.After(now) {
 					matches = append(matches, &keySeq{key: k, seq: so.seq})
 				}
 			}
@@ -458,7 +475,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 				so := v[i]
 				if so.seq <= uint64(revision) {
 					if so.op == jetstream.KeyValuePut {
-						if so.ex.IsZero() || so.ex.After(time.Now()) {
+						if so.ex.IsZero() || so.ex.After(now) {
 							matches = append(matches, &keySeq{key: k, seq: so.seq})
 						}
 					}
