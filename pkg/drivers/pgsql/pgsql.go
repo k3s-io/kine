@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,12 +31,12 @@ var (
 	schema = []string{
 		`CREATE TABLE IF NOT EXISTS kine
  			(
- 				id SERIAL PRIMARY KEY,
+				id BIGSERIAL PRIMARY KEY,
 				name VARCHAR(630),
 				created INTEGER,
 				deleted INTEGER,
- 				create_revision INTEGER,
- 				prev_revision INTEGER,
+				create_revision BIGINT,
+				prev_revision BIGINT,
  				lease INTEGER,
  				value bytea,
  				old_value bytea
@@ -45,6 +46,9 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+	}
+	schemaMigrations = []string{
+		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
 	}
 	createDB = "CREATE DATABASE "
 )
@@ -117,8 +121,21 @@ func setup(db *sql.DB) error {
 
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
-		_, err := db.Exec(stmt)
-		if err != nil {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	// Run enabled schama migrations.
+	// Note that the schema created by the `schema` var is always the latest revision;
+	// migrations should handle deltas between prior schema versions.
+	schemaVersion, _ := strconv.ParseUint(os.Getenv("KINE_SCHEMA_MIGRATION"), 10, 64)
+	for i, stmt := range schemaMigrations {
+		if i >= int(schemaVersion) {
+			break
+		}
+		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, util.Stripped(stmt))
+		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
 	}
@@ -152,8 +169,7 @@ func createDBIfNotExist(dataSourceName string) error {
 
 	if !exists {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
-		_, err = db.Exec(stmt)
-		if err != nil {
+		if _, err = db.Exec(stmt); err != nil {
 			logrus.Warnf("failed to create database %s: %v", dbName, err)
 		} else {
 			logrus.Tracef("created database: %s", dbName)

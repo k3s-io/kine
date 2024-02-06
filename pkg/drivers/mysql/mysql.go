@@ -5,6 +5,8 @@ import (
 	cryptotls "crypto/tls"
 	"database/sql"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/prometheus/client_golang/prometheus"
@@ -27,12 +29,12 @@ var (
 	schema = []string{
 		`CREATE TABLE IF NOT EXISTS kine
 			(
-				id INTEGER AUTO_INCREMENT,
+				id BIGINT UNSIGNED AUTO_INCREMENT,
 				name VARCHAR(630) CHARACTER SET ascii,
 				created INTEGER,
 				deleted INTEGER,
-				create_revision INTEGER,
- 				prev_revision INTEGER,
+				create_revision BIGINT UNSIGNED,
+				prev_revision BIGINT UNSIGNED,
 				lease INTEGER,
 				value MEDIUMBLOB,
 				old_value MEDIUMBLOB,
@@ -43,6 +45,9 @@ var (
 		`CREATE INDEX kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+	}
+	schemaMigrations = []string{
+		`ALTER TABLE kine MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
 	}
 	createDB = "CREATE DATABASE IF NOT EXISTS "
 )
@@ -117,21 +122,36 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 }
 
 func setup(db *sql.DB) error {
+	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 	var exists bool
 	err := db.QueryRow("SELECT 1 FROM information_schema.TABLES WHERE table_schema = DATABASE() AND table_name = ?", "kine").Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
-		logrus.Warnf("failed to check existence of database table %s, going to attempt create: %v", "kine", err)
+		logrus.Warnf("Failed to check existence of database table %s, going to attempt create: %v", "kine", err)
 	}
 
 	if !exists {
-		logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 		for _, stmt := range schema {
 			logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
-			_, err := db.Exec(stmt)
-			if err != nil {
+			if _, err := db.Exec(stmt); err != nil {
 				if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
 					return err
 				}
+			}
+		}
+	}
+
+	// Run enabled schama migrations.
+	// Note that the schema created by the `schema` var is always the latest revision;
+	// migrations should handle deltas between prior schema versions.
+	schemaVersion, _ := strconv.ParseUint(os.Getenv("KINE_SCHEMA_MIGRATION"), 10, 64)
+	for i, stmt := range schemaMigrations {
+		if i >= int(schemaVersion) {
+			break
+		}
+		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, util.Stripped(stmt))
+		if _, err := db.Exec(stmt); err != nil {
+			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
+				return err
 			}
 		}
 	}
@@ -159,8 +179,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	}
 
 	if !exists {
-		_, err = db.Exec(createDB + dbName)
-		if err != nil {
+		if _, err = db.Exec(createDB + dbName); err != nil {
 			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
 				return err
 			}
@@ -169,8 +188,7 @@ func createDBIfNotExist(dataSourceName string) error {
 			if err != nil {
 				return err
 			}
-			_, err = db.Exec(createDB + dbName)
-			if err != nil {
+			if _, err = db.Exec(createDB + dbName); err != nil {
 				return err
 			}
 		}
