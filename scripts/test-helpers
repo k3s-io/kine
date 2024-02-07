@@ -247,6 +247,7 @@ provision-kine() {
 
     docker container run \
         -d --name $name \
+        $KINE_ENV \
         $KINE_IMAGE --endpoint $KINE_ENDPOINT
 
     local ip=$(docker container inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)

@@ -31,6 +31,9 @@ echo "Did test-run-postgres $?"
 . ./scripts/test-run-cockroachdb
 echo "Did test-run-cockroachdb $?"
 
+. ./scripts/test-run-schema-migration
+echo "Did test-run-schema-migration $?"
+
 . ./scripts/test-run-nats
 echo "did test-nats $?"
 

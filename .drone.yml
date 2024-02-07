@@ -148,6 +148,23 @@ steps:
     event:
     - pull_request
 
+- name: test-schema-migration
+  image: rancher/dapper:v0.6.0
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test schema-migration"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+  when:
+    event:
+    - pull_request
+
 - name: test-nats
   image: rancher/dapper:v0.6.0
   depends_on:
