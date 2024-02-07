@@ -1,0 +1,62 @@
+#!/bin/bash
+
+start-test() {
+    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
+    local port=$(cat $TEST_DIR/databases/*/metadata/port)
+    local pass=$(cat $TEST_DIR/databases/*/metadata/password)
+    local image=$(cat $TEST_DIR/databases/*/metadata/image)
+    DB_CONNECTION_TEST="
+        docker run --rm
+        --name connection-test
+        $image
+        mysql
+          --host=$ip
+          --port=$port
+          --user=root
+          --password=$pass
+          --execute=status" \
+    timeout --foreground 1m bash -c "wait-for-db-connection"
+    KINE_IMAGE=docker.io/rancher/kine:v0.11.4 KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" provision-kine
+    sleep 10
+    for container in $(cat $TEST_DIR/kine/*/metadata/name); do
+      docker container rm -f -v $container
+    done
+    rm -rf $TEST_DIR/kine/*
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" KINE_ENV="-e KINE_SCHEMA_MIGRATION=1" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+LABEL=mariadb-10.11-migration DB_PASSWORD_ENV=MYSQL_ROOT_PASSWORD DB_IMAGE=docker.io/library/mariadb:10.11 run-test
+
+start-test() {
+    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
+    local port=$(cat $TEST_DIR/databases/*/metadata/port)
+    local pass=$(cat $TEST_DIR/databases/*/metadata/password)
+    local image=$(cat $TEST_DIR/databases/*/metadata/image)
+    DB_CONNECTION_TEST="
+        docker run --rm
+        --name connection-test
+        -e PGPASSWORD=$pass
+        $image
+        psql
+          --host=$ip
+          --port=$port
+          --username=postgres
+          --command=\\conninfo" \
+    timeout --foreground 1m bash -c "wait-for-db-connection"
+    KINE_IMAGE=docker.io/rancher/kine:v0.11.4 KINE_ENDPOINT="postgres://postgres:$pass@$ip:$port/postgres?sslmode=disable" provision-kine
+    sleep 10
+    for container in $(cat $TEST_DIR/kine/*/metadata/name); do
+      docker container rm -f -v $container
+    done
+    rm -rf $TEST_DIR/kine/*
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://postgres:$pass@$ip:$port/postgres?sslmode=disable" KINE_ENV="-e KINE_SCHEMA_MIGRATION=1" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+LABEL=postgres-15.4-migration DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/postgres:15.4 run-test
+
