@@ -1,0 +1,30 @@
+[ req ]
+default_bits        = 2048
+prompt              = no
+default_md          = sha256
+distinguished_name  = req_distinguished_name
+req_extensions      = req_ext
+x509_extensions     = v3_ca
+
+[ req_distinguished_name ]
+C  = AU
+ST = VIC
+L  = Melbourne
+O  = Ranch
+OU = CA
+CN = My CA
+
+[ req_ext ]
+subjectAltName      = @alt_names
+
+[ v3_ca ]
+subjectAltName      = @alt_names
+basicConstraints    = critical,CA:TRUE
+keyUsage            = critical,digitalSignature,keyCertSign
+
+[ v3_req ]
+subjectAltName      = @alt_names
+
+[ alt_names ]
+DNS.1   = localhost
+DNS.2   = example.com
