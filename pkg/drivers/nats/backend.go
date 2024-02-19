@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/server"
@@ -116,10 +117,20 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 // Start starts the backend.
 // See https://github.com/kubernetes/kubernetes/blob/442a69c3bdf6fe8e525b05887e57d89db1e2f3a5/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go#L97
 func (b *Backend) Start(ctx context.Context) error {
-	if _, err := b.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
+	if err := b.StartWithRetry(ctx, 3); err != nil {
 		if err != server.ErrKeyExists {
 			b.l.Errorf("Failed to create health check key: %v", err)
 		}
+	}
+	return nil
+}
+func (b *Backend) StartWithRetry(ctx context.Context, retriesLeft int) error {
+	if _, err := b.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && retriesLeft > 0 {
+			b.l.Warnf("Failed to create health check key: %v - Retrying...", err)
+			return b.StartWithRetry(ctx, retriesLeft-1)
+		}
+		return err
 	}
 	return nil
 }
