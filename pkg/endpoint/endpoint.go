@@ -107,7 +107,9 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	return ETCDConfig{
 		LeaderElect: leaderelect,
 		Endpoints:   []string{endpoint},
-		TLSConfig:   tls.Config{},
+		TLSConfig: tls.Config{
+			CAFile: config.ServerTLSConfig.CAFile,
+		},
 	}, nil
 }
 
