@@ -3,9 +3,9 @@ FROM golang:1.21-alpine3.17 AS dapper
 ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev docker-cli vim less file curl wget ca-certificates
-# go imports version gopls/v0.14.2
+# go imports version gopls/v0.15.1
 # https://github.com/golang/tools/releases/latest
-RUN go install golang.org/x/tools/cmd/goimports@1bf163756eb2d2b83518dfd62a35644c98a9ce9d
+RUN go install golang.org/x/tools/cmd/goimports@e335b746546e6d85012916dbf85e830011b58951
 RUN rm -rf /go/src /go/pkg
 
 RUN if [ "${ARCH}" == "amd64" ]; then \
