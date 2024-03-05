@@ -427,3 +427,8 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 		CurrentRevision: rev,
 	}
 }
+
+// Compact is a no-op / not implemented.
+func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
+	return revision, nil
+}

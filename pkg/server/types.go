@@ -28,6 +28,7 @@ type Backend interface {
 	Watch(ctx context.Context, key string, revision int64) WatchResult
 	DbSize(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
+	Compact(ctx context.Context, revision int64) (int64, error)
 }
 
 type Dialect interface {

@@ -120,3 +120,8 @@ func (b *BackendLogger) DbSize(ctx context.Context) (int64, error) {
 func (b *BackendLogger) CurrentRevision(ctx context.Context) (int64, error) {
 	return b.backend.CurrentRevision(ctx)
 }
+
+// Compact is a no-op / not implemented.
+func (b *BackendLogger) Compact(ctx context.Context, revision int64) (int64, error) {
+	return revision, nil
+}
