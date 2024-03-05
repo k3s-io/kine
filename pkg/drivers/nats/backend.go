@@ -428,7 +428,7 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 	}
 }
 
-// Compact is a no-op / not implemented.
+// Compact is a no-op / not implemented. Revision history is managed by the jetstream bucket.
 func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	return revision, nil
 }
