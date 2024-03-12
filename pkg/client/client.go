@@ -147,7 +147,10 @@ func (c *client) Delete(ctx context.Context, key string, revision int64) error {
 
 func (c *client) Compact(ctx context.Context, revision int64) (int64, error) {
 	resp, err := c.c.Compact(ctx, revision)
-	return resp.Header.GetRevision(), err
+	if resp != nil {
+		return resp.Header.GetRevision(), err
+	}
+	return 0, err
 }
 
 func (c *client) Close() error {
