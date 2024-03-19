@@ -432,7 +432,9 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 
 		rows, err := s.d.After(s.ctx, "%", s.currentRev, pollBatchSize)
 		if err != nil {
-			logrus.Errorf("fail to list latest changes: %v", err)
+			if !errors.Is(err, context.Canceled) {
+				logrus.Errorf("fail to list latest changes: %v", err)
+			}
 			continue
 		}
 
