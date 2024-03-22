@@ -149,9 +149,13 @@ func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, lega
 		cancel()
 		return nil, fmt.Errorf("failed to get or create bucket: %w", err)
 	}
-	if err := disableDirectGets(ctx, js, config); err != nil {
+
+	// Previous versions of KINE disabled direct gets on the bucket, however
+	// that caused issues with `get` operations possibly timing out. This
+	// check ensures that direct gets are enabled or enables them implicitly.
+	if err := ensureDirectGets(ctx, js, config); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to disable direct gets: %w", err)
+		return nil, fmt.Errorf("failed to enable direct gets: %w", err)
 	}
 
 	logrus.Infof("bucket initialized: %s", config.bucket)
@@ -226,13 +230,11 @@ func getOrCreateBucket(ctx context.Context, js jetstream.JetStream, config *Conf
 		}
 
 		// Some unexpected error.
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize KV bucket: %w", err)
-		}
+		return nil, fmt.Errorf("failed to initialize KV bucket: %w", err)
 	}
 }
 
-func disableDirectGets(ctx context.Context, js jetstream.JetStream, config *Config) error {
+func ensureDirectGets(ctx context.Context, js jetstream.JetStream, config *Config) error {
 	for {
 		str, err := js.Stream(ctx, fmt.Sprintf("KV_%s", config.bucket))
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -243,7 +245,13 @@ func disableDirectGets(ctx context.Context, js jetstream.JetStream, config *Conf
 		}
 
 		scfg := str.CachedInfo().Config
-		scfg.AllowDirect = false
+
+		// All good.
+		if scfg.AllowDirect {
+			return nil
+		}
+
+		scfg.AllowDirect = true
 
 		_, err = js.UpdateStream(ctx, scfg)
 		if errors.Is(err, context.DeadlineExceeded) {
