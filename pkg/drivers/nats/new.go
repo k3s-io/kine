@@ -149,10 +149,6 @@ func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, lega
 		cancel()
 		return nil, fmt.Errorf("failed to get or create bucket: %w", err)
 	}
-	if err := disableDirectGets(ctx, js, config); err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to disable direct gets: %w", err)
-	}
 
 	logrus.Infof("bucket initialized: %s", config.bucket)
 
@@ -229,30 +225,5 @@ func getOrCreateBucket(ctx context.Context, js jetstream.JetStream, config *Conf
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize KV bucket: %w", err)
 		}
-	}
-}
-
-func disableDirectGets(ctx context.Context, js jetstream.JetStream, config *Config) error {
-	for {
-		str, err := js.Stream(ctx, fmt.Sprintf("KV_%s", config.bucket))
-		if errors.Is(err, context.DeadlineExceeded) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("failed to get stream info: %w", err)
-		}
-
-		scfg := str.CachedInfo().Config
-		scfg.AllowDirect = false
-
-		_, err = js.UpdateStream(ctx, scfg)
-		if errors.Is(err, context.DeadlineExceeded) {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("failed to update stream config: %w", err)
-		}
-
-		return nil
 	}
 }
