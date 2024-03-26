@@ -28,7 +28,7 @@ func txnHeader(rev int64) *etcdserverpb.ResponseHeader {
 
 func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	if put := isCreate(txn); put != nil {
-		return l.create(ctx, put, txn)
+		return l.create(ctx, put)
 	}
 	if rev, key, ok := isDelete(txn); ok {
 		return l.delete(ctx, key, rev)
@@ -37,7 +37,7 @@ func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (
 		return l.update(ctx, rev, key, value, lease)
 	}
 	if isCompact(txn) {
-		return l.compact(ctx)
+		return l.compact()
 	}
 	return nil, ErrNotSupported
 }

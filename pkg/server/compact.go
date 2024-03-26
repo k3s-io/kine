@@ -7,6 +7,15 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 )
 
+func (l *LimitedServer) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
+	rev, err := l.backend.Compact(ctx, r.Revision)
+	return &etcdserverpb.CompactionResponse{
+		Header: &etcdserverpb.ResponseHeader{
+			Revision: rev,
+		},
+	}, err
+}
+
 func isCompact(txn *etcdserverpb.TxnRequest) bool {
 	// See https://github.com/kubernetes/kubernetes/blob/442a69c3bdf6fe8e525b05887e57d89db1e2f3a5/staging/src/k8s.io/apiserver/pkg/storage/etcd3/compact.go#L72
 	return len(txn.Compare) == 1 &&
@@ -19,7 +28,7 @@ func isCompact(txn *etcdserverpb.TxnRequest) bool {
 		string(txn.Compare[0].Key) == "compact_rev_key"
 }
 
-func (l *LimitedServer) compact(ctx context.Context) (*etcdserverpb.TxnResponse, error) {
+func (l *LimitedServer) compact() (*etcdserverpb.TxnResponse, error) {
 	// return comparison failure so that the apiserver does not bother compacting
 	return &etcdserverpb.TxnResponse{
 		Header:    &etcdserverpb.ResponseHeader{},

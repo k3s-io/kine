@@ -109,9 +109,9 @@ func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*
 }
 
 func (k *KVServerBridge) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
-	return &etcdserverpb.CompactionResponse{
-		Header: &etcdserverpb.ResponseHeader{
-			Revision: r.Revision,
-		},
-	}, nil
+	res, err := k.limited.Compact(ctx, r)
+	if err != nil {
+		logrus.Errorf("error in compact %s: %v", r, err)
+	}
+	return res, err
 }

@@ -612,3 +612,7 @@ func safeCompactRev(targetCompactRev int64, currentRev int64) int64 {
 func (s *SQLLog) DbSize(ctx context.Context) (int64, error) {
 	return s.d.GetSize(ctx)
 }
+
+func (s *SQLLog) Compact(ctx context.Context, revision int64) (int64, error) {
+	return s.d.Compact(ctx, revision)
+}
