@@ -6,6 +6,7 @@ package libsql
 import (
 	"context"
 	"database/sql"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,10 @@ import (
 
 	// libsql driver
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
+)
+
+const (
+	defaultDSN = "file:./db/state.db&cache=shared&_busy_timeout=30000"
 )
 
 var (
@@ -42,7 +47,6 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
-		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
 )
 
@@ -56,7 +60,10 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, nil, err
 		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000"
+	}
+	dataSourceName, err := prepareDSN(dataSourceName)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	dialect, err := generic.Open(ctx, driverName, dataSourceName, connPoolConfig, "?", false, metricsRegisterer)
@@ -83,12 +90,17 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 					kd.deleted != 0 AND
 					kd.id <= ?
 			)`
-	dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
 	dialect.TranslateErr = func(err error) error {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
 			return server.ErrKeyExists
 		}
 		return err
+	}	
+	dialect.ErrCode = func(err error) string {
+		if err == nil {
+			return ""
+		}
+		return err.Error()
 	}
 
 	// this is the first SQL that will be executed on a new DB conn so
@@ -127,4 +139,20 @@ func setup(db *sql.DB) error {
 
 	logrus.Infof("Database tables and indexes are up to date")
 	return nil
+}
+
+func prepareDSN(dataSourceName string) (string, error) {
+	if len(dataSourceName) == 0 {
+		dataSourceName = defaultDSN
+	} else {
+		dataSourceName = "libsql://" + dataSourceName
+	}
+	_, err := url.Parse(dataSourceName)
+	if err != nil {
+		return "", err
+	}
+
+
+
+	return dataSourceName, nil
 }
