@@ -95,7 +95,7 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 			return server.ErrKeyExists
 		}
 		return err
-	}	
+	}
 	dialect.ErrCode = func(err error) string {
 		if err == nil {
 			return ""
@@ -151,8 +151,6 @@ func prepareDSN(dataSourceName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-
 
 	return dataSourceName, nil
 }
