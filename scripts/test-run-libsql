@@ -1,7 +1,7 @@
 #!/bin/bash
 start-test() {
     local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
-    local $image="curlimages/curl:latest"
+    local image="curlimages/curl:latest"
 
     DB_CONNECTION_TEST="
         docker run --rm
