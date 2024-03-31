@@ -1,8 +1,6 @@
 #!/bin/bash
 start-test() {
     local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
-    local port=$(cat $TEST_DIR/databases/*/metadata/port)
-    local pass=$(cat $TEST_DIR/databases/*/metadata/password)
     local $image="curlimages/curl:latest"
 
     DB_CONNECTION_TEST="
@@ -11,9 +9,9 @@ start-test() {
         $image
         -d 
           '{\"statements\": [\"CREATE TABLE IF NOT EXISTS users (username)\", \"INSERT INTO users VALUES (\\\"alice\\\")\"]}' 
-          $ip:$port" \
+          $ip:8080" \
     timeout --foreground 1m bash -c "wait-for-db-connection"
-    KINE_IMAGE=$IMAGE KINE_ENDPOINT="libsql://$ip:$port" provision-kine
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="libsql://$ip:8080" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
@@ -23,5 +21,5 @@ VERSION_LIST="\
     libsql-server v0.24.4"
 
 while read ENGINE VERSION; do
-    LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=LIBSQL_PASSWORD DB_IMAGE=ghcr.io/tursodatabase/$ENGINE:$VERSION run-test
+    LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=LIBSQL_PASSWORD DB_IMAGE=ghcr.io/tursodatabase/$ENGINE:$VERSION  run-test
 done <<< $VERSION_LIST
