@@ -3,9 +3,13 @@ start-test() {
     local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
     local port=$(cat $TEST_DIR/databases/*/metadata/port)
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
+    local $image="curlimages/curl:latest"
 
     DB_CONNECTION_TEST="
-        curl -d 
+        docker run --rm
+        --name connection-test
+        $image
+        -d 
           '{\"statements\": [\"CREATE TABLE IF NOT EXISTS users (username)\", \"INSERT INTO users VALUES (\\\"alice\\\")\"]}' 
           $ip:$port" \
     timeout --foreground 1m bash -c "wait-for-db-connection"
