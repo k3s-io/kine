@@ -19,7 +19,7 @@ require (
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/tidwall/btree v1.6.0
-	github.com/tursodatabase/libsql-client-go v0.0.0-20240327144008-dd14b387afb3
+	github.com/tursodatabase/libsql-client-go v0.0.0-20240401075953-8e79a99d828a
 	github.com/urfave/cli v1.22.4
 	go.etcd.io/etcd/api/v3 v3.5.9
 	go.etcd.io/etcd/client/pkg/v3 v3.5.9
