@@ -81,15 +81,15 @@ func (b *BackendLogger) List(ctx context.Context, prefix, startKey string, limit
 }
 
 // Count returns an exact count of the number of matching keys and the current revision of the database
-func (b *BackendLogger) Count(ctx context.Context, prefix string, revision int64) (revRet int64, count int64, err error) {
+func (b *BackendLogger) Count(ctx context.Context, prefix, startKey string, revision int64) (revRet int64, count int64, err error) {
 	start := time.Now()
 	defer func() {
 		dur := time.Since(start)
-		fStr := "COUNT %s, rev=%d => rev=%d, count=%d, err=%v, duration=%s"
-		b.logMethod(dur, fStr, prefix, revision, revRet, count, err, dur)
+		fStr := "COUNT %s, start=%s, rev=%d => rev=%d, count=%d, err=%v, duration=%s"
+		b.logMethod(dur, fStr, prefix, startKey, revision, revRet, count, err, dur)
 	}()
 
-	return b.backend.Count(ctx, prefix, revision)
+	return b.backend.Count(ctx, prefix, startKey, revision)
 }
 
 func (b *BackendLogger) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {

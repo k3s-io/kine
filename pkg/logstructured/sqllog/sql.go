@@ -294,7 +294,7 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 	}
 
 	if revision == 0 {
-		rows, err = s.d.ListCurrent(ctx, prefix, limit, includeDeleted)
+		rows, err = s.d.ListCurrent(ctx, prefix, startKey, limit, includeDeleted)
 	} else {
 		rows, err = s.d.List(ctx, prefix, startKey, limit, revision, includeDeleted)
 	}
@@ -526,15 +526,15 @@ func canSkipRevision(rev, skip int64, skipTime time.Time) bool {
 	return rev == skip && time.Since(skipTime) > time.Second
 }
 
-func (s *SQLLog) Count(ctx context.Context, prefix string, revision int64) (int64, int64, error) {
+func (s *SQLLog) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
 	}
 
 	if revision == 0 {
-		return s.d.CountCurrent(ctx, prefix)
+		return s.d.CountCurrent(ctx, prefix, startKey)
 	}
-	return s.d.Count(ctx, prefix, revision)
+	return s.d.Count(ctx, prefix, startKey, revision)
 }
 
 func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error) {

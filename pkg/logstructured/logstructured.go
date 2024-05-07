@@ -21,9 +21,9 @@ type Log interface {
 	CompactRevision(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeletes bool) (int64, []*server.Event, error)
+	Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error)
 	After(ctx context.Context, prefix string, revision, limit int64) (int64, []*server.Event, error)
 	Watch(ctx context.Context, prefix string) <-chan []*server.Event
-	Count(ctx context.Context, prefix string, revision int64) (int64, int64, error)
 	Append(ctx context.Context, event *server.Event) (int64, error)
 	DbSize(ctx context.Context) (int64, error)
 }
@@ -176,7 +176,7 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 
 	rev, events, err := l.log.List(ctx, prefix, startKey, limit, revision, false)
 	if err != nil {
-		return 0, nil, err
+		return rev, nil, err
 	}
 	if revision == 0 && len(events) == 0 {
 		// if no revision is requested and no events are returned, then
@@ -185,7 +185,7 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 		// been created.
 		currentRev, err := l.log.CurrentRevision(ctx)
 		if err != nil {
-			return 0, nil, err
+			return currentRev, nil, err
 		}
 		return l.List(ctx, prefix, startKey, limit, currentRev)
 	} else if revision != 0 {
@@ -199,11 +199,11 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 	return rev, kvs, nil
 }
 
-func (l *LogStructured) Count(ctx context.Context, prefix string, revision int64) (revRet int64, count int64, err error) {
+func (l *LogStructured) Count(ctx context.Context, prefix, startKey string, revision int64) (revRet int64, count int64, err error) {
 	defer func() {
 		logrus.Tracef("COUNT %s, rev=%d => rev=%d, count=%d, err=%v", prefix, revision, revRet, count, err)
 	}()
-	rev, count, err := l.log.Count(ctx, prefix, revision)
+	rev, count, err := l.log.Count(ctx, prefix, startKey, revision)
 	if err != nil {
 		return 0, 0, err
 	}

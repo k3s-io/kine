@@ -13,10 +13,6 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 	}
 
 	rev, kv, err := l.backend.Get(ctx, string(r.Key), string(r.RangeEnd), r.Limit, r.Revision)
-	if err != nil {
-		return nil, err
-	}
-
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 	}
@@ -24,5 +20,5 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		resp.Kvs = []*KeyValue{kv}
 		resp.Count = 1
 	}
-	return resp, nil
+	return resp, err
 }

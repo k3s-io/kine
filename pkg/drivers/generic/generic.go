@@ -29,7 +29,7 @@ const (
 var _ server.Dialect = (*Generic)(nil)
 
 var (
-	columns = "kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
+	columns = "kv.id AS theid, kv.name AS thename, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
 	revSQL  = `
 		SELECT MAX(rkv.id) AS id
 		FROM kine AS rkv`
@@ -38,16 +38,6 @@ var (
 		SELECT MAX(crkv.prev_revision) AS prev_revision
 		FROM kine AS crkv
 		WHERE crkv.name = 'compact_rev_key'`
-
-	idOfKey = `
-		AND
-		mkv.id <= ? AND
-		mkv.id > (
-			SELECT MAX(ikv.id) AS id
-			FROM kine AS ikv
-			WHERE
-				ikv.name = ? AND
-				ikv.id <= ?)`
 
 	listSQL = fmt.Sprintf(`
 		SELECT *
@@ -66,7 +56,7 @@ var (
 				kv.deleted = 0 OR
 				?
 		) AS lkv
-		ORDER BY lkv.theid ASC
+		ORDER BY lkv.thename ASC
 		`, revSQL, compactRevSQL, columns)
 )
 
@@ -216,21 +206,21 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 			FROM kine AS kv
 			WHERE kv.id = ?`, columns), paramCharacter, numbered),
 
-		GetCurrentSQL:        q(fmt.Sprintf(listSQL, ""), paramCharacter, numbered),
+		GetCurrentSQL:        q(fmt.Sprintf(listSQL, "AND mkv.name > ?"), paramCharacter, numbered),
 		ListRevisionStartSQL: q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterSQL:  q(fmt.Sprintf(listSQL, idOfKey), paramCharacter, numbered),
+		GetRevisionAfterSQL:  q(fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered),
 
 		CountCurrentSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "")), paramCharacter, numbered),
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ?")), paramCharacter, numbered),
 
 		CountRevisionSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.id <= ?")), paramCharacter, numbered),
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?")), paramCharacter, numbered),
 
 		AfterSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
@@ -343,12 +333,12 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 	return err
 }
 
-func (d *Generic) ListCurrent(ctx context.Context, prefix string, limit int64, includeDeleted bool) (*sql.Rows, error) {
+func (d *Generic) ListCurrent(ctx context.Context, prefix, startKey string, limit int64, includeDeleted bool) (*sql.Rows, error) {
 	sql := d.GetCurrentSQL
 	if limit > 0 {
 		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
 	}
-	return d.query(ctx, sql, prefix, includeDeleted)
+	return d.query(ctx, sql, prefix, startKey, includeDeleted)
 }
 
 func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted bool) (*sql.Rows, error) {
@@ -364,27 +354,27 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 	if limit > 0 {
 		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
 	}
-	return d.query(ctx, sql, prefix, revision, startKey, revision, includeDeleted)
+	return d.query(ctx, sql, prefix, startKey, revision, includeDeleted)
 }
 
-func (d *Generic) CountCurrent(ctx context.Context, prefix string) (int64, int64, error) {
+func (d *Generic) CountCurrent(ctx context.Context, prefix, startKey string) (int64, int64, error) {
 	var (
 		rev sql.NullInt64
 		id  int64
 	)
 
-	row := d.queryRow(ctx, d.CountCurrentSQL, prefix, false)
+	row := d.queryRow(ctx, d.CountCurrentSQL, prefix, startKey, false)
 	err := row.Scan(&rev, &id)
 	return rev.Int64, id, err
 }
 
-func (d *Generic) Count(ctx context.Context, prefix string, revision int64) (int64, int64, error) {
+func (d *Generic) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
 	var (
 		rev sql.NullInt64
 		id  int64
 	)
 
-	row := d.queryRow(ctx, d.CountRevisionSQL, prefix, revision, false)
+	row := d.queryRow(ctx, d.CountRevisionSQL, prefix, startKey, revision, false)
 	err := row.Scan(&rev, &id)
 	return rev.Int64, id, err
 }
