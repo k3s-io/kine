@@ -135,8 +135,8 @@ func (b *Backend) CurrentRevision(ctx context.Context) (int64, error) {
 }
 
 // Count returns an exact count of the number of matching keys and the current revision of the database.
-func (b *Backend) Count(ctx context.Context, prefix string, revision int64) (int64, int64, error) {
-	count, err := b.kv.Count(ctx, prefix, revision)
+func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
+	count, err := b.kv.Count(ctx, prefix, startKey, revision)
 	if err != nil {
 		return 0, 0, err
 	}

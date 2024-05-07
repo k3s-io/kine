@@ -23,15 +23,13 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	revision := r.Revision
 
 	if r.CountOnly {
-		rev, count, err := l.backend.Count(ctx, prefix, revision)
-		if err != nil {
-			return nil, err
-		}
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, count)
-		return &RangeResponse{
+		rev, count, err := l.backend.Count(ctx, prefix, start, revision)
+		resp := &RangeResponse{
 			Header: txnHeader(rev),
 			Count:  count,
-		}, nil
+		}
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, count)
+		return resp, err
 	}
 
 	limit := r.Limit
@@ -40,10 +38,6 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	}
 
 	rev, kvs, err := l.backend.List(ctx, prefix, start, limit, revision)
-	if err != nil {
-		return nil, err
-	}
-
 	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d", r.Key, r.RangeEnd, revision, rev, len(kvs), r.Limit)
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
@@ -51,7 +45,7 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		Kvs:    kvs,
 	}
 
-	// count the actual number of results if there are more items in the db.
+	// if the number of items returned exceeds the limit, count the keys remaining that follow the start key
 	if limit > 0 && resp.Count > r.Limit {
 		resp.More = true
 		resp.Kvs = kvs[0 : limit-1]
@@ -60,13 +54,10 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 			revision = rev
 		}
 
-		rev, resp.Count, err = l.backend.Count(ctx, prefix, revision)
-		if err != nil {
-			return nil, err
-		}
+		rev, resp.Count, err = l.backend.Count(ctx, prefix, start, revision)
 		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, resp.Count)
 		resp.Header = txnHeader(rev)
 	}
 
-	return resp, nil
+	return resp, err
 }
