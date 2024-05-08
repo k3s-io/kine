@@ -1,0 +1,34 @@
+#!/bin/bash
+set -e
+cd $(dirname $0)/..
+
+# sig-api-machinery e2e tests take about 20 minutes to complete.
+# Only run conformance on sqlite and nats, to reduce CI run time.
+if [[ "$LABEL" != "sqlite" ]] && [[ "$LABEL" != "nats-embedded" ]]; then
+  echo "Skipping conformance"
+  exit
+fi
+
+test-conformance() {
+    local count=$(inc-count conformance)
+    local testID=$(basename $TEST_DIR)
+    local name=$(echo "conformance-$count-$testID" | tee $TEST_DIR/conformance/$count/metadata/name) 
+    local server_name=$(cat $TEST_DIR/servers/1/metadata/name)
+    local version=$(docker exec $server_name k3s --version | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+')
+    echo "Running conformance tests against $(grep server: $KUBECONFIG)"
+    # We can't just mount $KUBECONFIG as a volume, because in CI this script is
+    # also running in a docker container, and the mount will not work.
+    docker container run \
+        --rm -d --name $name \
+        --entrypoint /usr/bin/sh \
+        -e "KUBECONFIG=/root/.kube/config" \
+        -e "E2E_FOCUS=sig-api-machinery" \
+        -e "E2E_SKIP=StorageVersionAPI|Slow|Flaky" \
+        -e "E2E_EXTRA_ARGS=--ginkgo.fail-fast" \
+        registry.k8s.io/conformance:$version \
+        -c 'mkdir -p /root/.kube; sleep 36000'
+    docker cp $KUBECONFIG $name:/root/.kube/config
+    docker exec $name /usr/local/bin/kubeconformance
+}
+
+test-conformance
