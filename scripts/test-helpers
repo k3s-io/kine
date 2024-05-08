@@ -218,9 +218,10 @@ provision-server() {
         -p $testPort:6443 \
         -e K3S_DEBUG=true \
         -e K3S_DATASTORE_ENDPOINT=$K3S_DATASTORE_ENDPOINT \
-        ${K3S_IMAGE:-docker.io/rancher/k3s:v1.26.9-k3s1} server \
+        ${K3S_IMAGE:-docker.io/rancher/k3s:v1.29.4-k3s1} server \
+        --kube-apiserver-arg=feature-gates=WatchList=true \
         --disable=coredns,servicelb,traefik,local-storage,metrics-server \
-        --disable-agent --disable-scheduler --disable-cloud-controller --disable-kube-proxy --disable-network-policy
+        --disable-network-policy
 
     local ip=$(docker container inspect --format '{{ .NetworkSettings.IPAddress }}' $name | tee $TEST_DIR/servers/$count/metadata/ip)
     local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/servers/$count/metadata/port)
@@ -248,7 +249,9 @@ provision-kine() {
     docker container run \
         -d --name $name \
         $KINE_ENV \
-        $KINE_IMAGE --endpoint $KINE_ENDPOINT
+        $KINE_IMAGE \
+        --watch-progress-notify-interval=5s \
+        --endpoint $KINE_ENDPOINT
 
     local ip=$(docker container inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)
     local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/kine/$count/metadata/port)
