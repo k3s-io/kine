@@ -3,6 +3,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"os"
 	"regexp"
@@ -21,6 +22,8 @@ import (
 	"github.com/k3s-io/kine/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
+	"github.com/lib/pq"
 )
 
 const (
@@ -46,24 +49,6 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
-		`CREATE TABLE IF NOT EXISTS resources (
-    		name VARCHAR(256),
-    		namespace VARCHAR(64),
-    		apigroup VARCHAR(128),
-			region VARCHAR(128),
-    		data JSON,
-    		created_time TIMESTAMPTZ,
-    		update_time TIMESTAMPTZ,
-			PRIMARY KEY (name, namespace, apigroup, region)
-			);`,
-		`CREATE INDEX IF NOT EXISTS resources_name_namespace_index ON resources (name, namespace);`,
-		`CREATE INDEX IF NOT EXISTS resources_apigroup_index ON resources (apigroup);`,
-		`CREATE INDEX IF NOT EXISTS resources_apigroup_created_time_index ON resources (apigroup, created_time);`,
-		`CREATE INDEX IF NOT EXISTS resources_apigroup_update_time_index ON resources (apigroup, update_time);`,
-		`CREATE INDEX IF NOT EXISTS resources_name_created_time_index ON resources (name, created_time);`,
-		`CREATE INDEX IF NOT EXISTS resources_name_update_time_index ON resources (name, update_time);`,
-		`CREATE INDEX IF NOT EXISTS resources_namespace_created_time_index ON resources (namespace, created_time);`,
-		`CREATE INDEX IF NOT EXISTS resources_namespace_update_time_index ON resources (namespace, update_time);`,
 	}
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
@@ -134,12 +119,60 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 	return logstructured.New(sqllog.New(dialect)), nil
 }
 
+func createResourceTable(db *sql.DB, tableName string) error {
+
+	createTableQuery := fmt.Sprintf(`
+    CREATE TABLE IF NOT EXISTS %s (
+        name VARCHAR(256),
+        namespace VARCHAR(64),
+        apigroup VARCHAR(128),
+        region VARCHAR(128),
+        data JSON,
+        created_time TIMESTAMPTZ,
+        update_time TIMESTAMPTZ,
+        PRIMARY KEY (name, namespace, apigroup, region)
+    );`, pq.QuoteIdentifier(tableName))
+
+	if _, err := db.Exec(createTableQuery); err != nil {
+		return err
+	}
+
+	// 创建索引
+	createIndexQueries := []string{
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_namespace_index ON %s (name, namespace);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_index ON %s (apigroup);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_created_time_index ON %s (apigroup, created_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_update_time_index ON %s (apigroup, update_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_created_time_index ON %s (name, created_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_update_time_index ON %s (name, update_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_created_time_index ON %s (namespace, created_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_update_time_index ON %s (namespace, update_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+	}
+
+	for _, query := range createIndexQueries {
+		_, err := db.Exec(query)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func setup(db *sql.DB) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	// 创建特定资源的表和索引
+	resources := []string{"node", "pod", "svc"} // 添加所有需要的资源类型
+	for _, resource := range resources {
+		err := createResourceTable(db, resource)
+		if err != nil {
 			return err
 		}
 	}
