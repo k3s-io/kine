@@ -139,14 +139,14 @@ func createResourceTable(db *sql.DB, tableName string) error {
 
 	// 创建索引
 	createIndexQueries := []string{
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_namespace_index ON %s (name, namespace);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_index ON %s (apigroup);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_created_time_index ON %s (apigroup, created_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_update_time_index ON %s (apigroup, update_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_created_time_index ON %s (name, created_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_update_time_index ON %s (name, update_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_created_time_index ON %s (namespace, created_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_update_time_index ON %s (namespace, update_time);`, pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_namespace_index ON %s (name, namespace);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_index ON %s (apigroup);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_created_time_index ON %s (apigroup, created_time);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_update_time_index ON %s (apigroup, update_time);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_created_time_index ON %s (name, created_time);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_update_time_index ON %s (name, update_time);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_created_time_index ON %s (namespace, created_time);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_update_time_index ON %s (namespace, update_time);`, tableName, pq.QuoteIdentifier(tableName)),
 	}
 
 	for _, query := range createIndexQueries {
