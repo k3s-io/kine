@@ -46,6 +46,24 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE TABLE IF NOT EXISTS resources (
+    		name VARCHAR(256),
+    		namespace VARCHAR(64),
+    		apigroup VARCHAR(128),
+			region VARCHAR(128),
+    		data JSON,
+    		created_time TIMESTAMPTZ,
+    		update_time TIMESTAMPTZ,
+			PRIMARY KEY (name, namespace, apigroup, region)
+			);`,
+		`CREATE INDEX IF NOT EXISTS resources_name_namespace_index ON resources (name, namespace);`,
+		`CREATE INDEX IF NOT EXISTS resources_apigroup_index ON resources (apigroup);`,
+		`CREATE INDEX IF NOT EXISTS resources_apigroup_created_time_index ON resources (apigroup, created_time);`,
+		`CREATE INDEX IF NOT EXISTS resources_apigroup_update_time_index ON resources (apigroup, update_time);`,
+		`CREATE INDEX IF NOT EXISTS resources_name_created_time_index ON resources (name, created_time);`,
+		`CREATE INDEX IF NOT EXISTS resources_name_update_time_index ON resources (name, update_time);`,
+		`CREATE INDEX IF NOT EXISTS resources_namespace_created_time_index ON resources (namespace, created_time);`,
+		`CREATE INDEX IF NOT EXISTS resources_namespace_update_time_index ON resources (namespace, update_time);`,
 	}
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
