@@ -139,6 +139,70 @@ func (d *Generic) Migrate(ctx context.Context) {
 	if err != nil {
 		logrus.Errorf("Migration failed: %v", err)
 	}
+
+	//迁移kine中的数据到pod、service等各个表中
+	if err := d.migrateData(ctx); err != nil {
+		logrus.Fatalf("Data migration failed: %v", err)
+	}
+}
+
+func (d *Generic) migrateData(ctx context.Context) error {
+	// 正则表达式用于提取name字段中的信息
+	re := regexp.MustCompile(`^/registry/([^/]+)/(.+)$`)
+
+	// 查询kine表中的所有数据
+	rows, err := d.DB.QueryContext(ctx, `SELECT name, value FROM kine`)
+	if err != nil {
+		return fmt.Errorf("query kine table failed: %v", err)
+	}
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+
+		}
+	}(rows)
+
+	for rows.Next() {
+		var name, value string
+		if err := rows.Scan(&name, &value); err != nil {
+			return fmt.Errorf("scan row failed: %v", err)
+		}
+
+		matches := re.FindStringSubmatch(name)
+		if matches == nil {
+			continue // 跳过不匹配的行
+		}
+
+		// 提取表名、命名空间和数据名称
+		tableName := matches[1]
+
+		// 插入到相应的表中
+		switch tableName {
+		case "pods":
+			_, err := d.DB.ExecContext(ctx, `INSERT INTO pods (data) VALUES (?)`, value)
+			if err != nil {
+				logrus.Errorf("Insert into pods failed: %v", err)
+			}
+		case "deployments":
+			_, err := d.DB.ExecContext(ctx, `INSERT INTO deployments (data) VALUES (?)`, value)
+			if err != nil {
+				logrus.Errorf("Insert into deployments failed: %v", err)
+			}
+		case "services":
+			_, err := d.DB.ExecContext(ctx, `INSERT INTO services (data) VALUES (?)`, value)
+			if err != nil {
+				logrus.Errorf("Insert into services failed: %v", err)
+			}
+		default:
+			logrus.Warnf("Unknown table name: %s", tableName)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows iteration failed: %v", err)
+	}
+
+	return nil
 }
 
 func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB, driverName string) {

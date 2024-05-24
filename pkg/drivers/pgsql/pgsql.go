@@ -169,7 +169,7 @@ func setup(db *sql.DB) error {
 	}
 
 	// 创建特定资源的表和索引
-	resources := []string{"node", "pod", "svc"} // 添加所有需要的资源类型
+	resources := []string{"pods", "services", "deployments"} // 添加所有需要的资源类型
 	for _, resource := range resources {
 		err := createResourceTable(db, resource)
 		if err != nil {
