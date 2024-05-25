@@ -521,6 +521,8 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		}
 	}
 
+	fmt.Println(key)
+
 	// Extract resource type and name from key
 	parts := strings.Split(key, "/")
 	if len(parts) < 3 {
