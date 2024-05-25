@@ -528,7 +528,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 	resourceType := parts[2]
 	resourceName := parts[len(parts)-1]
-
 	// Convert value to JSON
 	jsonValue, err := json.Marshal(value)
 	if err != nil {
@@ -540,10 +539,16 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	switch resourceType {
 	case "pods":
 		tableName = "pods"
+		fmt.Println(parts)
+		return id, fmt.Errorf("pods")
 	case "deployments":
 		tableName = "deployments"
+		fmt.Println(parts)
+		return id, fmt.Errorf("deployments")
 	case "services":
 		tableName = "services"
+		fmt.Println(parts)
+		return id, fmt.Errorf("services")
 	default:
 		// Unsupported resource type
 		return id, nil
