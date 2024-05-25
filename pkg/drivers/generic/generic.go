@@ -524,7 +524,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// Extract resource type and name from key
 	parts := strings.Split(key, "/")
 	if len(parts) < 3 {
-		return id, fmt.Errorf("invalid resources key format")
+		return id, err
 	}
 	resourceType := parts[2]
 	resourceName := parts[len(parts)-1]
