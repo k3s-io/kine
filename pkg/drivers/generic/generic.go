@@ -556,6 +556,9 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	region := ""
 	currentTime := time.Now()
 
+	fmt.Println(parts)
+	fmt.Println("tableName=", tableName)
+
 	// Insert or update the resource table
 	if prevValue == nil {
 		// Insert operation
@@ -563,6 +566,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 			"INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (?, ?, ?, ?, ?, ?, ?)", tableName),
 			resourceName, namespace, apigroup, region, jsonValue, currentTime, currentTime)
 		if err != nil {
+			fmt.Println(tableName)
 			return id, fmt.Errorf("insert error!")
 		}
 	} else {
@@ -571,6 +575,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 			"UPDATE %s SET data = ?, update_time = ? WHERE name = ? AND namespace = ? AND apigroup = ? AND region = ?", tableName),
 			jsonValue, currentTime, resourceName, namespace, apigroup, region)
 		if err != nil {
+			fmt.Println(tableName)
 			return id, fmt.Errorf("update error!")
 		}
 	}
