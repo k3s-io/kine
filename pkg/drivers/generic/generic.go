@@ -19,6 +19,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
+
+	"encoding/json"
 )
 
 const (
@@ -493,25 +495,80 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		if err != nil {
 			return 0, err
 		}
-		return row.LastInsertId()
+
+		id, err = row.LastInsertId()
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		// Drivers without LastInsertID support may conflict on the serial id key when inserting rows,
+		// as the ID is reserved at the beginning of the implicit transaction, but does not become
+		// visible until the transaction completes, at which point we may have already created a gap fill record.
+		// Retry the insert if the driver indicates a retriable insert error, to avoid presenting a spurious
+		// duplicate key error to the client.
+		wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
+		for i := uint(0); i < 20; i++ {
+			row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
+			err = row.Scan(&id)
+			if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
+				wait(i)
+				continue
+			}
+			break
+		}
+		if err != nil {
+			return 0, err
+		}
 	}
 
-	// Drivers without LastInsertID support may conflict on the serial id key when inserting rows,
-	// as the ID is reserved at the beginning of the implicit transaction, but does not become
-	// visible until the transaction completes, at which point we may have already created a gap fill record.
-	// Retry the insert if the driver indicates a retriable insert error, to avoid presenting a spurious
-	// duplicate key error to the client.
-	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
-	for i := uint(0); i < 20; i++ {
-		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
-		err = row.Scan(&id)
-		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
-			wait(i)
-			continue
-		}
+	// Extract resource type and name from key
+	parts := strings.Split(key, "/")
+	if len(parts) < 3 {
+		return id, fmt.Errorf("invalid resources key format")
+	}
+	resourceType := parts[2]
+	resourceName := parts[len(parts)-1]
+
+	// Convert value to JSON
+	jsonValue, err := json.Marshal(value)
+	if err != nil {
 		return id, err
 	}
-	return
+
+	// Determine table name based on resource type
+	var tableName string
+	switch resourceType {
+	case "pods":
+		tableName = "pods"
+	case "deployments":
+		tableName = "deployments"
+	case "services":
+		tableName = "services"
+	default:
+		// Unsupported resource type
+		return id, nil
+	}
+
+	// Prepare default values for additional columns
+	namespace := ""
+	apigroup := ""
+	region := ""
+	currentTime := time.Now()
+
+	// Insert or update the resource table
+	if prevValue == nil {
+		// Insert operation
+		_, err = d.execute(ctx, fmt.Sprintf(
+			"INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (?, ?, ?, ?, ?, ?, ?)", tableName),
+			resourceName, namespace, apigroup, region, jsonValue, currentTime, currentTime)
+	} else {
+		// Update operation
+		_, err = d.execute(ctx, fmt.Sprintf(
+			"UPDATE %s SET data = ?, update_time = ? WHERE name = ? AND namespace = ? AND apigroup = ? AND region = ?", tableName),
+			jsonValue, currentTime, resourceName, namespace, apigroup, region)
+	}
+
+	return id, err
 }
 
 func (d *Generic) GetSize(ctx context.Context) (int64, error) {
