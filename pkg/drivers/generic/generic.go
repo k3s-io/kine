@@ -60,6 +60,8 @@ var (
 		) AS lkv
 		ORDER BY lkv.thename ASC
 		`, revSQL, compactRevSQL, columns)
+
+	tableName = ""
 )
 
 type ErrRetry func(error) bool
@@ -94,6 +96,8 @@ type Generic struct {
 	FillSQL               string
 	InsertLastInsertIDSQL string
 	GetSizeSQL            string
+	InsertSourcesSQL      string
+	UpdateSourcesSQL      string
 	Retry                 ErrRetry
 	InsertRetry           ErrRetry
 	TranslateErr          TranslateErr
@@ -313,6 +317,12 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 
 		FillSQL: q(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
+
+		InsertSourcesSQL: q(fmt.Sprintf(
+			`INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (?, ?, ?, ?, ?, ?, ?)`, tableName), paramCharacter, numbered),
+
+		UpdateSourcesSQL: q(fmt.Sprintf(
+			`UPDATE %s SET data = ?, update_time = ? WHERE name = ?`, tableName), paramCharacter, numbered),
 	}, err
 }
 
@@ -537,7 +547,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	// Determine table name based on resource type
-	var tableName string
 	switch resourceType {
 	case "pods":
 		tableName = "pods"
@@ -556,27 +565,18 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	region := ""
 	currentTime := time.Now()
 
-	fmt.Println(parts)
-	fmt.Println("tableName=", tableName)
-
 	// Insert or update the resource table
 	if prevValue == nil {
 		// Insert operation
-		_, err = d.execute(ctx, fmt.Sprintf(
-			"INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (?, ?, ?, ?, ?, ?, ?)", tableName),
-			resourceName, namespace, apigroup, region, jsonValue, currentTime, currentTime)
+		_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, ttl, currentTime, 0)
 		if err != nil {
-			fmt.Println(tableName)
-			return id, fmt.Errorf("insert error!")
+			return id, fmt.Errorf("insert resources error!")
 		}
 	} else {
 		// Update operation
-		_, err = d.execute(ctx, fmt.Sprintf(
-			"UPDATE %s SET data = ?, update_time = ? WHERE name = ? AND namespace = ? AND apigroup = ? AND region = ?", tableName),
-			jsonValue, currentTime, resourceName, namespace, apigroup, region)
+		_, err = d.execute(ctx, d.UpdateSourcesSQL, jsonValue, currentTime, resourceName)
 		if err != nil {
-			fmt.Println(tableName)
-			return id, fmt.Errorf("update error!")
+			return id, fmt.Errorf("update resources error!")
 		}
 	}
 
