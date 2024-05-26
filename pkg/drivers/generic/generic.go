@@ -536,7 +536,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		return id, err
 	}
 	resourceType := parts[2]
-	resourceName := parts[len(parts)-1]
+	resourceName := strings.Join(parts[3:], "/")
 
 	// Determine table name based on resource type
 	switch resourceType {
