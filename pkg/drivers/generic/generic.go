@@ -556,7 +556,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	namespace := ""
 	apigroup := ""
 	region := ""
-	currentTime := time.Now()
+	currentTime := time.Now().Format(time.RFC3339)
 
 	// Insert or update the resource table
 	if prevValue == nil {
