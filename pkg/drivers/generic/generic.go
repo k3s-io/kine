@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/lib/pq"
 	"regexp"
 	"strconv"
 	"strings"
@@ -568,13 +569,34 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// Insert or update the resource table
 	if prevValue == nil {
 		// Insert operation
-		//_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
-		_, err = d.execute(ctx, fmt.Sprintf(
-			`INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (0, 0, 0, 0, 0, 0, 0)`, tableName))
+		fmt.Println("tablename=", tableName)
 
+		// 插入数据
+		insertQuery := `
+    INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `
+		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
+
+		// 准备插入的数据
+		name := "0"
+		namespace := "0"
+		apigroup := "0"
+		region := "0"
+		data := `{"key":"value"}` // JSON 数据
+		createdTime := "2024-05-26T12:00:00Z"
+		updateTime := "2024-05-26T12:00:00Z"
+
+		// 执行插入
+		_, err = d.execute(ctx, formattedInsertQuery, name, namespace, apigroup, region, data, createdTime, updateTime)
 		if err != nil {
-			return id, fmt.Errorf("insert resources error!")
+			panic(err)
 		}
+
+		//_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
+		//if err != nil {
+		//return id, fmt.Errorf("insert resources error!")
+		//}
 	} else {
 		// Update operation
 		_, err = d.execute(ctx, d.UpdateSourcesSQL, jsonValue, currentTime, resourceName)
