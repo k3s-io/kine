@@ -568,7 +568,10 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// Insert or update the resource table
 	if prevValue == nil {
 		// Insert operation
-		_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
+		//_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
+		_, err = d.execute(ctx, fmt.Sprintf(
+			`INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (0, 0, 0, 0, 0, 0, 0)`, tableName))
+
 		if err != nil {
 			return id, fmt.Errorf("insert resources error!")
 		}
