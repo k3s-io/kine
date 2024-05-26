@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	"io"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -589,12 +590,67 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		log.Fatalf("Failed to marshal JSON: %v", err)
 	}
 
-	// Prepare default values for additional columns
 	namespace := ""
 	apigroup := ""
 	region := ""
 	currentTime := "2024-05-26T12:00:00Z"
 	updateTime := "2024-05-26T12:00:00Z"
+
+	decoder := json.NewDecoder(strings.NewReader(string(jsonData)))
+	// Prepare default values for additional columns
+	if tableName == "deployments" {
+		apigroup = "apps/v1"
+		region = "local"
+		for {
+			// 读取下一个 JSON token
+			token, err := decoder.Token()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Fatalf("Failed to read JSON token: %v", err)
+			}
+
+			// 检查 token 类型
+			switch t := token.(type) {
+			case string:
+				if t == "namespace" {
+					// 读取下一个 token，即 namespace 的值
+					if token, err := decoder.Token(); err == nil {
+						namespace = token.(string)
+					}
+				}
+			}
+		}
+	} else {
+		apigroup = "core"
+		for {
+			// 读取下一个 JSON token
+			token, err := decoder.Token()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Fatalf("Failed to read JSON token: %v", err)
+			}
+
+			// 检查 token 类型
+			switch t := token.(type) {
+			case string:
+				if t == "namespace" {
+					// 读取下一个 token，即 namespace 的值
+					if token, err := decoder.Token(); err == nil {
+						namespace = token.(string)
+					}
+				} else if t == "nodeName" {
+					// 读取下一个 token，即 nodeName 的值
+					if token, err := decoder.Token(); err == nil {
+						region = token.(string)
+					}
+				}
+			}
+		}
+	}
 
 	// Insert or update the resource table
 	if prevValue == nil {
