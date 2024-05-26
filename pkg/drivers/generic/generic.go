@@ -557,6 +557,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	apigroup := ""
 	region := ""
 	currentTime := "2024-05-26T12:00:00Z"
+	updateTime := "2024-05-26T12:00:00Z"
 
 	// Insert or update the resource table
 	if prevValue == nil {
@@ -568,7 +569,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行插入
-		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonValue, currentTime, "0")
+		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonValue, currentTime, updateTime)
 		if err != nil {
 			panic(err)
 		}
