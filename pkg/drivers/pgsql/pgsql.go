@@ -130,7 +130,7 @@ func createResourceTable(db *sql.DB, tableName string) error {
         data JSON,
         created_time TIMESTAMPTZ,
         update_time TIMESTAMPTZ,
-        PRIMARY KEY (name, namespace, apigroup, region)
+        PRIMARY KEY (name)
     );`, pq.QuoteIdentifier(tableName))
 
 	if _, err := db.Exec(createTableQuery); err != nil {

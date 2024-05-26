@@ -97,8 +97,6 @@ type Generic struct {
 	FillSQL               string
 	InsertLastInsertIDSQL string
 	GetSizeSQL            string
-	InsertSourcesSQL      string
-	UpdateSourcesSQL      string
 	Retry                 ErrRetry
 	InsertRetry           ErrRetry
 	TranslateErr          TranslateErr
@@ -318,12 +316,6 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 
 		FillSQL: q(`INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, paramCharacter, numbered),
-
-		InsertSourcesSQL: q(fmt.Sprintf(
-			`INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time) VALUES (?, ?, ?, ?, ?, ?, ?)`, tableName), paramCharacter, numbered),
-
-		UpdateSourcesSQL: q(fmt.Sprintf(
-			`UPDATE %s SET data = ?, update_time = ? WHERE name = ?`, tableName), paramCharacter, numbered),
 	}, err
 }
 
@@ -561,34 +553,22 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	// Prepare default values for additional columns
-	//namespace := ""
-	//apigroup := ""
-	//region := ""
+	namespace := ""
+	apigroup := ""
+	region := ""
 	currentTime := time.Now()
 
 	// Insert or update the resource table
 	if prevValue == nil {
 		// Insert operation
-		fmt.Println("tablename=", tableName)
-
-		// 插入数据
 		insertQuery := `
     INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     `
 		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
 
-		// 准备插入的数据
-		name := "0"
-		namespace := "0"
-		apigroup := "0"
-		region := "0"
-		data := `{"key":"value"}` // JSON 数据
-		createdTime := "2024-05-26T12:00:00Z"
-		updateTime := "2024-05-26T12:00:00Z"
-
 		// 执行插入
-		_, err = d.execute(ctx, formattedInsertQuery, name, namespace, apigroup, region, data, createdTime, updateTime)
+		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
 		if err != nil {
 			panic(err)
 		}
@@ -599,9 +579,14 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		//}
 	} else {
 		// Update operation
-		_, err = d.execute(ctx, d.UpdateSourcesSQL, jsonValue, currentTime, resourceName)
+		updateQuery := `UPDATE %s SET data = $1, update_time = $2 WHERE name = $3`
+
+		formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
+
+		// 执行更新
+		_, err = d.execute(ctx, formattedUpdateQuery, jsonValue, currentTime, resourceName)
 		if err != nil {
-			return id, fmt.Errorf("update resources error!")
+			panic(err)
 		}
 	}
 
