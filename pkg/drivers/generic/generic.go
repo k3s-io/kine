@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -560,6 +561,11 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// 注册 Kubernetes 核心对象
 	if err := corev1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add Kubernetes core types to scheme: %v", err)
+	}
+
+	// 注册 Kubernetes apps/v1 对象
+	if err := appsv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add Kubernetes apps/v1 types to scheme: %v", err)
 	}
 	// 初始化 CodecFactory
 	codecFactory := serializer.NewCodecFactory(myScheme)
