@@ -7,9 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer/protobuf"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"log"
 	"regexp"
 	"strconv"
@@ -553,8 +554,22 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// Convert value to JSON
 	encodedData := value
 	// 初始化解码器
-	scheme := runtime.NewScheme()
-	protobufSerializer := protobuf.NewSerializer(scheme, scheme)
+	// 初始化 Scheme
+	myScheme := runtime.NewScheme()
+
+	// 注册 Kubernetes 核心对象
+	if err := corev1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add Kubernetes core types to scheme: %v", err)
+	}
+	// 初始化 CodecFactory
+	codecFactory := serializer.NewCodecFactory(myScheme)
+
+	// 获取 Protobuf 序列化器
+	serializerInfo, ok := runtime.SerializerInfoForMediaType(codecFactory.SupportedMediaTypes(), runtime.ContentTypeProtobuf)
+	if !ok {
+		log.Fatalf("No Protobuf serializer found")
+	}
+	protobufSerializer := serializerInfo.Serializer
 	// 解码 Protobuf 数据
 	gvk := &schema.GroupVersionKind{} // 替换为实际的 GVK
 	obj, _, err := protobufSerializer.Decode(encodedData, gvk, nil)
