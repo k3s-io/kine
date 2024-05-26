@@ -543,8 +543,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		}
 	}
 
-	fmt.Println(key)
-
 	// Extract resource type and name from key
 	parts := strings.Split(key, "/")
 	if len(parts) < 3 {
@@ -620,9 +618,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 	region, err = extractValue(string(jsonData), "nodeName")
 	if err != nil {
-		if tableName == "pods" {
-			fmt.Println(string(jsonData))
-		}
 		region = "local"
 	}
 	creationTime, err = extractValue(string(jsonData), "creationTimestamp")
@@ -657,12 +652,12 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		//}
 	} else {
 		// Update operation
-		updateQuery := `UPDATE %s SET data = $1, update_time = $2 WHERE name = $3`
+		updateQuery := `UPDATE %s SET region = $1,data = $2, update_time = $3 WHERE name = $4`
 
 		formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行更新
-		_, err = d.execute(ctx, formattedUpdateQuery, jsonData, formattedTime, resourceName)
+		_, err = d.execute(ctx, formattedUpdateQuery, region, jsonData, formattedTime, resourceName)
 		if err != nil {
 			panic(err)
 		}
