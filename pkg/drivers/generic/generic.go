@@ -3,9 +3,14 @@ package generic
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer/protobuf"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,8 +25,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
-
-	"encoding/json"
 )
 
 const (
@@ -533,13 +536,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 	resourceType := parts[2]
 	resourceName := parts[len(parts)-1]
-	// Convert value to JSON
-	fmt.Println("string_value:", string(value))
-
-	jsonValue, err := json.Marshal(value)
-	if err != nil {
-		return id, err
-	}
 
 	// Determine table name based on resource type
 	switch resourceType {
@@ -552,6 +548,24 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	default:
 		// Unsupported resource type
 		return id, nil
+	}
+
+	// Convert value to JSON
+	encodedData := value
+	// 初始化解码器
+	scheme := runtime.NewScheme()
+	protobufSerializer := protobuf.NewSerializer(scheme, scheme)
+	// 解码 Protobuf 数据
+	gvk := &schema.GroupVersionKind{} // 替换为实际的 GVK
+	obj, _, err := protobufSerializer.Decode(encodedData, gvk, nil)
+	if err != nil {
+		log.Fatalf("Failed to decode protobuf: %v", err)
+	}
+
+	// 将解码后的对象转换为 JSON 格式
+	jsonData, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		log.Fatalf("Failed to marshal JSON: %v", err)
 	}
 
 	// Prepare default values for additional columns
@@ -571,7 +585,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行插入
-		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonValue, currentTime, updateTime)
+		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonData, currentTime, updateTime)
 		if err != nil {
 			panic(err)
 		}
@@ -587,7 +601,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行更新
-		_, err = d.execute(ctx, formattedUpdateQuery, jsonValue, currentTime, resourceName)
+		_, err = d.execute(ctx, formattedUpdateQuery, jsonData, currentTime, resourceName)
 		if err != nil {
 			panic(err)
 		}
