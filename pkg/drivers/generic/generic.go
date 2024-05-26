@@ -568,7 +568,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行插入
-		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
+		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonValue, currentTime, "0")
 		if err != nil {
 			panic(err)
 		}
