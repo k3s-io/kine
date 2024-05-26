@@ -607,11 +607,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	apigroup := ""
 	region := ""
 	creationTime := ""
-	// 获取当前时间
-	currentTime := time.Now()
-
-	// 格式化时间
-	formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
 
 	// Prepare default values for additional columns
 	if tableName == "deployments" {
@@ -625,12 +620,21 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 	region, err = extractValue(string(jsonData), "nodeName")
 	if err != nil {
+		if tableName == "pods" {
+			fmt.Println(string(jsonData))
+		}
 		region = "local"
 	}
 	creationTime, err = extractValue(string(jsonData), "creationTimestamp")
 	if err != nil {
 		log.Fatalf("Failed to extract creationTimestamp: %v", err)
 	}
+
+	// 获取当前时间
+	currentTime := time.Now().UTC()
+
+	// 格式化时间
+	formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
 
 	// Insert or update the resource table
 	if prevValue == nil {
