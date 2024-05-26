@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
-	"io"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -108,6 +107,20 @@ type Generic struct {
 	TranslateErr          TranslateErr
 	ErrCode               ErrCode
 	FillRetryDuration     time.Duration
+}
+
+// 字符串匹配，用于提取JSON中的信息
+func extractValue(jsonStr, key string) (string, error) {
+	// 创建匹配键值对的正则表达式
+	regexPattern := fmt.Sprintf(`"%s"\s*:\s*"(.*?)"`, key)
+	re := regexp.MustCompile(regexPattern)
+
+	// 查找匹配项
+	matches := re.FindStringSubmatch(jsonStr)
+	if len(matches) < 2 {
+		return "", fmt.Errorf("key %s not found", key)
+	}
+	return matches[1], nil
 }
 
 func q(sql, param string, numbered bool) string {
@@ -593,62 +606,39 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	namespace := ""
 	apigroup := ""
 	region := ""
-	currentTime := "2024-05-26T12:00:00Z"
-	updateTime := "2024-05-26T12:00:00Z"
+	creationTime := ""
+	// 获取当前时间
+	currentTime := time.Now()
 
-	decoder := json.NewDecoder(strings.NewReader(string(jsonData)))
+	// 格式化时间
+	formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
+
 	// Prepare default values for additional columns
 	if tableName == "deployments" {
 		apigroup = "apps/v1"
 		region = "local"
-		for {
-			// 读取下一个 JSON token
-			token, err := decoder.Token()
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				log.Fatalf("Failed to read JSON token: %v", err)
-			}
 
-			// 检查 token 类型
-			switch t := token.(type) {
-			case string:
-				if t == "namespace" {
-					// 读取下一个 token，即 namespace 的值
-					if token, err := decoder.Token(); err == nil {
-						namespace = token.(string)
-					}
-				}
-			}
+		namespace, err = extractValue(string(jsonData), "namespace")
+		if err != nil {
+			log.Fatalf("Failed to extract namespace: %v", err)
+		}
+		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
+		if err != nil {
+			log.Fatalf("Failed to extract creationTimestamp: %v", err)
 		}
 	} else {
 		apigroup = "core"
-		for {
-			// 读取下一个 JSON token
-			token, err := decoder.Token()
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				log.Fatalf("Failed to read JSON token: %v", err)
-			}
-
-			// 检查 token 类型
-			switch t := token.(type) {
-			case string:
-				if t == "namespace" {
-					// 读取下一个 token，即 namespace 的值
-					if token, err := decoder.Token(); err == nil {
-						namespace = token.(string)
-					}
-				} else if t == "nodeName" {
-					// 读取下一个 token，即 nodeName 的值
-					if token, err := decoder.Token(); err == nil {
-						region = token.(string)
-					}
-				}
-			}
+		namespace, err = extractValue(string(jsonData), "namespace")
+		if err != nil {
+			log.Fatalf("Failed to extract namespace: %v", err)
+		}
+		region, err = extractValue(string(jsonData), "nodeName")
+		if err != nil {
+			log.Fatalf("Failed to extract nodeName: %v", err)
+		}
+		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
+		if err != nil {
+			log.Fatalf("Failed to extract creationTimestamp: %v", err)
 		}
 	}
 
@@ -662,7 +652,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行插入
-		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonData, currentTime, updateTime)
+		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonData, creationTime, creationTime)
 		if err != nil {
 			panic(err)
 		}
@@ -678,7 +668,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
 
 		// 执行更新
-		_, err = d.execute(ctx, formattedUpdateQuery, jsonData, currentTime, resourceName)
+		_, err = d.execute(ctx, formattedUpdateQuery, jsonData, formattedTime, resourceName)
 		if err != nil {
 			panic(err)
 		}
