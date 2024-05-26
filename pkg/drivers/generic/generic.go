@@ -21,7 +21,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
 
-	"encoding/base64"
 	"encoding/json"
 )
 
@@ -536,12 +535,8 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	resourceName := parts[len(parts)-1]
 	// Convert value to JSON
 	fmt.Println("string_value:", string(value))
-	decode_value, err := base64.StdEncoding.DecodeString(string(value))
-	if err != nil {
-		return id, err
-	}
 
-	jsonValue, err := json.Marshal(decode_value)
+	jsonValue, err := json.Marshal(value)
 	if err != nil {
 		return id, err
 	}
