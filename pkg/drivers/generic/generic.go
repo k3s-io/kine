@@ -616,30 +616,20 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// Prepare default values for additional columns
 	if tableName == "deployments" {
 		apigroup = "apps/v1"
-		region = "local"
-
-		namespace, err = extractValue(string(jsonData), "namespace")
-		if err != nil {
-			log.Fatalf("Failed to extract namespace: %v", err)
-		}
-		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
-		if err != nil {
-			log.Fatalf("Failed to extract creationTimestamp: %v", err)
-		}
 	} else {
 		apigroup = "core"
-		namespace, err = extractValue(string(jsonData), "namespace")
-		if err != nil {
-			log.Fatalf("Failed to extract namespace: %v", err)
-		}
-		region, err = extractValue(string(jsonData), "nodeName")
-		if err != nil {
-			log.Fatalf("Failed to extract nodeName: %v", err)
-		}
-		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
-		if err != nil {
-			log.Fatalf("Failed to extract creationTimestamp: %v", err)
-		}
+	}
+	namespace, err = extractValue(string(jsonData), "namespace")
+	if err != nil {
+		log.Fatalf("Failed to extract namespace: %v", err)
+	}
+	region, err = extractValue(string(jsonData), "nodeName")
+	if err != nil {
+		region = "local"
+	}
+	creationTime, err = extractValue(string(jsonData), "creationTimestamp")
+	if err != nil {
+		log.Fatalf("Failed to extract creationTimestamp: %v", err)
 	}
 
 	// Insert or update the resource table
