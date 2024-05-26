@@ -560,9 +560,9 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	// Prepare default values for additional columns
-	namespace := ""
-	apigroup := ""
-	region := ""
+	//namespace := ""
+	//apigroup := ""
+	//region := ""
 	currentTime := time.Now()
 
 	// Insert or update the resource table
