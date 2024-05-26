@@ -535,7 +535,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	resourceType := parts[2]
 	resourceName := parts[len(parts)-1]
 	// Convert value to JSON
-
+	fmt.Println("string_value:", string(value))
 	decode_value, err := base64.StdEncoding.DecodeString(string(value))
 	if err != nil {
 		return id, err
