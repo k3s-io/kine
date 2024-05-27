@@ -564,102 +564,115 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		return id, nil
 	}
 
-	// Convert value to JSON
-	encodedData := value
-	// 初始化解码器
-	// 初始化 Scheme
-	myScheme := runtime.NewScheme()
+	if dVal == 1 {
+		// Delete operation
+		deleteQuery := `DELETE FROM %s WHERE name = $1`
 
-	// 注册 Kubernetes 核心对象
-	if err := corev1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add Kubernetes core types to scheme: %v", err)
-	}
+		formattedDeleteQuery := fmt.Sprintf(deleteQuery, pq.QuoteIdentifier(tableName))
 
-	// 注册 Kubernetes apps/v1 对象
-	if err := appsv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add Kubernetes apps/v1 types to scheme: %v", err)
-	}
-	// 初始化 CodecFactory
-	codecFactory := serializer.NewCodecFactory(myScheme)
-
-	// 获取 Protobuf 序列化器
-	serializerInfo, ok := runtime.SerializerInfoForMediaType(codecFactory.SupportedMediaTypes(), runtime.ContentTypeProtobuf)
-	if !ok {
-		log.Fatalf("No Protobuf serializer found")
-	}
-	protobufSerializer := serializerInfo.Serializer
-	// 解码 Protobuf 数据
-	gvk := &schema.GroupVersionKind{} // 替换为实际的 GVK
-	obj, _, err := protobufSerializer.Decode(encodedData, gvk, nil)
-	if err != nil {
-		log.Fatalf("Failed to decode protobuf: %v", err)
-	}
-
-	// 将解码后的对象转换为 JSON 格式
-	jsonData, err := json.MarshalIndent(obj, "", "  ")
-	if err != nil {
-		log.Fatalf("Failed to marshal JSON: %v", err)
-	}
-
-	namespace := ""
-	apigroup := ""
-	region := ""
-	creationTime := ""
-
-	// Prepare default values for additional columns
-	if tableName == "deployments" {
-		apigroup = "apps/v1"
-	} else {
-		apigroup = "core"
-	}
-	namespace, err = extractValue(string(jsonData), "namespace")
-	if err != nil {
-		log.Fatalf("Failed to extract namespace: %v", err)
-	}
-	region, err = extractValue(string(jsonData), "nodeName")
-	if err != nil {
-		region = "local"
-	}
-	creationTime, err = extractValue(string(jsonData), "creationTimestamp")
-	if err != nil {
-		log.Fatalf("Failed to extract creationTimestamp: %v", err)
-	}
-
-	// 获取当前时间
-	currentTime := time.Now().UTC()
-
-	// 格式化时间
-	formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
-
-	// Insert or update the resource table
-	if prevValue == nil {
-		// Insert operation
-		insertQuery := `
-    INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `
-		formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
-
-		// 执行插入
-		_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonData, creationTime, creationTime)
+		// 执行更新
+		_, err = d.execute(ctx, formattedDeleteQuery, resourceName)
 		if err != nil {
 			panic(err)
 		}
-
-		//_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
-		//if err != nil {
-		//return id, fmt.Errorf("insert resources error!")
-		//}
 	} else {
-		// Update operation
-		updateQuery := `UPDATE %s SET region = $1,data = $2, update_time = $3 WHERE name = $4`
+		// Convert value to JSON
+		encodedData := value
+		// 初始化解码器
+		// 初始化 Scheme
+		myScheme := runtime.NewScheme()
 
-		formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
+		// 注册 Kubernetes 核心对象
+		if err := corev1.AddToScheme(myScheme); err != nil {
+			log.Fatalf("Failed to add Kubernetes core types to scheme: %v", err)
+		}
 
-		// 执行更新
-		_, err = d.execute(ctx, formattedUpdateQuery, region, jsonData, formattedTime, resourceName)
+		// 注册 Kubernetes apps/v1 对象
+		if err := appsv1.AddToScheme(myScheme); err != nil {
+			log.Fatalf("Failed to add Kubernetes apps/v1 types to scheme: %v", err)
+		}
+		// 初始化 CodecFactory
+		codecFactory := serializer.NewCodecFactory(myScheme)
+
+		// 获取 Protobuf 序列化器
+		serializerInfo, ok := runtime.SerializerInfoForMediaType(codecFactory.SupportedMediaTypes(), runtime.ContentTypeProtobuf)
+		if !ok {
+			log.Fatalf("No Protobuf serializer found")
+		}
+		protobufSerializer := serializerInfo.Serializer
+		// 解码 Protobuf 数据
+		gvk := &schema.GroupVersionKind{} // 替换为实际的 GVK
+		obj, _, err := protobufSerializer.Decode(encodedData, gvk, nil)
 		if err != nil {
-			panic(err)
+			log.Fatalf("Failed to decode protobuf: %v", err)
+		}
+
+		// 将解码后的对象转换为 JSON 格式
+		jsonData, err := json.MarshalIndent(obj, "", "  ")
+		if err != nil {
+			log.Fatalf("Failed to marshal JSON: %v", err)
+		}
+
+		namespace := ""
+		apigroup := ""
+		region := ""
+		creationTime := ""
+
+		// Prepare default values for additional columns
+		if tableName == "deployments" {
+			apigroup = "apps/v1"
+		} else {
+			apigroup = "core"
+		}
+		namespace, err = extractValue(string(jsonData), "namespace")
+		if err != nil {
+			log.Fatalf("Failed to extract namespace: %v", err)
+		}
+		region, err = extractValue(string(jsonData), "nodeName")
+		if err != nil {
+			region = "local"
+		}
+		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
+		if err != nil {
+			log.Fatalf("Failed to extract creationTimestamp: %v", err)
+		}
+
+		// 获取当前时间
+		currentTime := time.Now().UTC()
+
+		// 格式化时间
+		formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
+
+		// Insert or update the resource table
+		if prevValue == nil {
+			// Insert operation
+			insertQuery := `
+    INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `
+			formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
+
+			// 执行插入
+			_, err = d.execute(ctx, formattedInsertQuery, resourceName, namespace, apigroup, region, jsonData, creationTime, creationTime)
+			if err != nil {
+				panic(err)
+			}
+
+			//_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
+			//if err != nil {
+			//return id, fmt.Errorf("insert resources error!")
+			//}
+		} else {
+			// Update operation
+			updateQuery := `UPDATE %s SET region = $1,data = $2, update_time = $3 WHERE name = $4`
+
+			formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
+
+			// 执行更新
+			_, err = d.execute(ctx, formattedUpdateQuery, region, jsonData, formattedTime, resourceName)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 
