@@ -139,10 +139,7 @@ func createResourceTable(db *sql.DB, tableName string) error {
 
 	// 创建索引
 	createIndexQueries := []string{
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_namespace_index ON %s (name, namespace);`, tableName, pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_index ON %s (apigroup);`, tableName, pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_created_time_index ON %s (apigroup, created_time);`, tableName, pq.QuoteIdentifier(tableName)),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_apigroup_update_time_index ON %s (apigroup, update_time);`, tableName, pq.QuoteIdentifier(tableName)),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_index ON %s (name);`, tableName, pq.QuoteIdentifier(tableName)),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_created_time_index ON %s (name, created_time);`, tableName, pq.QuoteIdentifier(tableName)),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_update_time_index ON %s (name, update_time);`, tableName, pq.QuoteIdentifier(tableName)),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_namespace_created_time_index ON %s (namespace, created_time);`, tableName, pq.QuoteIdentifier(tableName)),
@@ -169,7 +166,26 @@ func setup(db *sql.DB) error {
 	}
 
 	// 创建特定资源的表和索引
-	resources := []string{"pods", "services", "deployments"} // 添加所有需要的资源类型
+	// 注册所有的api-resources,为他们创建表格
+	resources := []string{
+		"bindings", "componentstatuses", "configmaps", "endpoints", "events",
+		"limitranges", "namespaces", "nodes", "persistentvolumeclaims", "persistentvolumes",
+		"pods", "podtemplates", "replicationcontrollers", "resourcequotas", "secrets",
+		"serviceaccounts", "services", "mutatingwebhookconfigurations", "validatingadmissionpolicies", "validatingadmissionpolicybindings",
+		"validatingwebhookconfigurations", "customresourcedefinitions", "apiservices", "controllerrevisions", "daemonsets",
+		"deployments", "replicasets", "statefulsets", "selfsubjectreviews", "tokenreviews",
+		"localsubjectaccessreviews", "selfsubjectaccessreviews", "selfsubjectrulesreviews", "subjectaccessreviews", "horizontalpodautoscalers",
+		"cronjobs", "jobs", "certificatesigningrequests", "leases", "endpointslices",
+		"events.k8s.io/events", "flowschemas", "prioritylevelconfigurations", "helmchartconfigs", "helmcharts",
+		"addons", "etcdsnapshotfiles", "metrics.k8s.io/nodes", "metrics.k8s.io/pods", "ingressclasses",
+		"ingresses", "networkpolicies", "runtimeclasses", "poddisruptionbudgets", "clusterrolebindings",
+		"clusterroles", "rolebindings", "roles", "priorityclasses", "csidrivers",
+		"csinodes", "csistoragecapacities", "storageclasses", "volumeattachments", "traefik.containo.us/ingressroutes",
+		"traefik.containo.us/ingressroutetcps", "traefik.containo.us/ingressrouteudps", "traefik.containo.us/middlewares", "traefik.containo.us/middlewaretcps", "traefik.containo.us/serverstransports",
+		"traefik.containo.us/tlsoptions", "traefik.containo.us/tlsstores", "traefik.containo.us/traefikservices", "traefik.io/ingressroutes", "traefik.io/ingressroutetcps",
+		"traefik.io/ingressrouteudps", "traefik.io/middlewares", "traefik.io/middlewaretcps", "traefik.io/serverstransports", "serverstransporttcps",
+		"traefik.io/tlsoptions", "traefik.io/tlsstores", "traefik.io/traefikservices",
+	}
 	for _, resource := range resources {
 		err := createResourceTable(db, resource)
 		if err != nil {
