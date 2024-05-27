@@ -176,15 +176,15 @@ func setup(db *sql.DB) error {
 		"deployments", "replicasets", "statefulsets", "selfsubjectreviews", "tokenreviews",
 		"localsubjectaccessreviews", "selfsubjectaccessreviews", "selfsubjectrulesreviews", "subjectaccessreviews", "horizontalpodautoscalers",
 		"cronjobs", "jobs", "certificatesigningrequests", "leases", "endpointslices",
-		"events.k8s.io/events", "flowschemas", "prioritylevelconfigurations", "helmchartconfigs", "helmcharts",
-		"addons", "etcdsnapshotfiles", "metrics.k8s.io/nodes", "metrics.k8s.io/pods", "ingressclasses",
+		"events-k8s-io-events", "flowschemas", "prioritylevelconfigurations", "helmchartconfigs", "helmcharts",
+		"addons", "etcdsnapshotfiles", "metrics-k8s-io-nodes", "metrics-k8s-io-pods", "ingressclasses",
 		"ingresses", "networkpolicies", "runtimeclasses", "poddisruptionbudgets", "clusterrolebindings",
 		"clusterroles", "rolebindings", "roles", "priorityclasses", "csidrivers",
-		"csinodes", "csistoragecapacities", "storageclasses", "volumeattachments", "traefik.containo.us/ingressroutes",
-		"traefik.containo.us/ingressroutetcps", "traefik.containo.us/ingressrouteudps", "traefik.containo.us/middlewares", "traefik.containo.us/middlewaretcps", "traefik.containo.us/serverstransports",
-		"traefik.containo.us/tlsoptions", "traefik.containo.us/tlsstores", "traefik.containo.us/traefikservices", "traefik.io/ingressroutes", "traefik.io/ingressroutetcps",
-		"traefik.io/ingressrouteudps", "traefik.io/middlewares", "traefik.io/middlewaretcps", "traefik.io/serverstransports", "serverstransporttcps",
-		"traefik.io/tlsoptions", "traefik.io/tlsstores", "traefik.io/traefikservices",
+		"csinodes", "csistoragecapacities", "storageclasses", "volumeattachments", "traefik-containo-us-ingressroutes",
+		"traefik-containo-us-ingressroutetcps", "traefik-containo-us-ingressrouteudps", "traefik-containo-us-middlewares", "traefik-containo-us-middlewaretcps", "traefik-containo-us-serverstransports",
+		"traefik-containo-us-tlsoptions", "traefik-containo-us-tlsstores", "traefik-containo-us-traefikservices", "traefik-io-ingressroutes", "traefik-io-ingressroutetcps",
+		"traefik-io-ingressrouteudps", "traefik-io-middlewares", "traefik-io-middlewaretcps", "traefik-io-serverstransports", "serverstransporttcps",
+		"traefik-io-tlsoptions", "traefik-io-tlsstores", "traefik-io-traefikservices",
 	}
 	for _, resource := range resources {
 		err := createResourceTable(db, resource)
