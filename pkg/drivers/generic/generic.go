@@ -644,7 +644,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
 
 		// Insert or update the resource table
-		if prevValue == nil {
+		if cVal == 1 {
 			// Insert operation
 			insertQuery := `
     INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
@@ -674,6 +674,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 				panic(err)
 			}
 		}
+
 	}
 
 	return id, err
