@@ -107,6 +107,8 @@ type Generic struct {
 	TranslateErr          TranslateErr
 	ErrCode               ErrCode
 	FillRetryDuration     time.Duration
+	//protobuf解码器
+	protobufSerializer runtime.Serializer
 }
 
 // 字符串匹配，用于提取JSON中的信息
@@ -285,9 +287,32 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		metricsRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
 	}
 
-	return &Generic{
-		DB: db,
+	// 初始化解码器
+	// 初始化 Scheme
+	myScheme := runtime.NewScheme()
 
+	// 注册 Kubernetes 核心对象
+	if err := corev1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add Kubernetes core types to scheme: %v", err)
+	}
+
+	// 注册 Kubernetes apps/v1 对象
+	if err := appsv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add Kubernetes apps/v1 types to scheme: %v", err)
+	}
+	// 初始化 CodecFactory
+	codecFactory := serializer.NewCodecFactory(myScheme)
+
+	// 获取 Protobuf 序列化器
+	serializerInfo, ok := runtime.SerializerInfoForMediaType(codecFactory.SupportedMediaTypes(), runtime.ContentTypeProtobuf)
+	if !ok {
+		log.Fatalf("No Protobuf serializer found")
+	}
+	protobufSerializer := serializerInfo.Serializer
+
+	return &Generic{
+		DB:                 db,
+		protobufSerializer: protobufSerializer,
 		GetRevisionSQL: q(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
@@ -578,31 +603,10 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	} else {
 		// Convert value to JSON
 		encodedData := value
-		// 初始化解码器
-		// 初始化 Scheme
-		myScheme := runtime.NewScheme()
 
-		// 注册 Kubernetes 核心对象
-		if err := corev1.AddToScheme(myScheme); err != nil {
-			log.Fatalf("Failed to add Kubernetes core types to scheme: %v", err)
-		}
-
-		// 注册 Kubernetes apps/v1 对象
-		if err := appsv1.AddToScheme(myScheme); err != nil {
-			log.Fatalf("Failed to add Kubernetes apps/v1 types to scheme: %v", err)
-		}
-		// 初始化 CodecFactory
-		codecFactory := serializer.NewCodecFactory(myScheme)
-
-		// 获取 Protobuf 序列化器
-		serializerInfo, ok := runtime.SerializerInfoForMediaType(codecFactory.SupportedMediaTypes(), runtime.ContentTypeProtobuf)
-		if !ok {
-			log.Fatalf("No Protobuf serializer found")
-		}
-		protobufSerializer := serializerInfo.Serializer
 		// 解码 Protobuf 数据
 		gvk := &schema.GroupVersionKind{} // 替换为实际的 GVK
-		obj, _, err := protobufSerializer.Decode(encodedData, gvk, nil)
+		obj, _, err := d.protobufSerializer.Decode(encodedData, gvk, nil)
 		if err != nil {
 			log.Fatalf("Failed to decode protobuf: %v", err)
 		}
