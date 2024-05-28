@@ -7,27 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
-	authenticationv1 "k8s.io/api/authentication/v1"
-	authorizationv1 "k8s.io/api/authorization/v1"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
-	certificatesv1 "k8s.io/api/certificates/v1"
-	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
-	discoveryv1 "k8s.io/api/discovery/v1"
-	flowcontrolv1 "k8s.io/api/flowcontrol/v1"
-	networkingv1 "k8s.io/api/networking/v1"
-	nodev1 "k8s.io/api/node/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	schedulingv1 "k8s.io/api/scheduling/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"log"
@@ -395,50 +383,12 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	if err := rbacv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add Kubernetes rbac/v1 types to scheme: %v", err)
 	}
-	if err := admissionregistrationv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add admissionregistration/v1 types to scheme: %v", err)
-	}
+
 	if err := apiextensionsv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add apiextensions/v1 types to scheme: %v", err)
 	}
 	if err := apiregistrationv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add apiregistration/v1 types to scheme: %v", err)
-	}
-	if err := authenticationv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add authentication/v1 types to scheme: %v", err)
-	}
-	if err := authorizationv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add authorization/v1 types to scheme: %v", err)
-	}
-	if err := autoscalingv2.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add autoscaling/v2 types to scheme: %v", err)
-	}
-	if err := certificatesv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add certificates/v1 types to scheme: %v", err)
-	}
-	if err := coordinationv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add coordination/v1 types to scheme: %v", err)
-	}
-	if err := discoveryv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add discovery/v1 types to scheme: %v", err)
-	}
-	if err := flowcontrolv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add flowcontrol/v1 types to scheme: %v", err)
-	}
-	if err := networkingv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add networking/v1 types to scheme: %v", err)
-	}
-	if err := nodev1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add node/v1 types to scheme: %v", err)
-	}
-	if err := policyv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add policy/v1 types to scheme: %v", err)
-	}
-	if err := schedulingv1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add scheduling/v1 types to scheme: %v", err)
-	}
-	if err := storagev1.AddToScheme(myScheme); err != nil {
-		log.Fatalf("Failed to add storage/v1 types to scheme: %v", err)
 	}
 
 	// 初始化 CodecFactory
@@ -745,6 +695,8 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	} else {
 
 		encodedData := value
+
+		fmt.Println("正在解码：", tableName)
 
 		// 解码 Protobuf 数据
 		gvk := &schema.GroupVersionKind{} // 替换为实际的 GVK
