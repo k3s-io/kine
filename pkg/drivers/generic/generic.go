@@ -11,10 +11,12 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
-	discovery "k8s.io/api/discovery/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	discoverybeta1 "k8s.io/api/discovery/v1beta1"
 	flowcontrolv1 "k8s.io/api/flowcontrol/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -399,13 +401,18 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	if err := coordinationv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add coordination/v1 types to scheme: %v", err)
 	}
-	if err := discovery.AddToScheme(myScheme); err != nil {
+	if err := discoveryv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add discovery/v1 types to scheme: %v", err)
+	}
+	if err := discoverybeta1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add discovery/v1beta1 types to scheme: %v", err)
 	}
 	if err := schedulingv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add scheduling/v1 types to scheme: %v", err)
 	}
-
+	if err := storagev1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add storage/v1 types to scheme: %v", err)
+	}
 	// 初始化 CodecFactory
 	codecFactory := serializer.NewCodecFactory(myScheme)
 
