@@ -89,7 +89,7 @@ var (
 	tableName = ""
 
 	resourcesTemplate = []string{
-		"/bindings/", "/componentstatuses/", "/configmaps/", "/endpoints/", "/events/",
+		"/componentstatuses/", "/configmaps/", "/endpoints/", "/events/",
 		"/limitranges/", "/namespaces/", "/nodes/", "/persistentvolumeclaims/", "/persistentvolumes/",
 		"/pods/", "/podtemplates/", "/replicationcontrollers/", "/resourcequotas/", "/secrets/",
 		"/serviceaccounts/", "/services/specs/", "/mutatingwebhookconfigurations/", "/validatingadmissionpolicies/", "/validatingadmissionpolicybindings/",
@@ -108,7 +108,7 @@ var (
 	}
 
 	tableMap = map[string]string{
-		"/bindings/": "bindings", "/componentstatuses/": "componentstatuses", "/configmaps/": "configmaps", "/endpoints/": "endpoints", "/events/": "events",
+		"/componentstatuses/": "componentstatuses", "/configmaps/": "configmaps", "/endpoints/": "endpoints", "/events/": "events",
 		"/limitranges/": "limitranges", "/namespaces/": "namespaces", "/minions/": "nodes", "/persistentvolumeclaims/": "persistentvolumeclaims", "/persistentvolumes/": "persistentvolumes",
 		"/pods/": "pods", "/podtemplates/": "podtemplates", "/replicationcontrollers/": "replicationcontrollers", "/resourcequotas/": "resourcequotas", "/secrets/": "secrets",
 		"/serviceaccounts/": "serviceaccounts", "/services/specs/": "services", "/mutatingwebhookconfigurations/": "mutatingwebhookconfigurations", "/validatingadmissionpolicies/": "validatingadmissionpolicies", "/validatingadmissionpolicybindings/": "validatingadmissionpolicybindings",
@@ -127,7 +127,7 @@ var (
 	}
 
 	apiGroupMap = map[string]string{
-		"/bindings/": "core", "/componentstatuses/": "core", "/configmaps/": "core", "/endpoints/": "core", "/events/": "core",
+		"/componentstatuses/": "core", "/configmaps/": "core", "/endpoints/": "core", "/events/": "core",
 		"/limitranges/": "core", "/namespaces/": "core", "/minions/": "core", "/persistentvolumeclaims/": "core", "/persistentvolumes/": "core",
 		"/pods/": "core", "/podtemplates/": "core", "/replicationcontrollers/": "core", "/resourcequotas/": "core", "/secrets/": "core",
 		"/serviceaccounts/": "core", "/services/specs/": "core", "/mutatingwebhookconfigurations/": "admissionregistration.k8s.io", "/validatingadmissionpolicies/": "admissionregistration.k8s.io", "/validatingadmissionpolicybindings/": "admissionregistration.k8s.io",

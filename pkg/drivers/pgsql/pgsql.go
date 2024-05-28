@@ -168,7 +168,7 @@ func setup(db *sql.DB) error {
 	// 创建特定资源的表和索引
 	// 注册所有的api-resources,为他们创建表格
 	resources := []string{
-		"bindings", "componentstatuses", "configmaps", "endpoints", "events",
+		"componentstatuses", "configmaps", "endpoints", "events",
 		"limitranges", "namespaces", "nodes", "persistentvolumeclaims", "persistentvolumes",
 		"pods", "podtemplates", "replicationcontrollers", "resourcequotas", "secrets",
 		"serviceaccounts", "services", "mutatingwebhookconfigurations", "validatingadmissionpolicies", "validatingadmissionpolicybindings",
