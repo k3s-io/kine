@@ -9,6 +9,7 @@ import (
 	"github.com/lib/pq"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	flowcontrolv1 "k8s.io/api/flowcontrol/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -392,6 +393,9 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	}
 	if err := flowcontrolv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add flowcontrol/v1 types to scheme: %v", err)
+	}
+	if err := coordinationv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add coordination/v1 types to scheme: %v", err)
 	}
 
 	// 初始化 CodecFactory
