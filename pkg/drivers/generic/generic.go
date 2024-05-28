@@ -397,6 +397,9 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	if err := coordinationv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add coordination/v1 types to scheme: %v", err)
 	}
+	if err := discoveryv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add discovery/v1 types to scheme: %v", err)
+	}
 
 	// 初始化 CodecFactory
 	codecFactory := serializer.NewCodecFactory(myScheme)
