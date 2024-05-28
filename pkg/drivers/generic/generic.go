@@ -10,12 +10,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	flowcontrolv1 "k8s.io/api/flowcontrol/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
-
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"log"
@@ -389,6 +389,9 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	}
 	if err := apiregistrationv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add apiregistration/v1 types to scheme: %v", err)
+	}
+	if err := flowcontrolv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add flowcontrol/v1 types to scheme: %v", err)
 	}
 
 	// 初始化 CodecFactory
