@@ -176,15 +176,14 @@ func setup(db *sql.DB) error {
 		"deployments", "replicasets", "statefulsets", "selfsubjectreviews", "tokenreviews",
 		"localsubjectaccessreviews", "selfsubjectaccessreviews", "selfsubjectrulesreviews", "subjectaccessreviews", "horizontalpodautoscalers",
 		"cronjobs", "jobs", "certificatesigningrequests", "leases", "endpointslices",
-		"events_k8s_io_events", "flowschemas", "prioritylevelconfigurations", "helmchartconfigs", "helmcharts",
-		"addons", "etcdsnapshotfiles", "metrics_k8s_io_nodes", "metrics_k8s_io_pods", "ingressclasses",
-		"ingresses", "networkpolicies", "runtimeclasses", "poddisruptionbudgets", "clusterrolebindings",
-		"clusterroles", "rolebindings", "roles", "priorityclasses", "csidrivers",
-		"csinodes", "csistoragecapacities", "storageclasses", "volumeattachments", "traefik_containo_us_ingressroutes",
-		"traefik_containo_us_ingressroutetcps", "traefik_containo_us_ingressrouteudps", "traefik_containo_us_middlewares", "traefik_containo_us_middlewaretcps", "traefik_containo_us_serverstransports",
-		"traefik_containo_us_tlsoptions", "traefik_containo_us_tlsstores", "traefik_containo_us_traefikservices", "traefik_io_ingressroutes", "traefik_io_ingressroutetcps",
-		"traefik_io_ingressrouteudps", "traefik_io_middlewares", "traefik_io_middlewaretcps", "traefik_io_serverstransports", "serverstransporttcps",
-		"traefik_io_tlsoptions", "traefik_io_tlsstores", "traefik_io_traefikservices",
+		"flowschemas", "prioritylevelconfigurations", "helmchartconfigs", "helmcharts", "addons",
+		"etcdsnapshotfiles", "ingressclasses", "ingresses", "networkpolicies", "runtimeclasses",
+		"poddisruptionbudgets", "clusterrolebindings", "clusterroles", "rolebindings", "roles",
+		"priorityclasses", "csidrivers", "csinodes", "csistoragecapacities", "storageclasses",
+		"volumeattachments", "traefik_containo_us_ingressroutes", "traefik_containo_us_ingressroutetcps", "traefik_containo_us_ingressrouteudps", "traefik_containo_us_middlewares",
+		"traefik_containo_us_middlewaretcps", "traefik_containo_us_serverstransports", "traefik_containo_us_tlsoptions", "traefik_containo_us_tlsstores", "traefik_containo_us_traefikservices",
+		"traefik_io_ingressroutes", "traefik_io_ingressroutetcps", "traefik_io_ingressrouteudps", "traefik_io_middlewares", "traefik_io_middlewaretcps",
+		"traefik_io_serverstransports", "serverstransporttcps", "traefik_io_tlsoptions", "traefik_io_tlsstores", "traefik_io_traefikservices",
 	}
 	for _, resource := range resources {
 		err := createResourceTable(db, resource)

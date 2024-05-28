@@ -7,11 +7,29 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	authenticationv1 "k8s.io/api/authentication/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	batchv1 "k8s.io/api/batch/v1"
+	certificatesv1 "k8s.io/api/certificates/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	flowcontrolv1 "k8s.io/api/flowcontrol/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	nodev1 "k8s.io/api/node/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"log"
 	"regexp"
 	"strconv"
@@ -68,6 +86,63 @@ var (
 		`, revSQL, compactRevSQL, columns)
 
 	tableName = ""
+
+	resourcesTemplate = []string{
+		"/bindings/", "/componentstatuses/", "/configmaps/", "/endpoints/", "/events/",
+		"/limitranges/", "/namespaces/", "/nodes/", "/persistentvolumeclaims/", "/persistentvolumes/",
+		"/pods/", "/podtemplates/", "/replicationcontrollers/", "/resourcequotas/", "/secrets/",
+		"/serviceaccounts/", "/services/specs/", "/mutatingwebhookconfigurations/", "/validatingadmissionpolicies/", "/validatingadmissionpolicybindings/",
+		"/validatingwebhookconfigurations/", "/customresourcedefinitions/", "/apiservices/", "/controllerrevisions/", "/daemonsets/",
+		"/deployments/", "/replicasets/", "/statefulsets/", "/selfsubjectreviews/", "/tokenreviews/",
+		"/localsubjectaccessreviews/", "/selfsubjectaccessreviews/", "/selfsubjectrulesreviews/", "/subjectaccessreviews/", "/horizontalpodautoscalers/",
+		"/cronjobs/", "/jobs/", "/certificatesigningrequests/", "/leases/", "/endpointslices/",
+		"/flowschemas/", "/prioritylevelconfigurations/", "/helmchartconfigs/", "/helmcharts/", "/addons/",
+		"/etcdsnapshotfiles/", "/ingressclasses/", "/ingresses/", "/networkpolicies/", "/runtimeclasses/",
+		"/poddisruptionbudgets/", "/clusterrolebindings/", "/clusterroles/", "/rolebindings/", "/roles/",
+		"/priorityclasses/", "/csidrivers/", "/csinodes/", "/csistoragecapacities/", "/storageclasses/",
+		"/volumeattachments/", "/traefik.containo.us/ingressroutes/", "/traefik.containo.us/ingressroutetcps/", "/traefik.containo.us/ingressrouteudps/", "/traefik.containo.us/middlewares/",
+		"/traefik.containo.us/middlewaretcps/", "/traefik.containo.us/serverstransports/", "/traefik.containo.us/tlsoptions/", "/traefik.containo.us/tlsstores/", "/traefik.containo.us/traefikservices/",
+		"/traefik.io/ingressroutes/", "/traefik.io/ingressroutetcps/", "/traefik.io/ingressrouteudps/", "/traefik.io/middlewares/", "/traefik.io/middlewaretcps/",
+		"/traefik.io/serverstransports/", "/serverstransporttcps/", "/traefik.io/tlsoptions/", "/traefik.io/tlsstores/", "/traefik.io/traefikservices/",
+	}
+
+	tableMap = map[string]string{
+		"/bindings/": "bindings", "/componentstatuses/": "componentstatuses", "/configmaps/": "configmaps", "/endpoints/": "endpoints", "/events/": "events",
+		"/limitranges/": "limitranges", "/namespaces/": "namespaces", "/minions/": "nodes", "/persistentvolumeclaims/": "persistentvolumeclaims", "/persistentvolumes/": "persistentvolumes",
+		"/pods/": "pods", "/podtemplates/": "podtemplates", "/replicationcontrollers/": "replicationcontrollers", "/resourcequotas/": "resourcequotas", "/secrets/": "secrets",
+		"/serviceaccounts/": "serviceaccounts", "/services/specs/": "services", "/mutatingwebhookconfigurations/": "mutatingwebhookconfigurations", "/validatingadmissionpolicies/": "validatingadmissionpolicies", "/validatingadmissionpolicybindings/": "validatingadmissionpolicybindings",
+		"/validatingwebhookconfigurations/": "validatingwebhookconfigurations", "/customresourcedefinitions/": "customresourcedefinitions", "/apiservices/": "apiservices", "/controllerrevisions/": "controllerrevisions", "/daemonsets/": "daemonsets",
+		"/deployments/": "deployments", "/replicasets/": "replicasets", "/statefulsets/": "statefulsets", "/selfsubjectreviews/": "selfsubjectreviews", "/tokenreviews/": "tokenreviews",
+		"/localsubjectaccessreviews/": "localsubjectaccessreviews", "/selfsubjectaccessreviews/": "selfsubjectaccessreviews", "/selfsubjectrulesreviews/": "selfsubjectrulesreviews", "/subjectaccessreviews/": "subjectaccessreviews", "/horizontalpodautoscalers/": "horizontalpodautoscalers",
+		"/cronjobs/": "cronjobs", "/jobs/": "jobs", "/certificatesigningrequests/": "certificatesigningrequests", "/leases/": "leases", "/endpointslices/": "endpointslices",
+		"/flowschemas/": "flowschemas", "/prioritylevelconfigurations/": "prioritylevelconfigurations", "/helmchartconfigs/": "helmchartconfigs", "/helmcharts/": "helmcharts", "/addons/": "addons",
+		"/etcdsnapshotfiles/": "etcdsnapshotfiles", "/ingressclasses/": "ingressclasses", "/ingresses/": "ingresses", "/networkpolicies/": "networkpolicies", "/runtimeclasses/": "runtimeclasses",
+		"/poddisruptionbudgets/": "poddisruptionbudgets", "/clusterrolebindings/": "clusterrolebindings", "/clusterroles/": "clusterroles", "/rolebindings/": "rolebindings", "/roles/": "roles",
+		"/priorityclasses/": "priorityclasses", "/csidrivers/": "csidrivers", "/csinodes/": "csinodes", "/csistoragecapacities/": "csistoragecapacities", "/storageclasses/": "storageclasses",
+		"/volumeattachments/": "volumeattachments", "/traefik.containo.us/ingressroutes/": "traefik_containo_us_ingressroutes", "/traefik.containo.us/ingressroutetcps/": "traefik_containo_us_ingressroutetcps", "/traefik.containo.us/ingressrouteudps/": "traefik_containo_us_ingressrouteudps", "/traefik.containo.us/middlewares/": "traefik_containo_us_middlewares",
+		"/traefik.containo.us/middlewaretcps/": "traefik_containo_us_middlewaretcps", "/traefik.containo.us/serverstransports/": "traefik_containo_us_serverstransports", "/traefik.containo.us/tlsoptions/": "traefik_containo_us_tlsoptions", "/traefik.containo.us/tlsstores/": "traefik_containo_us_tlsstores", "/traefik.containo.us/traefikservices/": "traefik_containo_us_traefikservices",
+		"/traefik.io/ingressroutes/": "traefik_io_ingressroutes", "/traefik.io/ingressroutetcps/": "traefik_io_ingressroutetcps", "/traefik.io/ingressrouteudps/": "traefik_io_ingressrouteudps", "/traefik.io/middlewares/": "traefik_io_middlewares", "/traefik.io/middlewaretcps/": "traefik_io_middlewaretcps",
+		"/traefik.io/serverstransports/": "traefik_io_serverstransports", "/serverstransporttcps/": "serverstransporttcps", "/traefik.io/tlsoptions/": "traefik_io_tlsoptions", "/traefik.io/tlsstores/": "traefik_io_tlsstores", "/traefik.io/traefikservices/": "traefik_io_traefikservices",
+	}
+
+	apiGroupMap = map[string]string{
+		"/bindings/": "core", "/componentstatuses/": "core", "/configmaps/": "core", "/endpoints/": "core", "/events/": "core",
+		"/limitranges/": "core", "/namespaces/": "core", "/minions/": "core", "/persistentvolumeclaims/": "core", "/persistentvolumes/": "core",
+		"/pods/": "core", "/podtemplates/": "core", "/replicationcontrollers/": "core", "/resourcequotas/": "core", "/secrets/": "core",
+		"/serviceaccounts/": "core", "/services/specs/": "core", "/mutatingwebhookconfigurations/": "admissionregistration.k8s.io", "/validatingadmissionpolicies/": "admissionregistration.k8s.io", "/validatingadmissionpolicybindings/": "admissionregistration.k8s.io",
+		"/validatingwebhookconfigurations/": "admissionregistration.k8s.io", "/customresourcedefinitions/": "apiextensions.k8s.io", "/apiservices/": "apiextensions.k8s.io", "/controllerrevisions/": "apps", "/daemonsets/": "apps",
+		"/deployments/": "apps", "/replicasets/": "apps", "/statefulsets/": "apps", "/selfsubjectreviews/": "authentication.k8s.io", "/tokenreviews/": "authentication.k8s.io",
+		"/localsubjectaccessreviews/": "authorization.k8s.io", "/selfsubjectaccessreviews/": "authorization.k8s.io", "/selfsubjectrulesreviews/": "authorization.k8s.io", "/subjectaccessreviews/": "authorization.k8s.io", "/horizontalpodautoscalers/": "autoscaling",
+		"/cronjobs/": "batch", "/jobs/": "batch", "/certificatesigningrequests/": "certificates.k8s.io", "/leases/": "coordination.k8s.io", "/endpointslices/": "discovery.k8s.io",
+		"/flowschemas/": "flowcontrol.apiserver.k8s.io", "/prioritylevelconfigurations/": "flowcontrol.apiserver.k8s.io", "/helmchartconfigs/": "helm.cattle.io", "/helmcharts/": "helm.cattle.io", "/addons/": "k3s.cattle.io",
+		"/etcdsnapshotfiles/": "k3s.cattle.io", "/ingressclasses/": "networking.k8s.io", "/ingresses/": "networking.k8s.io", "/networkpolicies/": "networking.k8s.io", "/runtimeclasses/": "node.k8s.io",
+		"/poddisruptionbudgets/": "policy", "/clusterrolebindings/": "rbac.authorization.k8s.io", "/clusterroles/": "rbac.authorization.k8s.io", "/rolebindings/": "rbac.authorization.k8s.io", "/roles/": "rbac.authorization.k8s.io",
+		"/priorityclasses/": "scheduling.k8s.io", "/csidrivers/": "storage.k8s.io", "/csinodes/": "storage.k8s.io", "/csistoragecapacities/": "storage.k8s.io", "/storageclasses/": "storage.k8s.io",
+		"/volumeattachments/": "storage.k8s.io", "/traefik.containo.us/ingressroutes/": "traefik.containo.us", "/traefik.containo.us/ingressroutetcps/": "traefik.containo.us", "/traefik.containo.us/ingressrouteudps/": "traefik.containo.us", "/traefik.containo.us/middlewares/": "traefik.containo.us",
+		"/traefik.containo.us/middlewaretcps/": "traefik.containo.us", "/traefik.containo.us/serverstransports/": "traefik.containo.us", "/traefik.containo.us/tlsoptions/": "traefik.containo.us", "/traefik.containo.us/tlsstores/": "traefik.containo.us", "/traefik.containo.us/traefikservices/": "traefik.containo.us",
+		"/traefik.io/ingressroutes/": "traefik.io", "/traefik.io/ingressroutetcps/": "traefik.io", "/traefik.io/ingressrouteudps/": "traefik.io", "/traefik.io/middlewares/": "traefik.io", "/traefik.io/middlewaretcps/": "traefik.io",
+		"/traefik.io/serverstransports/": "traefik.io", "/serverstransporttcps/": "traefik.io", "/traefik.io/tlsoptions/": "traefik.io", "/traefik.io/tlsstores/": "traefik.io", "/traefik.io/traefikservices/": "traefik.io",
+	}
 )
 
 type ErrRetry func(error) bool
@@ -123,6 +198,16 @@ func extractValue(jsonStr, key string) (string, error) {
 		return "", fmt.Errorf("key %s not found", key)
 	}
 	return matches[1], nil
+}
+
+// 同样是字符串匹配，目的是提取出某条resources数据对应的表名及资源名
+func containsAndReturnRemainder(str1, str2 string) (bool, string) {
+	index := strings.Index(str1, str2)
+	if index == -1 {
+		return false, ""
+	}
+	remainder := str1[index+len(str2):]
+	return true, remainder
 }
 
 func q(sql, param string, numbered bool) string {
@@ -300,6 +385,62 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	if err := appsv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add Kubernetes apps/v1 types to scheme: %v", err)
 	}
+
+	// 注册 Kubernetes batch/v1 对象
+	if err := batchv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add Kubernetes batch/v1 types to scheme: %v", err)
+	}
+
+	// 注册 Kubernetes rbac/v1 对象
+	if err := rbacv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add Kubernetes rbac/v1 types to scheme: %v", err)
+	}
+	if err := admissionregistrationv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add admissionregistration/v1 types to scheme: %v", err)
+	}
+	if err := apiextensionsv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add apiextensions/v1 types to scheme: %v", err)
+	}
+	if err := apiregistrationv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add apiregistration/v1 types to scheme: %v", err)
+	}
+	if err := authenticationv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add authentication/v1 types to scheme: %v", err)
+	}
+	if err := authorizationv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add authorization/v1 types to scheme: %v", err)
+	}
+	if err := autoscalingv2.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add autoscaling/v2 types to scheme: %v", err)
+	}
+	if err := certificatesv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add certificates/v1 types to scheme: %v", err)
+	}
+	if err := coordinationv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add coordination/v1 types to scheme: %v", err)
+	}
+	if err := discoveryv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add discovery/v1 types to scheme: %v", err)
+	}
+	if err := flowcontrolv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add flowcontrol/v1 types to scheme: %v", err)
+	}
+	if err := networkingv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add networking/v1 types to scheme: %v", err)
+	}
+	if err := nodev1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add node/v1 types to scheme: %v", err)
+	}
+	if err := policyv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add policy/v1 types to scheme: %v", err)
+	}
+	if err := schedulingv1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add scheduling/v1 types to scheme: %v", err)
+	}
+	if err := storagev1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add storage/v1 types to scheme: %v", err)
+	}
+
 	// 初始化 CodecFactory
 	codecFactory := serializer.NewCodecFactory(myScheme)
 
@@ -568,40 +709,41 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		}
 	}
 
-	// Extract resource type and name from key
-	parts := strings.Split(key, "/")
-	if len(parts) < 3 {
-		return id, err
-	}
-	resourceType := parts[2]
-	resourceName := strings.Join(parts[3:], "/")
+	resourceName := ""
+	namespace := ""
+	apigroup := ""
+	region := ""
+	creationTime := ""
 
-	// Determine table name based on resource type
-	switch resourceType {
-	case "pods":
-		tableName = "pods"
-	case "deployments":
-		tableName = "deployments"
-	case "services":
-		tableName = "services"
-	default:
-		// Unsupported resource type
+	for _, resource := range resourcesTemplate {
+		if found, remainder := containsAndReturnRemainder(key, resource); found {
+			tableName = tableMap[resource]
+			resourceName = remainder
+			apigroup = apiGroupMap[resource]
+			break
+		}
+	}
+
+	//如果没匹配到对应的resources，则直接返回，不需要进行后续操作
+	if resourceName == "" {
 		return id, nil
 	}
 
 	if dVal == 1 {
-		// Delete operation
-		deleteQuery := `DELETE FROM %s WHERE name = $1`
+		// 定义删除语句
+		deleteQuery := `
+						DELETE FROM %s WHERE name = $1
+						`
 
 		formattedDeleteQuery := fmt.Sprintf(deleteQuery, pq.QuoteIdentifier(tableName))
 
-		// 执行更新
+		// 执行删除
 		_, err = d.execute(ctx, formattedDeleteQuery, resourceName)
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		// Convert value to JSON
+
 		encodedData := value
 
 		// 解码 Protobuf 数据
@@ -617,28 +759,17 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 			log.Fatalf("Failed to marshal JSON: %v", err)
 		}
 
-		namespace := ""
-		apigroup := ""
-		region := ""
-		creationTime := ""
-
-		// Prepare default values for additional columns
-		if tableName == "deployments" {
-			apigroup = "apps/v1"
-		} else {
-			apigroup = "core"
-		}
 		namespace, err = extractValue(string(jsonData), "namespace")
 		if err != nil {
-			log.Fatalf("Failed to extract namespace: %v", err)
+			namespace = "no-namespace"
 		}
 		region, err = extractValue(string(jsonData), "nodeName")
 		if err != nil {
-			region = "local"
+			region = "no-region"
 		}
 		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
 		if err != nil {
-			log.Fatalf("Failed to extract creationTimestamp: %v", err)
+			creationTime = "no-creationTime"
 		}
 
 		// 获取当前时间
@@ -647,13 +778,13 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		// 格式化时间
 		formattedTime := currentTime.Format("2006-01-02T15:04:05Z")
 
-		// Insert or update the resource table
+		// 如果是创建操作
 		if cVal == 1 {
-			// Insert operation
+			// 定义创建语句
 			insertQuery := `
-    INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    `
+    						INSERT INTO %s (name, namespace, apigroup, region, data, created_time, update_time)
+    						VALUES ($1, $2, $3, $4, $5, $6, $7)
+    						`
 			formattedInsertQuery := fmt.Sprintf(insertQuery, pq.QuoteIdentifier(tableName))
 
 			// 执行插入
@@ -662,18 +793,16 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 				panic(err)
 			}
 
-			//_, err = d.execute(ctx, d.InsertSourcesSQL, resourceName, namespace, apigroup, region, jsonValue, currentTime, 0)
-			//if err != nil {
-			//return id, fmt.Errorf("insert resources error!")
-			//}
 		} else {
-			// Update operation
-			updateQuery := `UPDATE %s SET region = $1,data = $2, update_time = $3 WHERE name = $4`
+			// 定义更新语句
+			updateQuery := `
+							UPDATE %s SET namespace = $1, region = $2,data = $3, update_time = $4 WHERE name = $5
+							`
 
 			formattedUpdateQuery := fmt.Sprintf(updateQuery, pq.QuoteIdentifier(tableName))
 
 			// 执行更新
-			_, err = d.execute(ctx, formattedUpdateQuery, region, jsonData, formattedTime, resourceName)
+			_, err = d.execute(ctx, formattedUpdateQuery, namespace, region, jsonData, formattedTime, resourceName)
 			if err != nil {
 				panic(err)
 			}
