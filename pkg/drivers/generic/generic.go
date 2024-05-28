@@ -85,7 +85,7 @@ var (
 		"/limitranges/", "/namespaces/", "/nodes/", "/persistentvolumeclaims/", "/persistentvolumes/",
 		"/pods/", "/podtemplates/", "/replicationcontrollers/", "/resourcequotas/", "/secrets/",
 		"/serviceaccounts/", "/services/specs/", "/mutatingwebhookconfigurations/", "/validatingadmissionpolicies/", "/validatingadmissionpolicybindings/",
-		"/validatingwebhookconfigurations/", "/customresourcedefinitions/" /*"/apiservices/",*/, "/controllerrevisions/", "/daemonsets/",
+		"/validatingwebhookconfigurations/" /*"/customresourcedefinitions/", "/apiservices/",*/, "/controllerrevisions/", "/daemonsets/",
 		"/deployments/", "/replicasets/", "/statefulsets/", "/selfsubjectreviews/", "/tokenreviews/",
 		"/localsubjectaccessreviews/", "/selfsubjectaccessreviews/", "/selfsubjectrulesreviews/", "/subjectaccessreviews/", "/horizontalpodautoscalers/",
 		"/cronjobs/", "/jobs/", "/certificatesigningrequests/", "/leases/", "/endpointslices/",
