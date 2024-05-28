@@ -97,7 +97,7 @@ var (
 		"/deployments/", "/replicasets/", "/statefulsets/", "/selfsubjectreviews/", "/tokenreviews/",
 		"/localsubjectaccessreviews/", "/selfsubjectaccessreviews/", "/selfsubjectrulesreviews/", "/subjectaccessreviews/", "/horizontalpodautoscalers/",
 		"/cronjobs/", "/jobs/", "/certificatesigningrequests/", "/leases/", "/endpointslices/",
-		"/flowschemas/", "/prioritylevelconfigurations/", "/helmchartconfigs/", "/helmcharts/", /*"/addons/",*/
+		"/flowschemas/", "/prioritylevelconfigurations/", "/helmchartconfigs/", /*"/helmcharts/", "/addons/",*/
 		"/etcdsnapshotfiles/", "/ingressclasses/", "/ingresses/", "/networkpolicies/", "/runtimeclasses/",
 		"/poddisruptionbudgets/", "/clusterrolebindings/", "/clusterroles/", "/rolebindings/", "/roles/",
 		"/priorityclasses/", "/csidrivers/", "/csinodes/", "/csistoragecapacities/", "/storageclasses/",
