@@ -11,7 +11,8 @@ steps:
 - name: build
   image: rancher/dapper:v0.6.0
   commands:
-  - dapper ci
+  - apk add make git bash file
+  - make
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
   volumes:
@@ -208,7 +209,8 @@ steps:
 - name: build
   image: rancher/dapper:v0.6.0
   commands:
-  - dapper ci
+  - apk add make git bash file
+  - make
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
   volumes:
@@ -282,7 +284,8 @@ steps:
 - name: build
   image: rancher/dapper:v0.5.0 # Fixed to v0.5.0 as newer versions of dapper don't work on arm
   commands:
-  - dapper ci
+  - apk add make git bash file
+  - make
   environment:
     ARCH: "${DRONE_STAGE_ARCH}"
   volumes:
