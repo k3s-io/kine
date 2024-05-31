@@ -2,10 +2,10 @@
 FROM golang:1.21-alpine3.18 AS infra
 ARG ARCH=amd64
 
-RUN apk -U add bash coreutils git gcc musl-dev docker-cli vim less file curl wget ca-certificates
-# go imports version gopls/v0.14.1
+RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
+# go imports version gopls/v0.15.3
 # https://github.com/golang/tools/releases/latest
-RUN go install golang.org/x/tools/cmd/goimports@e985f842fa05caad2f3486f0711512aedffbcda8
+RUN go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
 RUN rm -rf /go/src /go/pkg
 RUN if [ "${ARCH}" == "amd64" ]; then \
     curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s;  \
@@ -40,10 +40,6 @@ COPY ./.golangci.json ./.golangci.json
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     --mount=type=cache,id=gobuild,target=/root/.cache/go-build \
     ./scripts/build
-
-COPY ./scripts/package ./scripts/entry ./scripts/
-COPY ./package ./package
-CMD ./scripts/entry package
 
 FROM scratch as binary
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine

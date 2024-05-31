@@ -1,15 +1,3 @@
-TARGETS := $(shell ls scripts | grep -v \\.sh)
-
-.dapper:
-	@echo Downloading dapper
-	@curl -sL https://releases.rancher.com/dapper/v0.6.0/dapper-$$(uname -s)-$$(uname -m) > .dapper.tmp
-	@@chmod +x .dapper.tmp
-	@./.dapper.tmp -v
-	@mv .dapper.tmp .dapper
-
-$(TARGETS): .dapper
-	./.dapper $@
-
 .DEFAULT_GOAL := ci
 
 ARCH ?= amd64
@@ -20,16 +8,18 @@ ifneq ($(DIRTY),)
 	DIRTY="-dirty"
 endif
 
-.PHONY: no-dapper
-no-dapper:
+.PHONY: validate
+validate:
 	DOCKER_BUILDKIT=1 docker build \
 		$(DEFAULT_BUILD_ARGS) --build-arg="SKIP_VALIDATE=$(SKIP_VALIDATE)" \
 		--target=validate -f Dockerfile .
-	DOCKER_BUILDKIT=1 docker build \
-		$(DEFAULT_BUILD_ARGS) --build-arg="DRONE_TAG=$(DRONE_TAG)" --build-arg="CROSS=$(CROSS)" \
-		-f Dockerfile --target=build -t kine-build . 
+
+.PHONY: build
+build:
 	DOCKER_BUILDKIT=1 docker build \
 		$(DEFAULT_BUILD_ARGS) --build-arg="DRONE_TAG=$(DRONE_TAG)" --build-arg="CROSS=$(CROSS)" \
 		-f Dockerfile --target=binary --output=. .
-	DOCKER_BUILDKIT=1 docker run -v /var/run/docker.sock:/var/run/docker.sock -v ./dist:/go/src/github.com/k3s-io/kine/dist \
-		-e DAPPER_UID=1000 -e DAPPER_GID=1000 -e IMAGE_NAME -e DRONE_TAG -e DIRTY=$(DIRTY) kine-build
+
+.PHONY: ci
+ci: validate build
+	ARCH=$(ARCH) ./scripts/package
