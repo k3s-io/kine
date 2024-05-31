@@ -10,6 +10,8 @@ mkdir -p bin
 if [ ${ARCH} = armv7l ] || [ ${ARCH} = arm ]; then
     export GOARCH="arm"
     export GOARM="7"
+elif [ ${ARCH} = riscv64 ]; then
+    export GOARCH="riscv64"
 fi
 
 if [ "$(uname)" = "Linux" ]; then
