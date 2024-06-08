@@ -103,7 +103,7 @@ var (
 		"/priorityclasses/", "/csidrivers/", "/csinodes/", "/csistoragecapacities/", "/storageclasses/",
 		"/volumeattachments/", "/traefik.containo.us/ingressroutes/", "/traefik.containo.us/ingressroutetcps/", "/traefik.containo.us/ingressrouteudps/", "/traefik.containo.us/middlewares/",
 		"/traefik.containo.us/middlewaretcps/", "/traefik.containo.us/serverstransports/", "/traefik.containo.us/tlsoptions/", "/traefik.containo.us/tlsstores/", "/traefik.containo.us/traefikservices/",
-		"/traefik.io/ingressroutes/", "/traefik.io/ingressroutetcps/", "/traefik.io/ingressrouteudps/", "/traefik.io/middlewares/", "/traefik.io/middlewaretcps/",
+		/*"/traefik.io/ingressroutes/", */ "/traefik.io/ingressroutetcps/", "/traefik.io/ingressrouteudps/", "/traefik.io/middlewares/", "/traefik.io/middlewaretcps/",
 		"/traefik.io/serverstransports/", "/serverstransporttcps/", "/traefik.io/tlsoptions/", "/traefik.io/tlsstores/", "/traefik.io/traefikservices/",
 	}
 
@@ -120,10 +120,10 @@ var (
 		"/etcdsnapshotfiles/": "etcdsnapshotfiles", "/ingressclasses/": "ingressclasses", "/ingresses/": "ingresses", "/networkpolicies/": "networkpolicies", "/runtimeclasses/": "runtimeclasses",
 		"/poddisruptionbudgets/": "poddisruptionbudgets", "/clusterrolebindings/": "clusterrolebindings", "/clusterroles/": "clusterroles", "/rolebindings/": "rolebindings", "/roles/": "roles",
 		"/priorityclasses/": "priorityclasses", "/csidrivers/": "csidrivers", "/csinodes/": "csinodes", "/csistoragecapacities/": "csistoragecapacities", "/storageclasses/": "storageclasses",
-		"/volumeattachments/": "volumeattachments", "/traefik.containo.us/ingressroutes/": "traefik_containo_us_ingressroutes", "/traefik.containo.us/ingressroutetcps/": "traefik_containo_us_ingressroutetcps", "/traefik.containo.us/ingressrouteudps/": "traefik_containo_us_ingressrouteudps", "/traefik.containo.us/middlewares/": "traefik_containo_us_middlewares",
-		"/traefik.containo.us/middlewaretcps/": "traefik_containo_us_middlewaretcps", "/traefik.containo.us/serverstransports/": "traefik_containo_us_serverstransports", "/traefik.containo.us/tlsoptions/": "traefik_containo_us_tlsoptions", "/traefik.containo.us/tlsstores/": "traefik_containo_us_tlsstores", "/traefik.containo.us/traefikservices/": "traefik_containo_us_traefikservices",
-		"/traefik.io/ingressroutes/": "traefik_io_ingressroutes", "/traefik.io/ingressroutetcps/": "traefik_io_ingressroutetcps", "/traefik.io/ingressrouteudps/": "traefik_io_ingressrouteudps", "/traefik.io/middlewares/": "traefik_io_middlewares", "/traefik.io/middlewaretcps/": "traefik_io_middlewaretcps",
-		"/traefik.io/serverstransports/": "traefik_io_serverstransports", "/serverstransporttcps/": "serverstransporttcps", "/traefik.io/tlsoptions/": "traefik_io_tlsoptions", "/traefik.io/tlsstores/": "traefik_io_tlsstores", "/traefik.io/traefikservices/": "traefik_io_traefikservices",
+		"/volumeattachments/": "volumeattachments", "/traefik.containo.us/ingressroutes/": "ingressroutes", "/traefik.containo.us/ingressroutetcps/": "ingressroutetcps", "/traefik.containo.us/ingressrouteudps/": "ingressrouteudps", "/traefik.containo.us/middlewares/": "middlewares",
+		"/traefik.containo.us/middlewaretcps/": "middlewaretcps", "/traefik.containo.us/serverstransports/": "serverstransports", "/traefik.containo.us/tlsoptions/": "tlsoptions", "/traefik.containo.us/tlsstores/": "tlsstores", "/traefik.containo.us/traefikservices/": "traefikservices",
+		"/traefik.io/ingressroutes/": "ingressroutes", "/traefik.io/ingressroutetcps/": "ingressroutetcps", "/traefik.io/ingressrouteudps/": "ingressrouteudps", "/traefik.io/middlewares/": "middlewares", "/traefik.io/middlewaretcps/": "middlewaretcps",
+		"/traefik.io/serverstransports/": "serverstransports", "/serverstransporttcps/": "serverstransporttcps", "/traefik.io/tlsoptions/": "tlsoptions", "/traefik.io/tlsstores/": "tlsstores", "/traefik.io/traefikservices/": "traefikservices",
 	}
 
 	apiGroupMap = map[string]string{
