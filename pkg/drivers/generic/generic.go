@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/lib/pq"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	admissionregistrationv1beta1 "k8s.io/api/admissionregistration/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	authenticationv1 "k8s.io/api/authentication/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
@@ -89,16 +90,16 @@ var (
 	tableName = ""
 
 	resourcesTemplate = []string{
-		"/componentstatuses/", "/configmaps/", "/endpoints/", "/events/",
+		"/configmaps/", "/endpoints/", "/events/",
 		"/limitranges/", "/namespaces/", "/nodes/", "/persistentvolumeclaims/", "/persistentvolumes/",
-		"/pods/", "/podtemplates/", "/replicationcontrollers/", "/resourcequotas/", "/secrets/",
+		"/pods/", "/podtemplates/", "/controllers/", "/resourcequotas/", "/secrets/",
 		"/serviceaccounts/", "/services/specs/", "/mutatingwebhookconfigurations/", "/validatingadmissionpolicies/", "/validatingadmissionpolicybindings/",
 		"/validatingwebhookconfigurations/" /*"/customresourcedefinitions/", "/apiservices/",*/, "/controllerrevisions/", "/daemonsets/",
-		"/deployments/", "/replicasets/", "/statefulsets/", "/selfsubjectreviews/", "/tokenreviews/",
-		"/localsubjectaccessreviews/", "/selfsubjectaccessreviews/", "/selfsubjectrulesreviews/", "/subjectaccessreviews/", "/horizontalpodautoscalers/",
+		"/deployments/", "/replicasets/", "/statefulsets/",
+		"/horizontalpodautoscalers/",
 		"/cronjobs/", "/jobs/", "/certificatesigningrequests/", "/leases/", "/endpointslices/",
 		"/flowschemas/", "/prioritylevelconfigurations/", "/helmchartconfigs/", /*"/helmcharts/", "/addons/",*/
-		"/etcdsnapshotfiles/", "/ingressclasses/", "/ingresses/", "/networkpolicies/", "/runtimeclasses/",
+		"/etcdsnapshotfiles/", "/ingressclasses/", "/ingress/", "/networkpolicies/", "/runtimeclasses/",
 		"/poddisruptionbudgets/", "/clusterrolebindings/", "/clusterroles/", "/rolebindings/", "/roles/",
 		"/priorityclasses/", "/csidrivers/", "/csinodes/", "/csistoragecapacities/", "/storageclasses/",
 		"/volumeattachments/", "/traefik.containo.us/ingressroutes/", "/traefik.containo.us/ingressroutetcps/", "/traefik.containo.us/ingressrouteudps/", "/traefik.containo.us/middlewares/",
@@ -110,14 +111,14 @@ var (
 	tableMap = map[string]string{
 		"/componentstatuses/": "componentstatuses", "/configmaps/": "configmaps", "/endpoints/": "endpoints", "/events/": "events",
 		"/limitranges/": "limitranges", "/namespaces/": "namespaces", "/minions/": "nodes", "/persistentvolumeclaims/": "persistentvolumeclaims", "/persistentvolumes/": "persistentvolumes",
-		"/pods/": "pods", "/podtemplates/": "podtemplates", "/replicationcontrollers/": "replicationcontrollers", "/resourcequotas/": "resourcequotas", "/secrets/": "secrets",
+		"/pods/": "pods", "/podtemplates/": "podtemplates", "/controllers/": "replicationcontrollers", "/resourcequotas/": "resourcequotas", "/secrets/": "secrets",
 		"/serviceaccounts/": "serviceaccounts", "/services/specs/": "services", "/mutatingwebhookconfigurations/": "mutatingwebhookconfigurations", "/validatingadmissionpolicies/": "validatingadmissionpolicies", "/validatingadmissionpolicybindings/": "validatingadmissionpolicybindings",
 		"/validatingwebhookconfigurations/": "validatingwebhookconfigurations", "/customresourcedefinitions/": "customresourcedefinitions", "/apiservices/": "apiservices", "/controllerrevisions/": "controllerrevisions", "/daemonsets/": "daemonsets",
-		"/deployments/": "deployments", "/replicasets/": "replicasets", "/statefulsets/": "statefulsets", "/selfsubjectreviews/": "selfsubjectreviews", "/tokenreviews/": "tokenreviews",
-		"/localsubjectaccessreviews/": "localsubjectaccessreviews", "/selfsubjectaccessreviews/": "selfsubjectaccessreviews", "/selfsubjectrulesreviews/": "selfsubjectrulesreviews", "/subjectaccessreviews/": "subjectaccessreviews", "/horizontalpodautoscalers/": "horizontalpodautoscalers",
-		"/cronjobs/": "cronjobs", "/jobs/": "jobs", "/certificatesigningrequests/": "certificatesigningrequests", "/leases/": "leases", "/endpointslices/": "endpointslices",
+		"/deployments/": "deployments", "/replicasets/": "replicasets", "/statefulsets/": "statefulsets",
+		"/horizontalpodautoscalers/": "horizontalpodautoscalers",
+		"/cronjobs/":                 "cronjobs", "/jobs/": "jobs", "/certificatesigningrequests/": "certificatesigningrequests", "/leases/": "leases", "/endpointslices/": "endpointslices",
 		"/flowschemas/": "flowschemas", "/prioritylevelconfigurations/": "prioritylevelconfigurations", "/helmchartconfigs/": "helmchartconfigs", "/helmcharts/": "helmcharts", "/addons/": "addons",
-		"/etcdsnapshotfiles/": "etcdsnapshotfiles", "/ingressclasses/": "ingressclasses", "/ingresses/": "ingresses", "/networkpolicies/": "networkpolicies", "/runtimeclasses/": "runtimeclasses",
+		"/etcdsnapshotfiles/": "etcdsnapshotfiles", "/ingressclasses/": "ingressclasses", "/ingress/": "ingress", "/networkpolicies/": "networkpolicies", "/runtimeclasses/": "runtimeclasses",
 		"/poddisruptionbudgets/": "poddisruptionbudgets", "/clusterrolebindings/": "clusterrolebindings", "/clusterroles/": "clusterroles", "/rolebindings/": "rolebindings", "/roles/": "roles",
 		"/priorityclasses/": "priorityclasses", "/csidrivers/": "csidrivers", "/csinodes/": "csinodes", "/csistoragecapacities/": "csistoragecapacities", "/storageclasses/": "storageclasses",
 		"/volumeattachments/": "volumeattachments", "/traefik.containo.us/ingressroutes/": "ingressroutes", "/traefik.containo.us/ingressroutetcps/": "ingressroutetcps", "/traefik.containo.us/ingressrouteudps/": "ingressrouteudps", "/traefik.containo.us/middlewares/": "middlewares",
@@ -129,14 +130,14 @@ var (
 	apiGroupMap = map[string]string{
 		"/componentstatuses/": "core", "/configmaps/": "core", "/endpoints/": "core", "/events/": "core",
 		"/limitranges/": "core", "/namespaces/": "core", "/minions/": "core", "/persistentvolumeclaims/": "core", "/persistentvolumes/": "core",
-		"/pods/": "core", "/podtemplates/": "core", "/replicationcontrollers/": "core", "/resourcequotas/": "core", "/secrets/": "core",
+		"/pods/": "core", "/podtemplates/": "core", "/controllers/": "core", "/resourcequotas/": "core", "/secrets/": "core",
 		"/serviceaccounts/": "core", "/services/specs/": "core", "/mutatingwebhookconfigurations/": "admissionregistration.k8s.io", "/validatingadmissionpolicies/": "admissionregistration.k8s.io", "/validatingadmissionpolicybindings/": "admissionregistration.k8s.io",
 		"/validatingwebhookconfigurations/": "admissionregistration.k8s.io", "/customresourcedefinitions/": "apiextensions.k8s.io", "/apiservices/": "apiextensions.k8s.io", "/controllerrevisions/": "apps", "/daemonsets/": "apps",
-		"/deployments/": "apps", "/replicasets/": "apps", "/statefulsets/": "apps", "/selfsubjectreviews/": "authentication.k8s.io", "/tokenreviews/": "authentication.k8s.io",
-		"/localsubjectaccessreviews/": "authorization.k8s.io", "/selfsubjectaccessreviews/": "authorization.k8s.io", "/selfsubjectrulesreviews/": "authorization.k8s.io", "/subjectaccessreviews/": "authorization.k8s.io", "/horizontalpodautoscalers/": "autoscaling",
-		"/cronjobs/": "batch", "/jobs/": "batch", "/certificatesigningrequests/": "certificates.k8s.io", "/leases/": "coordination.k8s.io", "/endpointslices/": "discovery.k8s.io",
+		"/deployments/": "apps", "/replicasets/": "apps", "/statefulsets/": "apps",
+		"/horizontalpodautoscalers/": "autoscaling",
+		"/cronjobs/":                 "batch", "/jobs/": "batch", "/certificatesigningrequests/": "certificates.k8s.io", "/leases/": "coordination.k8s.io", "/endpointslices/": "discovery.k8s.io",
 		"/flowschemas/": "flowcontrol.apiserver.k8s.io", "/prioritylevelconfigurations/": "flowcontrol.apiserver.k8s.io", "/helmchartconfigs/": "helm.cattle.io", "/helmcharts/": "helm.cattle.io", "/addons/": "k3s.cattle.io",
-		"/etcdsnapshotfiles/": "k3s.cattle.io", "/ingressclasses/": "networking.k8s.io", "/ingresses/": "networking.k8s.io", "/networkpolicies/": "networking.k8s.io", "/runtimeclasses/": "node.k8s.io",
+		"/etcdsnapshotfiles/": "k3s.cattle.io", "/ingressclasses/": "networking.k8s.io", "/ingress/": "networking.k8s.io", "/networkpolicies/": "networking.k8s.io", "/runtimeclasses/": "node.k8s.io",
 		"/poddisruptionbudgets/": "policy", "/clusterrolebindings/": "rbac.authorization.k8s.io", "/clusterroles/": "rbac.authorization.k8s.io", "/rolebindings/": "rbac.authorization.k8s.io", "/roles/": "rbac.authorization.k8s.io",
 		"/priorityclasses/": "scheduling.k8s.io", "/csidrivers/": "storage.k8s.io", "/csinodes/": "storage.k8s.io", "/csistoragecapacities/": "storage.k8s.io", "/storageclasses/": "storage.k8s.io",
 		"/volumeattachments/": "storage.k8s.io", "/traefik.containo.us/ingressroutes/": "traefik.containo.us", "/traefik.containo.us/ingressroutetcps/": "traefik.containo.us", "/traefik.containo.us/ingressrouteudps/": "traefik.containo.us", "/traefik.containo.us/middlewares/": "traefik.containo.us",
@@ -423,6 +424,9 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	}
 	if err := admissionregistrationv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add admissionregistration/v1 types to scheme: %v", err)
+	}
+	if err := admissionregistrationv1beta1.AddToScheme(myScheme); err != nil {
+		log.Fatalf("Failed to add admissionregistration/v1beta1 types to scheme: %v", err)
 	}
 	if err := authenticationv1.AddToScheme(myScheme); err != nil {
 		log.Fatalf("Failed to add authentication/v1 types to scheme: %v", err)
@@ -724,7 +728,6 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		if found, remainder := containsAndReturnRemainder(key, resource); found {
 			tableName = tableMap[resource]
 			resourceName = remainder
-			apigroup = apiGroupMap[resource]
 			break
 		}
 	}
@@ -766,17 +769,24 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 			log.Fatalf("Failed to marshal JSON: %v", err)
 		}
 
+		apigroup, err = extractValue(string(jsonData), "apiVersion")
+		if err != nil {
+			namespace = "cant-find-apigroup"
+		}
+
 		namespace, err = extractValue(string(jsonData), "namespace")
 		if err != nil {
-			namespace = "no-namespace"
+			namespace = "cant-find-namespace"
 		}
+
 		region, err = extractValue(string(jsonData), "nodeName")
 		if err != nil {
-			region = "no-region"
+			region = "cant-find-region"
 		}
+
 		creationTime, err = extractValue(string(jsonData), "creationTimestamp")
 		if err != nil {
-			creationTime = "no-creationTime"
+			creationTime = "cant-find-creationTime"
 		}
 
 		// 获取当前时间
