@@ -56,6 +56,12 @@ func main() {
 			Usage:       "Key file for etcd connection",
 			Destination: &config.ServerTLSConfig.KeyFile,
 		},
+		&cli.BoolFlag{
+			Name:        "skip-verify",
+			Usage:       "Whether the TLS client should verify the server certificate.",
+			Destination: &config.BackendTLSConfig.SkipVerify,
+			Value:       false,
+		},
 		&cli.IntFlag{
 			Name:        "datastore-max-idle-connections",
 			Usage:       "Maximum number of idle connections retained by datastore. If value = 0, the system default will be used. If value < 0, idle connections will not be reused.",
