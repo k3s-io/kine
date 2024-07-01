@@ -43,6 +43,10 @@ func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args ...inte
 	duration := time.Since(start)
 	SQLTime.WithLabelValues(errCode).Observe(duration.Seconds())
 	if SlowSQLThreshold > 0 && duration >= SlowSQLThreshold {
-		logrus.Infof("Slow SQL (started: %v) (total time: %v): %s : %v", start, duration, sql, args)
+		if logrus.GetLevel() == logrus.TraceLevel {
+			logrus.Tracef("Slow SQL (started: %v) (total time: %v): %s : %v", start, duration, sql, args)
+		} else {
+			logrus.Infof("Slow SQL (started: %v) (total time: %v): %s", start, duration, sql)
+		}
 	}
 }
