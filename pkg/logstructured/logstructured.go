@@ -364,7 +364,6 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 
 	go func() {
 		defer wg.Done()
-		var lastRev int64
 
 		rev, events, err := l.log.List(ctx, "/", "", 1000, 0, false)
 		for len(events) > 0 {
@@ -377,15 +376,11 @@ func (l *LogStructured) ttlEvents(ctx context.Context) chan *server.Event {
 				if event.KV.Lease > 0 {
 					result <- event
 				}
-
-				if event.KV.ModRevision > lastRev {
-					lastRev = event.KV.ModRevision
-				}
 			}
 
-			_, events, err = l.log.List(ctx, "/", events[len(events)-1].KV.Key, 1000, rev, false)
+			rev, events, err = l.log.List(ctx, "/", events[len(events)-1].KV.Key, 1000, rev, false)
 		}
-		lastListRevision <- lastRev
+		lastListRevision <- rev
 	}()
 
 	go func() {
