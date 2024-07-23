@@ -2,11 +2,11 @@
 
 The following example uses kine with a `mysql` database for persistence.
 
-A sample script is available to generate certs [here](generate-certs.sh)
-But you also will need to use `SAN` instead of `CN`
-We have a example of the files you will need to generate the certs for the [server](server_openssl.cnf)
+A sample script is available to generate certs [here](generate-certs.sh).
+But you also will need to use `SAN` instead of `CN`.
+We have a example of the files you will need to generate the certs for the [server](server_openssl.cnf).
 
-We can run `mysql` on a host using `docker` [here](Dockerfile)
+We can run `mysql` on a host using `docker` [here](Dockerfile),
 you will also need the `cnf` file [here](mysql-ssl.cnf)
 
 ```bash
