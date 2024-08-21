@@ -46,6 +46,7 @@ type Config struct {
 	BackendTLSConfig     tls.Config
 	MetricsRegisterer    prometheus.Registerer
 	NotifyInterval       time.Duration
+	EmulatedETCDVersion  string
 }
 
 type ETCDConfig struct {
@@ -82,7 +83,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	}
 
 	// set up GRPC server and register services
-	b := server.New(backend, endpointScheme(config), config.NotifyInterval)
+	b := server.New(backend, endpointScheme(config), config.NotifyInterval, config.EmulatedETCDVersion)
 	grpcServer, err := grpcServer(config)
 	if err != nil {
 		return ETCDConfig{}, errors.Wrap(err, "creating GRPC server")

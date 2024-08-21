@@ -102,6 +102,12 @@ func main() {
 			Destination: &config.NotifyInterval,
 			Value:       time.Minute * 10,
 		},
+		&cli.StringFlag{
+			Name:        "emulated-etcd-version",
+			Usage:       "The emulated etcd version to return on a call to the status endpoint. Defaults to 3.4.31 which is the least version that support Kubernetes watch progress feature.",
+			Destination: &config.EmulatedETCDVersion,
+			Value:       "3.4.31",
+		},
 		&cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run
