@@ -11,18 +11,18 @@ import (
 )
 
 type KVServerBridge struct {
+	emulatedETCDVersion string
 	limited             *LimitedServer
-	EmulatedETCDVersion string
 }
 
 func New(backend Backend, scheme string, notifyInterval time.Duration, emulatedETCDVersion string) *KVServerBridge {
 	return &KVServerBridge{
+		emulatedETCDVersion: emulatedETCDVersion,
 		limited: &LimitedServer{
 			notifyInterval: notifyInterval,
 			backend:        backend,
 			scheme:         scheme,
 		},
-		EmulatedETCDVersion: emulatedETCDVersion,
 	}
 }
 

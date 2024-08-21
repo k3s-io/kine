@@ -98,15 +98,15 @@ func main() {
 		},
 		&cli.DurationFlag{
 			Name:        "watch-progress-notify-interval",
-			Usage:       "Interval between periodic watch progress notifications. Default is 10m.",
+			Usage:       "Interval between periodic watch progress notifications. Default is 5s to ensure support for watch progress notifications.",
 			Destination: &config.NotifyInterval,
-			Value:       time.Minute * 10,
+			Value:       time.Second * 5,
 		},
 		&cli.StringFlag{
 			Name:        "emulated-etcd-version",
-			Usage:       "The emulated etcd version to return on a call to the status endpoint. Defaults to 3.4.31 which is the least version that support Kubernetes watch progress feature.",
+			Usage:       "The emulated etcd version to return on a call to the status endpoint. Defaults to 3.5.13, in order to indicate support for watch progress notifications.",
 			Destination: &config.EmulatedETCDVersion,
-			Value:       "3.4.31",
+			Value:       "3.5.13",
 		},
 		&cli.BoolFlag{Name: "debug"},
 	}
