@@ -224,7 +224,7 @@ func getOrCreateBucket(ctx context.Context, js jetstream.JetStream, config *Conf
 
 		// Check for temporary JetStream errors when the cluster is unhealthy and retry.
 		if jsClusterNotAvailErr.Is(err) || jsNoSuitablePeersErr.Is(err) {
-			logrus.Warnf(err.Error())
+			logrus.Warn(err.Error())
 			time.Sleep(time.Second)
 			continue
 		}

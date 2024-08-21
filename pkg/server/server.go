@@ -11,11 +11,13 @@ import (
 )
 
 type KVServerBridge struct {
-	limited *LimitedServer
+	emulatedETCDVersion string
+	limited             *LimitedServer
 }
 
-func New(backend Backend, scheme string, notifyInterval time.Duration) *KVServerBridge {
+func New(backend Backend, scheme string, notifyInterval time.Duration, emulatedETCDVersion string) *KVServerBridge {
 	return &KVServerBridge{
+		emulatedETCDVersion: emulatedETCDVersion,
 		limited: &LimitedServer{
 			notifyInterval: notifyInterval,
 			backend:        backend,
