@@ -9,7 +9,6 @@ import (
 	"strconv"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/k3s-io/kine/pkg/drivers/generic"
@@ -52,7 +51,7 @@ var (
 	createDB = "CREATE DATABASE IF NOT EXISTS "
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
+func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
 	tlsConfig, err := tlsInfo.ClientConfig()
 	if err != nil {
 		return nil, err
@@ -71,7 +70,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "mysql", parsedDSN, connPoolConfig, "?", false, metricsRegisterer)
+	dialect, err := generic.Open(ctx, "mysql", parsedDSN, connPoolConfig, "?", false)
 	if err != nil {
 		return nil, err
 	}

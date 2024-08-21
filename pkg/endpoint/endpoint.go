@@ -14,11 +14,9 @@ import (
 	"github.com/k3s-io/kine/pkg/drivers/nats"
 	"github.com/k3s-io/kine/pkg/drivers/pgsql"
 	"github.com/k3s-io/kine/pkg/drivers/sqlite"
-	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/server/v3/embed"
 	"google.golang.org/grpc"
@@ -44,21 +42,22 @@ type Config struct {
 	ConnectionPoolConfig generic.ConnectionPoolConfig
 	ServerTLSConfig      tls.Config
 	BackendTLSConfig     tls.Config
-	MetricsRegisterer    prometheus.Registerer
 	NotifyInterval       time.Duration
 	EmulatedETCDVersion  string
 }
 
 type ETCDConfig struct {
+	Driver      string
 	Endpoints   []string
 	TLSConfig   tls.Config
 	LeaderElect bool
 }
 
-func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
+func Listen(ctx context.Context, config Config) (*ETCDConfig, error) {
 	driver, dsn := ParseStorageEndpoint(config.Endpoint)
 	if driver == ETCDBackend {
-		return ETCDConfig{
+		return &ETCDConfig{
+			Driver:      driver,
 			Endpoints:   strings.Split(config.Endpoint, ","),
 			TLSConfig:   config.BackendTLSConfig,
 			LeaderElect: true,
@@ -67,33 +66,25 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 
 	leaderelect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "building kine")
-	}
-
-	if config.MetricsRegisterer != nil {
-		config.MetricsRegisterer.MustRegister(
-			metrics.SQLTotal,
-			metrics.SQLTime,
-			metrics.CompactTotal,
-		)
+		return nil, errors.Wrap(err, "building kine")
 	}
 
 	if err := backend.Start(ctx); err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "starting kine backend")
+		return nil, errors.Wrap(err, "starting kine backend")
 	}
 
 	// set up GRPC server and register services
 	b := server.New(backend, endpointScheme(config), config.NotifyInterval, config.EmulatedETCDVersion)
 	grpcServer, err := grpcServer(config)
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "creating GRPC server")
+		return nil, errors.Wrap(err, "creating GRPC server")
 	}
 	b.Register(grpcServer)
 
 	// Create raw listener and wrap in cmux for protocol switching
 	listener, err := createListener(config)
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "creating listener")
+		return nil, errors.Wrap(err, "creating listener")
 	}
 
 	go func() {
@@ -105,12 +96,11 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	endpoint := endpointURL(config, listener)
 	logrus.Infof("Kine available at %s", endpoint)
 
-	return ETCDConfig{
-		LeaderElect: leaderelect,
+	return &ETCDConfig{
+		Driver:      driver,
 		Endpoints:   []string{endpoint},
-		TLSConfig: tls.Config{
-			CAFile: config.ServerTLSConfig.CAFile,
-		},
+		TLSConfig:   tls.Config{CAFile: config.ServerTLSConfig.CAFile},
+		LeaderElect: leaderelect,
 	}, nil
 }
 
@@ -214,13 +204,13 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 	switch driver {
 	case SQLiteBackend:
 		leaderElect = false
-		backend, err = sqlite.New(ctx, dsn, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
+		backend, err = sqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
 	case DQLiteBackend:
-		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
+		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig)
 	case PostgresBackend:
-		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
+		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
 	case MySQLBackend:
-		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
+		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig)
 	case JetStreamBackend:
 		backend, err = nats.NewLegacy(ctx, dsn, cfg.BackendTLSConfig)
 	case NATSBackend:
