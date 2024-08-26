@@ -47,6 +47,23 @@ func main() {
 			Destination: &config.BackendTLSConfig.CertFile,
 		},
 		&cli.StringFlag{
+			Name:        "key-file",
+			Usage:       "Key file for DB connection",
+			Destination: &config.BackendTLSConfig.KeyFile,
+		},
+		&cli.BoolFlag{
+			Name:        "skip-verify",
+			Usage:       "Whether the TLS client should verify the server certificate.",
+			Destination: &config.BackendTLSConfig.SkipVerify,
+			Value:       false,
+		},
+		&cli.StringFlag{
+			Name:        "metrics-bind-address",
+			Usage:       "The address the metric endpoint binds to. Default :8080, set 0 to disable metrics serving.",
+			Destination: &metricsConfig.ServerAddress,
+			Value:       ":8080",
+		},
+		&cli.StringFlag{
 			Name:        "server-cert-file",
 			Usage:       "Certificate for etcd connection",
 			Destination: &config.ServerTLSConfig.CertFile,
@@ -55,12 +72,6 @@ func main() {
 			Name:        "server-key-file",
 			Usage:       "Key file for etcd connection",
 			Destination: &config.ServerTLSConfig.KeyFile,
-		},
-		&cli.BoolFlag{
-			Name:        "skip-verify",
-			Usage:       "Whether the TLS client should verify the server certificate.",
-			Destination: &config.BackendTLSConfig.SkipVerify,
-			Value:       false,
 		},
 		&cli.IntFlag{
 			Name:        "datastore-max-idle-connections",
@@ -79,17 +90,6 @@ func main() {
 			Usage:       "Maximum amount of time a connection may be reused. If value <= 0, then there is no limit.",
 			Destination: &config.ConnectionPoolConfig.MaxLifetime,
 			Value:       0,
-		},
-		&cli.StringFlag{
-			Name:        "key-file",
-			Usage:       "Key file for DB connection",
-			Destination: &config.BackendTLSConfig.KeyFile,
-		},
-		&cli.StringFlag{
-			Name:        "metrics-bind-address",
-			Usage:       "The address the metric endpoint binds to. Default :8080, set 0 to disable metrics serving.",
-			Destination: &metricsConfig.ServerAddress,
-			Value:       ":8080",
 		},
 		&cli.DurationFlag{
 			Name:        "slow-sql-threshold",
