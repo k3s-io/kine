@@ -135,13 +135,17 @@ func run(c *cli.Context) error {
 	}
 	ctx := signals.SetupSignalContext()
 
-	metricsConfig.ServerTLSConfig = config.ServerTLSConfig
-	go metrics.Serve(ctx, metricsConfig)
-	config.MetricsRegisterer = metrics.Registry
-	_, err := endpoint.Listen(ctx, config)
+	ep, err := endpoint.Listen(ctx, config)
 	if err != nil {
 		return err
 	}
+	if ep.Driver == endpoint.ETCDBackend {
+		return fmt.Errorf("Endpoint driver %s cannot be used in standalone mode", ep.Driver)
+	}
+
+	metricsConfig.ServerTLSConfig = config.ServerTLSConfig
+	go metrics.Serve(ctx, metricsConfig)
+
 	<-ctx.Done()
 	return ctx.Err()
 }

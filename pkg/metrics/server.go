@@ -36,7 +36,8 @@ func Serve(ctx context.Context, config Config) {
 		logrus.Fatalf("error creating the metrics listener: %v", err)
 	}
 
-	handler := promhttp.HandlerFor(Registry, promhttp.HandlerOpts{
+	RegisterAll()
+	handler := promhttp.HandlerFor(DefaultGatherer, promhttp.HandlerOpts{
 		ErrorHandling: promhttp.HTTPErrorOnError,
 	})
 	mux := http.NewServeMux()

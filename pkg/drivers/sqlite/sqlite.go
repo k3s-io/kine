@@ -17,7 +17,6 @@ import (
 	"github.com/k3s-io/kine/pkg/util"
 	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	// sqlite db driver
@@ -47,12 +46,12 @@ var (
 	}
 )
 
-func New(ctx context.Context, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
-	backend, _, err := NewVariant(ctx, "sqlite3", dataSourceName, connPoolConfig, metricsRegisterer)
+func New(ctx context.Context, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
+	backend, _, err := NewVariant(ctx, "sqlite3", dataSourceName, connPoolConfig)
 	return backend, err
 }
 
-func NewVariant(ctx context.Context, driverName, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, *generic.Generic, error) {
+func NewVariant(ctx context.Context, driverName, dataSourceName string, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, *generic.Generic, error) {
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, nil, err
@@ -60,7 +59,7 @@ func NewVariant(ctx context.Context, driverName, dataSourceName string, connPool
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000"
 	}
 
-	dialect, err := generic.Open(ctx, driverName, dataSourceName, connPoolConfig, "?", false, metricsRegisterer)
+	dialect, err := generic.Open(ctx, driverName, dataSourceName, connPoolConfig, "?", false)
 	if err != nil {
 		return nil, nil, err
 	}

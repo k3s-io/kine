@@ -69,7 +69,7 @@ outer:
 	return nil
 }
 
-func New(ctx context.Context, datasourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
+func New(ctx context.Context, datasourceName string, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
 	opts, err := parseOpts(datasourceName)
 	if err != nil {
 		return nil, err

@@ -19,7 +19,6 @@ import (
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -53,7 +52,7 @@ var (
 	createDB = "CREATE DATABASE "
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
+func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig) (server.Backend, error) {
 	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -63,7 +62,7 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "pgx", parsedDSN, connPoolConfig, "$", true, metricsRegisterer)
+	dialect, err := generic.Open(ctx, "pgx", parsedDSN, connPoolConfig, "$", true)
 	if err != nil {
 		return nil, err
 	}

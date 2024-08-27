@@ -16,7 +16,6 @@ import (
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/sirupsen/logrus"
 )
@@ -171,7 +170,7 @@ func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
+func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
@@ -193,9 +192,7 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 
 	configureConnectionPooling(connPoolConfig, db, driverName)
 
-	if metricsRegisterer != nil {
-		metricsRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
-	}
+	metrics.DefaultRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
 
 	return &Generic{
 		DB: db,
