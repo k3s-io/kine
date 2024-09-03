@@ -56,7 +56,11 @@ type ETCDConfig struct {
 }
 
 func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
-	driver, dsn := ParseStorageEndpoint(config.Endpoint)
+	driver, dsn, err := ParseStorageEndpoint(config.Endpoint)
+	if err != nil {
+		return ETCDConfig{}, errors.Wrap(err, "parsing storage endpoint")
+	}
+
 	if driver == ETCDBackend {
 		return ETCDConfig{
 			Endpoints:   strings.Split(config.Endpoint, ","),
@@ -233,19 +237,35 @@ func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) 
 }
 
 // ParseStorageEndpoint returns the driver name and endpoint string from a datastore endpoint URL.
-func ParseStorageEndpoint(storageEndpoint string) (string, string) {
+func ParseStorageEndpoint(storageEndpoint string) (string, string, error) {
+	if storageEndpoint == "" {
+		return SQLiteBackend, "", nil
+	}
+
+	if err := validateDSNuri(storageEndpoint); err != nil {
+		return "", "", err
+	}
+
 	network, address := networkAndAddress(storageEndpoint)
+
 	switch network {
-	case "":
-		return SQLiteBackend, ""
 	case "nats":
-		return NATSBackend, storageEndpoint
+		return NATSBackend, storageEndpoint, nil
 	case "http":
 		fallthrough
 	case "https":
-		return ETCDBackend, address
+		return ETCDBackend, address, nil
 	}
-	return network, address
+	return network, address, nil
+}
+
+// validateDSNuri ensure that the given string is of that format <scheme://<authority>
+func validateDSNuri(str string) error {
+	parts := strings.SplitN(str, "://", 2)
+	if len(parts) > 1 {
+		return nil
+	}
+	return errors.New("invalid datastore endpoint; endpoint should be a DSN URI in the format <scheme>://<authority>")
 }
 
 // networkAndAddress crudely splits a URL string into network (scheme) and address,
