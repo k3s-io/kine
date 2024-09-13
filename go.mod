@@ -1,8 +1,8 @@
 module github.com/k3s-io/kine
 
-go 1.21.0
+go 1.21
 
-toolchain go1.23.1
+toolchain go1.22.2
 
 require (
 	github.com/Rican7/retry v0.1.0
