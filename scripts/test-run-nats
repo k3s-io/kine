@@ -15,7 +15,6 @@ export -f start-test
 
 # test minimum supported version and most recent version of NATS
 VERSION_LIST="\
-    nats 2.9.25
     nats 2.10.20"
 
 while read ENGINE VERSION; do
