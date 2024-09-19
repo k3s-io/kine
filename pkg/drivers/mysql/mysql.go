@@ -178,7 +178,6 @@ func createDBIfNotExist(dataSourceName string) error {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
 
-	
 	if !exists {
 		stmt := fmt.Sprintf(createDB, dbName)
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
