@@ -50,7 +50,7 @@ var (
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
 	}
-	createDB = "CREATE DATABASE "
+	createDB = `CREATE DATABASE "%s";`
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
@@ -165,9 +165,9 @@ func createDBIfNotExist(dataSourceName string) error {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
 
-	stmt := createDB + dbName + ";"
-
+	
 	if !exists {
+		stmt := fmt.Sprintf(createDB, dbName)
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		if _, err = db.Exec(stmt); err != nil {
 			logrus.Warnf("failed to create database %s: %v", dbName, err)
