@@ -3,6 +3,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"os"
 	"regexp"
@@ -32,7 +33,7 @@ var (
 		`CREATE TABLE IF NOT EXISTS kine
  			(
 				id BIGSERIAL PRIMARY KEY,
-				name VARCHAR(630),
+				name text COLLATE "C",
 				created INTEGER,
 				deleted INTEGER,
 				create_revision BIGINT,
@@ -41,14 +42,19 @@ var (
  				value bytea,
  				old_value bytea
  			);`,
+
 		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
 		`CREATE INDEX IF NOT EXISTS kine_name_id_index ON kine (name,id)`,
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS kine_list_query_index on kine(name, id DESC, deleted)`,
 	}
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
+		// It is important to set the collation to "C" to ensure that LIKE and COMPARISON
+		// queries use the index.
+		`ALTER TABLE kine ALTER COLUMN name SET DATA TYPE TEXT USING name::TEXT COLLATE "C"`,
 	}
 	createDB = "CREATE DATABASE "
 )
@@ -67,6 +73,41 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 	if err != nil {
 		return nil, err
 	}
+	listSQL := `
+		SELECT
+			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
+			maxkv.*
+		FROM (
+			SELECT DISTINCT ON (name)
+				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
+			FROM
+				kine AS kv
+			WHERE
+				kv.name LIKE ? 
+				%s
+			ORDER BY kv.name, theid DESC
+		) AS maxkv
+		WHERE
+			maxkv.deleted = 0 OR ?
+		ORDER BY maxkv.name, maxkv.theid DESC
+	`
+
+	countSQL := `
+		SELECT
+			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+			COUNT(c.theid)
+		FROM (
+			SELECT DISTINCT ON (name)
+				kv.id AS theid, kv.deleted
+			FROM kine AS kv
+			WHERE
+				kv.name LIKE ?
+				%s
+			ORDER BY kv.name, theid DESC
+			) AS c
+		WHERE c.deleted = 0 OR ?
+		`
 	dialect.GetSizeSQL = `SELECT pg_total_relation_size('kine')`
 	dialect.CompactSQL = `
 		DELETE FROM kine AS kv
@@ -85,6 +126,11 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 				kd.id <= $2
 		) AS ks
 		WHERE kv.id = ks.id`
+	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ?"))
+	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND kv.id <= ?"))
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ? AND kv.id <= ?"))
+	dialect.CountCurrentSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ?"))
+	dialect.CountRevisionSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ? AND kv.id <= ?"))
 	dialect.FillRetryDuration = time.Millisecond + 5
 	dialect.InsertRetry = func(err error) bool {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
