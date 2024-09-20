@@ -201,6 +201,10 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 		u.Path = "/kubernetes"
 	}
 
+	// makes quoting database and schema reference the same unquoted identifier
+	// See: https://www.postgresql.org/docs/12/sql-syntax-lexical.html#:~:text=unquoted%20names%20are%20always%20folded%20to%20lower%20case
+	u.Path = strings.ToLower(u.Path)
+
 	queryMap, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
 		return "", err
