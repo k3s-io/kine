@@ -48,6 +48,9 @@ var (
 	}
 	schemaMigrations = []string{
 		`ALTER TABLE kine MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
+		// Creating an empty migration to ensure that postgresql and mysql migrations match up
+		// with each other for a give value of KINE_SCHEMA_MIGRATION env var
+		``,
 	}
 	createDB = "CREATE DATABASE IF NOT EXISTS "
 )
@@ -147,6 +150,9 @@ func setup(db *sql.DB) error {
 	for i, stmt := range schemaMigrations {
 		if i >= int(schemaVersion) {
 			break
+		}
+		if stmt == "" {
+			continue
 		}
 		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, util.Stripped(stmt))
 		if _, err := db.Exec(stmt); err != nil {

@@ -180,6 +180,9 @@ func setup(db *sql.DB) error {
 		if i >= int(schemaVersion) {
 			break
 		}
+		if stmt == "" {
+			continue
+		}
 		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, util.Stripped(stmt))
 		if _, err := db.Exec(stmt); err != nil {
 			return err
