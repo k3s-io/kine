@@ -164,9 +164,20 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 
 func setup(db *sql.DB) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+	var version string
+	collationSupported := true
+	if err := db.QueryRow("select version()").Scan(&version); err == nil && strings.Contains(strings.ToLower(version), "cockroachdb") {
+		// CockroadDB does not seem to support "C" as a collation
+		// It looks like it's using golang.org/x/text/language and ends up calling something like v, err := language.Parse("C")
+		// which parses it as a BCP47 language tag instead of a collation.
+		collationSupported = false
+	}
 
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+		if !collationSupported {
+			stmt = strings.ReplaceAll(stmt, ` COLLATE "C"`, "")
+		}
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
@@ -179,6 +190,9 @@ func setup(db *sql.DB) error {
 	for i, stmt := range schemaMigrations {
 		if i >= int(schemaVersion) {
 			break
+		}
+		if !collationSupported {
+			stmt = strings.ReplaceAll(stmt, ` COLLATE "C"`, "")
 		}
 		if stmt == "" {
 			continue
