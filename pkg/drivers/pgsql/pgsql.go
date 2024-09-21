@@ -54,7 +54,7 @@ var (
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
 		// It is important to set the collation to "C" to ensure that LIKE and COMPARISON
 		// queries use the index.
-		`ALTER TABLE kine ALTER COLUMN name SET DATA TYPE TEXT USING name::TEXT COLLATE "C"`,
+		`ALTER TABLE kine ALTER COLUMN name SET DATA TYPE TEXT COLLATE "C" USING name::TEXT COLLATE "C"`,
 	}
 	createDB = "CREATE DATABASE "
 )
