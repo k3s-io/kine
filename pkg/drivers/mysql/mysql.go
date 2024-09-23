@@ -52,7 +52,7 @@ var (
 		// with each other for a give value of KINE_SCHEMA_MIGRATION env var
 		``,
 	}
-	createDB = "CREATE DATABASE IF NOT EXISTS "
+	createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
@@ -185,7 +185,9 @@ func createDBIfNotExist(dataSourceName string) error {
 	}
 
 	if !exists {
-		if _, err = db.Exec(createDB + dbName); err != nil {
+		stmt := fmt.Sprintf(createDB, dbName)
+		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+		if _, err = db.Exec(stmt); err != nil {
 			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
 				return err
 			}
@@ -194,7 +196,7 @@ func createDBIfNotExist(dataSourceName string) error {
 			if err != nil {
 				return err
 			}
-			if _, err = db.Exec(createDB + dbName); err != nil {
+			if _, err = db.Exec(stmt); err != nil {
 				return err
 			}
 		}

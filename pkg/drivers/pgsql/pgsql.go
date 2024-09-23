@@ -56,7 +56,7 @@ var (
 		// queries use the index.
 		`ALTER TABLE kine ALTER COLUMN name SET DATA TYPE TEXT COLLATE "C" USING name::TEXT COLLATE "C"`,
 	}
-	createDB = "CREATE DATABASE "
+	createDB = `CREATE DATABASE "%s";`
 )
 
 func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
@@ -228,9 +228,8 @@ func createDBIfNotExist(dataSourceName string) error {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
 
-	stmt := createDB + dbName + ";"
-
 	if !exists {
+		stmt := fmt.Sprintf(createDB, dbName)
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		if _, err = db.Exec(stmt); err != nil {
 			logrus.Warnf("failed to create database %s: %v", dbName, err)
@@ -264,6 +263,10 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	if len(u.Path) == 0 || u.Path == "/" {
 		u.Path = "/kubernetes"
 	}
+
+	// makes quoting database and schema reference the same unquoted identifier
+	// See: https://www.postgresql.org/docs/12/sql-syntax-lexical.html#:~:text=unquoted%20names%20are%20always%20folded%20to%20lower%20case
+	u.Path = strings.ToLower(u.Path)
 
 	queryMap, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
