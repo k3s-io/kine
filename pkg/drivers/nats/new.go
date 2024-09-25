@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/drivers"
 	natsserver "github.com/k3s-io/kine/pkg/drivers/nats/server"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
@@ -43,14 +44,17 @@ var (
 
 // New return an implementation of server.Backend using NATS + JetStream.
 // See the `examples/nats.md` file for examples of connection strings.
-func New(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
-	return newBackend(ctx, connection, tlsInfo, false)
+func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, err := newBackend(ctx, cfg.Endpoint, cfg.BackendTLSConfig, false)
+	return true, backend, err
 }
 
 // NewLegacy return an implementation of server.Backend using NATS + JetStream
 // with legacy jetstream:// behavior, ignoring the embedded server.
-func NewLegacy(ctx context.Context, connection string, tlsInfo tls.Config) (server.Backend, error) {
-	return newBackend(ctx, connection, tlsInfo, true)
+func NewLegacy(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, err := newBackend(ctx, cfg.DataSourceName, cfg.BackendTLSConfig, true)
+	return true, backend, err
+
 }
 
 func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, legacy bool) (server.Backend, error) {
@@ -263,4 +267,9 @@ func ensureDirectGets(ctx context.Context, js jetstream.JetStream, config *Confi
 
 		return nil
 	}
+}
+
+func init() {
+	drivers.Register("nats", New)
+	drivers.Register("jetstream", NewLegacy)
 }

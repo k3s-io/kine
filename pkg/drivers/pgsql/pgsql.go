@@ -14,13 +14,13 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // sql driver
+	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -59,19 +59,19 @@ var (
 	createDB = `CREATE DATABASE "%s";`
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
-	parsedDSN, err := prepareDSN(dataSourceName, tlsInfo)
+func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+	parsedDSN, err := prepareDSN(cfg.DataSourceName, cfg.BackendTLSConfig)
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
 	if err := createDBIfNotExist(parsedDSN); err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "pgx", parsedDSN, connPoolConfig, "$", true, metricsRegisterer)
+	dialect, err := generic.Open(ctx, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 	listSQL := `
 		SELECT
@@ -155,11 +155,11 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 	}
 
 	if err := setup(dialect.DB); err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
 	dialect.Migrate(context.Background())
-	return logstructured.New(sqllog.New(dialect)), nil
+	return true, logstructured.New(sqllog.New(dialect)), nil
 }
 
 func setup(db *sql.DB) error {
@@ -295,4 +295,9 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	}
 	u.RawQuery = params.Encode()
 	return u.String(), nil
+}
+
+func init() {
+	drivers.Register("postgres", New)
+	drivers.Register("postgresql", New)
 }
