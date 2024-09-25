@@ -9,14 +9,13 @@ import (
 	"strconv"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
 )
 
@@ -55,28 +54,28 @@ var (
 	createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
 )
 
-func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
-	tlsConfig, err := tlsInfo.ClientConfig()
+func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+	tlsConfig, err := cfg.BackendTLSConfig.ClientConfig()
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
 	if tlsConfig != nil {
 		tlsConfig.MinVersion = cryptotls.VersionTLS11
 	}
 
-	parsedDSN, err := prepareDSN(dataSourceName, tlsConfig)
+	parsedDSN, err := prepareDSN(cfg.DataSourceName, tlsConfig)
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
 	if err := createDBIfNotExist(parsedDSN); err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "mysql", parsedDSN, connPoolConfig, "?", false, metricsRegisterer)
+	dialect, err := generic.Open(ctx, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
 	dialect.LastInsertID = true
@@ -117,11 +116,11 @@ func New(ctx context.Context, dataSourceName string, tlsInfo tls.Config, connPoo
 		return err.Error()
 	}
 	if err := setup(dialect.DB); err != nil {
-		return nil, err
+		return false, nil, err
 	}
 
 	dialect.Migrate(context.Background())
-	return logstructured.New(sqllog.New(dialect)), nil
+	return true, logstructured.New(sqllog.New(dialect)), nil
 }
 
 func setup(db *sql.DB) error {
@@ -230,4 +229,8 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 	parsedDSN := config.FormatDSN()
 
 	return parsedDSN, nil
+}
+
+func init() {
+	drivers.Register("mysql", New)
 }

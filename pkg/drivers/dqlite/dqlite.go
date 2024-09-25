@@ -15,11 +15,11 @@ import (
 	"github.com/canonical/go-dqlite"
 	"github.com/canonical/go-dqlite/client"
 	"github.com/canonical/go-dqlite/driver"
+	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/drivers/sqlite"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,6 +29,7 @@ var (
 )
 
 func init() {
+	generic.RegisterDriver("dqlite", New)
 	// We assume SQLite will be used multi-threaded
 	if err := dqlite.ConfigMultiThread(); err != nil {
 		panic(errors.Wrap(err, "failed to set dqlite multithreaded mode"))
@@ -69,7 +70,8 @@ outer:
 	return nil
 }
 
-func New(ctx context.Context, datasourceName string, connPoolConfig generic.ConnectionPoolConfig, metricsRegisterer prometheus.Registerer) (server.Backend, error) {
+func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+	dataSourceName = cfg.Address
 	opts, err := parseOpts(datasourceName)
 	if err != nil {
 		return nil, err
@@ -98,7 +100,8 @@ func New(ctx context.Context, datasourceName string, connPoolConfig generic.Conn
 	}
 
 	sql.Register("dqlite", d)
-	backend, generic, err := sqlite.NewVariant(ctx, "dqlite", opts.dsn, connPoolConfig, metricsRegisterer)
+	cfg.Address = opts.dsn
+	backend, generic, err := sqlite.NewVariant(ctx, "dqlite", cfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "sqlite client")
 	}
@@ -120,7 +123,7 @@ func New(ctx context.Context, datasourceName string, connPoolConfig generic.Conn
 		return err
 	}
 
-	return backend, nil
+	return true, backend, nil
 }
 
 func migrate(ctx context.Context, newDB *sql.DB) (exitErr error) {

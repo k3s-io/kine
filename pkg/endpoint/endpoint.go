@@ -2,21 +2,17 @@ package endpoint
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/drivers/dqlite"
+	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
-	"github.com/k3s-io/kine/pkg/drivers/mysql"
-	"github.com/k3s-io/kine/pkg/drivers/nats"
-	"github.com/k3s-io/kine/pkg/drivers/pgsql"
-	"github.com/k3s-io/kine/pkg/drivers/sqlite"
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -27,14 +23,7 @@ import (
 )
 
 const (
-	KineSocket       = "unix://kine.sock"
-	SQLiteBackend    = "sqlite"
-	DQLiteBackend    = "dqlite"
-	ETCDBackend      = "etcd3"
-	JetStreamBackend = "jetstream"
-	NATSBackend      = "nats"
-	MySQLBackend     = "mysql"
-	PostgresBackend  = "postgres"
+	KineSocket = "unix://kine.sock"
 )
 
 type Config struct {
@@ -56,22 +45,23 @@ type ETCDConfig struct {
 }
 
 func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
-	driver, dsn, err := ParseStorageEndpoint(config.Endpoint)
+	leaderElect, backend, err := drivers.New(ctx, &drivers.Config{
+		MetricsRegisterer:    config.MetricsRegisterer,
+		Endpoint:             config.Endpoint,
+		BackendTLSConfig:     config.BackendTLSConfig,
+		ConnectionPoolConfig: config.ConnectionPoolConfig,
+	})
+
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "parsing storage endpoint")
+		return ETCDConfig{}, errors.Wrap(err, "building kine")
 	}
 
-	if driver == ETCDBackend {
+	if backend == nil {
 		return ETCDConfig{
 			Endpoints:   strings.Split(config.Endpoint, ","),
 			TLSConfig:   config.BackendTLSConfig,
-			LeaderElect: true,
+			LeaderElect: leaderElect,
 		}, nil
-	}
-
-	leaderelect, backend, err := getKineStorageBackend(ctx, driver, dsn, config)
-	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "building kine")
 	}
 
 	if config.MetricsRegisterer != nil {
@@ -110,7 +100,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	logrus.Infof("Kine available at %s", endpoint)
 
 	return ETCDConfig{
-		LeaderElect: leaderelect,
+		LeaderElect: leaderElect,
 		Endpoints:   []string{endpoint},
 		TLSConfig: tls.Config{
 			CAFile: config.ServerTLSConfig.CAFile,
@@ -141,17 +131,17 @@ func endpointScheme(config Config) string {
 		config.Listener = KineSocket
 	}
 
-	network, _ := networkAndAddress(config.Listener)
-	if network != "unix" {
-		network = "http"
+	scheme, _ := util.SchemeAndAddress(config.Listener)
+	if scheme != "unix" {
+		scheme = "http"
 	}
 
 	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
 		// yes, etcd supports the "unixs" scheme for TLS over unix sockets
-		network += "s"
+		scheme += "s"
 	}
 
-	return network
+	return scheme
 }
 
 // createListener returns a listener bound to the requested protocol and address.
@@ -159,9 +149,9 @@ func createListener(config Config) (ret net.Listener, rerr error) {
 	if config.Listener == "" {
 		config.Listener = KineSocket
 	}
-	network, address := networkAndAddress(config.Listener)
+	scheme, address := util.SchemeAndAddress(config.Listener)
 
-	if network == "unix" {
+	if scheme == "unix" {
 		if err := os.Remove(address); err != nil && !os.IsNotExist(err) {
 			logrus.Warnf("failed to remove socket %s: %v", address, err)
 		}
@@ -171,10 +161,10 @@ func createListener(config Config) (ret net.Listener, rerr error) {
 			}
 		}()
 	} else {
-		network = "tcp"
+		scheme = "tcp"
 	}
 
-	return net.Listen(network, address)
+	return net.Listen(scheme, address)
 }
 
 // grpcServer returns either a preconfigured GRPC server, or builds a new GRPC
@@ -204,76 +194,4 @@ func grpcServer(config Config) (*grpc.Server, error) {
 	}
 
 	return grpc.NewServer(gopts...), nil
-}
-
-// getKineStorageBackend parses the driver string, and returns a bool
-// indicating whether the backend requires leader election, and a suitable
-// backend datastore connection.
-func getKineStorageBackend(ctx context.Context, driver, dsn string, cfg Config) (bool, server.Backend, error) {
-	var (
-		backend     server.Backend
-		leaderElect = true
-		err         error
-	)
-	switch driver {
-	case SQLiteBackend:
-		leaderElect = false
-		backend, err = sqlite.New(ctx, dsn, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case DQLiteBackend:
-		backend, err = dqlite.New(ctx, dsn, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case PostgresBackend:
-		backend, err = pgsql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case MySQLBackend:
-		backend, err = mysql.New(ctx, dsn, cfg.BackendTLSConfig, cfg.ConnectionPoolConfig, cfg.MetricsRegisterer)
-	case JetStreamBackend:
-		backend, err = nats.NewLegacy(ctx, dsn, cfg.BackendTLSConfig)
-	case NATSBackend:
-		backend, err = nats.New(ctx, dsn, cfg.BackendTLSConfig)
-	default:
-		return false, nil, fmt.Errorf("storage backend is not defined")
-	}
-
-	return leaderElect, backend, err
-}
-
-// ParseStorageEndpoint returns the driver name and endpoint string from a datastore endpoint URL.
-func ParseStorageEndpoint(storageEndpoint string) (string, string, error) {
-	if storageEndpoint == "" {
-		return SQLiteBackend, "", nil
-	}
-
-	if err := validateDSNuri(storageEndpoint); err != nil {
-		return "", "", err
-	}
-
-	network, address := networkAndAddress(storageEndpoint)
-
-	switch network {
-	case "nats":
-		return NATSBackend, storageEndpoint, nil
-	case "http":
-		fallthrough
-	case "https":
-		return ETCDBackend, address, nil
-	}
-	return network, address, nil
-}
-
-// validateDSNuri ensure that the given string is of that format <scheme://<authority>
-func validateDSNuri(str string) error {
-	parts := strings.SplitN(str, "://", 2)
-	if len(parts) > 1 {
-		return nil
-	}
-	return errors.New("invalid datastore endpoint; endpoint should be a DSN URI in the format <scheme>://<authority>")
-}
-
-// networkAndAddress crudely splits a URL string into network (scheme) and address,
-// where the address includes everything after the scheme/authority separator.
-func networkAndAddress(str string) (string, string) {
-	parts := strings.SplitN(str, "://", 2)
-	if len(parts) > 1 {
-		return parts[0], parts[1]
-	}
-	return "", parts[0]
 }
