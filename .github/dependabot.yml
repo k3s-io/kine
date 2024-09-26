@@ -29,3 +29,13 @@ updates:
       - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
+
+  # Maintain dependencies for Go
+  - package-ecosystem: "gomod"
+    directory: "/"
+    labels:
+      - "kind/dependabot"
+    reviewers:
+      - "k3s-io/k3s-dev"
+    schedule:
+      interval: "weekly"
