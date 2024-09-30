@@ -20,7 +20,7 @@ require (
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tidwall/btree v1.6.0
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/urfave/cli/v2 v2.27.4
 	go.etcd.io/etcd/api/v3 v3.5.13
 	go.etcd.io/etcd/client/pkg/v3 v3.5.13
 	go.etcd.io/etcd/client/v3 v3.5.13
@@ -71,7 +71,7 @@ require (
 	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	github.com/xrash/smetrics v0.0.0-20240312152122-5f08fbb34913 // indirect
+	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.etcd.io/bbolt v1.3.9 // indirect
 	go.etcd.io/etcd/client/v2 v2.305.13 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.5.13 // indirect
