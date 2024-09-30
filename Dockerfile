@@ -1,5 +1,5 @@
 
-FROM golang:1.21-alpine3.18 AS infra
+FROM golang:1.22-alpine3.20 AS infra
 ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
