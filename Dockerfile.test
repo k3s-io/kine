@@ -1,14 +1,14 @@
-FROM golang:1.21-alpine3.17
+FROM golang:1.22-alpine3.20
 
 ARG ARCH=amd64
 
-RUN apk -U add bash ca-certificates coreutils curl docker-cli file findutils gcc git less musl-dev vim wget
-RUN apk -U add py3-pip && pip install kubernetes termplotlib==v0.3.4
+RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
+RUN apk -U add docker-cli file findutils py3-pip && \
+    pip install --break-system-packages kubernetes termplotlib==v0.3.4
 
 ENV KINE_SOURCE /go/src/github.com/k3s-io/kine/
 ENV HOME ${KINE_SOURCE}
 WORKDIR ${KINE_SOURCE}
-
 
 COPY . ${KINE_SOURCE}
 
