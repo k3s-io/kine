@@ -5,7 +5,7 @@ go 1.22
 toolchain go1.22.5
 
 require (
-	github.com/Rican7/retry v0.1.0
+	github.com/Rican7/retry v0.3.1
 	github.com/canonical/go-dqlite v1.5.1
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
