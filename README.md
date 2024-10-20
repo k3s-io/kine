@@ -11,6 +11,7 @@ Kine is an etcdshim that translates etcd API to:
 - Can be ran standalone so any k8s (not just K3s) can use Kine
 - Implements a subset of etcdAPI (not usable at all for general purpose etcd)
 - Translates etcdTX calls into the desired API (Create, Update, Delete)
+- Exports metrics (see [definition](pkg/metrics/metrics.go) and [example grafana dashboard](examples/k3s-kine-dashboard.json))
 
 See an [example](/examples/minimal.md).
 
