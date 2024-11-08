@@ -156,17 +156,17 @@ outer:
 				metrics.CompactTotal.WithLabelValues(metrics.ResultError).Inc()
 				continue outer
 			}
+
+			// Record progress for the outer loop
+			compactRev = compactedRev
+			targetCompactRev = currentRev
+
+			metrics.CompactTotal.WithLabelValues(metrics.ResultSuccess).Inc()
 		}
 
 		if err := s.postCompact(); err != nil {
 			logrus.Errorf("Post-compact operations failed: %v", err)
 		}
-
-		// Record the final results for the outer loop
-		compactRev = compactedRev
-		targetCompactRev = currentRev
-
-		metrics.CompactTotal.WithLabelValues(metrics.ResultSuccess).Inc()
 	}
 }
 
