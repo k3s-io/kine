@@ -1,6 +1,7 @@
 module github.com/k3s-io/kine
 
 go 1.22
+
 toolchain go1.22.5
 
 require (
@@ -25,8 +26,8 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.16
 	go.etcd.io/etcd/server/v3 v3.5.16
 	google.golang.org/grpc v1.67.1
-	k8s.io/apimachinery v0.31.2
-	k8s.io/client-go v0.31.2
+	k8s.io/apimachinery v0.28.15
+	k8s.io/client-go v0.28.15
 )
 
 require (
