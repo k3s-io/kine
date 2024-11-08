@@ -10,7 +10,7 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v5 v5.7.1
-	github.com/klauspost/compress v1.17.10
+	github.com/klauspost/compress v1.17.11
 	github.com/mattn/go-sqlite3 v1.14.23
 	github.com/nats-io/jsm.go v0.0.31-0.20220317133147-fe318f464eee
 	github.com/nats-io/nats-server/v2 v2.10.12
