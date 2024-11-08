@@ -55,7 +55,7 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, nil, err
 		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000"
+		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
 	}
 
 	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
