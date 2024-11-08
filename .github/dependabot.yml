@@ -40,3 +40,12 @@ updates:
       - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
+    groups:
+      k8s-dependencies:
+        patterns:
+          - k8s.io/*
+      etcd-dependencies:
+        patterns:
+          - go.etcd.io/*
+    ignore:
+      - dependency-name: "github.com/nats-io/nats-server/v2"
