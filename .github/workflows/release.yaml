@@ -42,7 +42,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Determine version
         id: determine_version
-        run: echo "VERSION=${{ github.event.inputs.kine_version || github.ref_name }}" | sed 's/^v//' >> $GITHUB_ENV
+        run: echo "VERSION=${{ github.event.inputs.kine_version || github.ref_name }}" | sed 's/v//' >> $GITHUB_ENV
       - name: Build and push
         id: push
         uses: docker/build-push-action@v6
