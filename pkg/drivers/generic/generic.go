@@ -406,6 +406,7 @@ func (d *Generic) IsFill(key string) bool {
 	return strings.HasPrefix(key, "gap-")
 }
 
+//nolint:revive
 func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (id int64, err error) {
 	if d.TranslateErr != nil {
 		defer func() {
