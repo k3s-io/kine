@@ -176,6 +176,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	if err != nil {
 		return err
 	}
+	defer db.Close()
 
 	var exists bool
 	err = db.QueryRow("SELECT 1 FROM information_schema.SCHEMATA WHERE schema_name = ?", dbName).Scan(&exists)
@@ -195,6 +196,7 @@ func createDBIfNotExist(dataSourceName string) error {
 			if err != nil {
 				return err
 			}
+			defer db.Close()
 			if _, err = db.Exec(stmt); err != nil {
 				return err
 			}
