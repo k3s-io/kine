@@ -1,0 +1,18 @@
+FROM golang:1.22-alpine3.20 AS infra
+
+RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
+
+ARG KINE_VERSION=0.13.5
+WORKDIR /
+RUN git -c advice.detachedHead=false clone -b v$KINE_VERSION --depth=1 https://github.com/loft-sh/kine.git
+
+WORKDIR /kine
+RUN go version
+
+RUN CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" \
+  go build -v -tags="nats" \
+  -ldflags="-X github.com/k3s-io/kine/pkg/version.Version=v$KINE_VERSION -X github.com/k3s-io/kine/pkg/version.GitCommit=$(git rev-parse --short HEAD) -extldflags -static -s" \
+  -o kine
+
+FROM scratch
+COPY --from=infra /kine/kine /bin/kine

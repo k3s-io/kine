@@ -47,6 +47,7 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
+          file: Dockerfile.release
           platforms: linux/amd64,linux/arm64
           push: true
           sbom: true
