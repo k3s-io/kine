@@ -21,10 +21,10 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tidwall/btree v1.6.0
 	github.com/urfave/cli/v2 v2.27.5
-	go.etcd.io/etcd/api/v3 v3.5.16
-	go.etcd.io/etcd/client/pkg/v3 v3.5.16
-	go.etcd.io/etcd/client/v3 v3.5.16
-	go.etcd.io/etcd/server/v3 v3.5.16
+	go.etcd.io/etcd/api/v3 v3.5.17
+	go.etcd.io/etcd/client/pkg/v3 v3.5.17
+	go.etcd.io/etcd/client/v3 v3.5.17
+	go.etcd.io/etcd/server/v3 v3.5.17
 	google.golang.org/grpc v1.68.0
 	k8s.io/apimachinery v0.28.15
 	k8s.io/client-go v0.28.15
@@ -73,9 +73,9 @@ require (
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.etcd.io/bbolt v1.3.11 // indirect
-	go.etcd.io/etcd/client/v2 v2.305.16 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.5.16 // indirect
-	go.etcd.io/etcd/raft/v3 v3.5.16 // indirect
+	go.etcd.io/etcd/client/v2 v2.305.17 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.5.17 // indirect
+	go.etcd.io/etcd/raft/v3 v3.5.17 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.46.0 // indirect
 	go.opentelemetry.io/otel v1.20.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.20.0 // indirect
