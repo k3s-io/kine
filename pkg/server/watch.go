@@ -219,7 +219,7 @@ func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
 
 	serr := w.server.Send(&etcdserverpb.WatchResponse{
 		Header:          txnHeader(revision),
-		Canceled:        err != nil,
+		Canceled:        true,
 		CancelReason:    reason,
 		WatchId:         watchID,
 		CompactRevision: compactRev,
