@@ -85,6 +85,7 @@ type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64
 	Events          <-chan []*Event
+	Errorc          <-chan error
 }
 
 func unsupported(field string) error {

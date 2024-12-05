@@ -172,7 +172,12 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			}
 		}
 
-		w.Cancel(id, 0, 0, nil)
+		select {
+		case err := <-wr.Errorc:
+			w.Cancel(id, 0, 0, err)
+		default:
+			w.Cancel(id, 0, 0, nil)
+		}
 		logrus.Tracef("WATCH CLOSE id=%d, key=%s", id, key)
 	}()
 }
