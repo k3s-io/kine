@@ -12,9 +12,10 @@ import (
 var (
 	ErrNotSupported = status.New(codes.InvalidArgument, "etcdserver: unsupported operations in txn request").Err()
 
-	ErrKeyExists = rpctypes.ErrGRPCDuplicateKey
-	ErrCompacted = rpctypes.ErrGRPCCompacted
-	ErrFutureRev = rpctypes.ErrGRPCFutureRev
+	ErrKeyExists     = rpctypes.ErrGRPCDuplicateKey
+	ErrCompacted     = rpctypes.ErrGRPCCompacted
+	ErrFutureRev     = rpctypes.ErrGRPCFutureRev
+	ErrGRPCUnhealthy = rpctypes.ErrGRPCUnhealthy
 )
 
 type Backend interface {
@@ -85,6 +86,7 @@ type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64
 	Events          <-chan []*Event
+	Errorc          <-chan error
 }
 
 func unsupported(field string) error {

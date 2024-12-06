@@ -425,17 +425,20 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	}
 
 	result := make(chan []*server.Event, 100)
-	wr := server.WatchResult{Events: result}
+	errc := make(chan error, 1)
+	wr := server.WatchResult{Events: result, Errorc: errc}
 
 	rev, kvs, err := l.log.After(ctx, prefix, revision, 0)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			logrus.Errorf("Failed to list %s for revision %d: %v", prefix, revision, err)
-		}
-		if err == server.ErrCompacted {
-			compact, _ := l.log.CompactRevision(ctx)
-			wr.CompactRevision = compact
-			wr.CurrentRevision = rev
+			if err == server.ErrCompacted {
+				compact, _ := l.log.CompactRevision(ctx)
+				wr.CompactRevision = compact
+				wr.CurrentRevision = rev
+			} else {
+				errc <- server.ErrGRPCUnhealthy
+			}
 		}
 		cancel()
 	}
