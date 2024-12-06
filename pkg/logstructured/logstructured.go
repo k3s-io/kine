@@ -437,7 +437,7 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 				wr.CompactRevision = compact
 				wr.CurrentRevision = rev
 			} else {
-				errc <- errors.New("failed to execute query in database")
+				errc <- server.ErrGRPCUnhealthy
 			}
 		}
 		cancel()
