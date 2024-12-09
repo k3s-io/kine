@@ -1,4 +1,4 @@
-FROM alpine:3.20
+FROM alpine:3.21
 ARG ARCH=amd64
 COPY dist/artifacts/kine-${ARCH} /bin/kine
 RUN mkdir /db && chown nobody /db
