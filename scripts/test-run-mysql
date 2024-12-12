@@ -23,11 +23,11 @@ start-test() {
 export -f start-test
 
 VERSION_LIST="\
+    mysql 8.4
     mysql 8.0
-    mysql 5.7
+    mariadb 11.4
     mariadb 10.11
-    mariadb 10.5
-    mariadb 10.4"
+    mariadb 10.5"
 
 while read ENGINE VERSION; do
     LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=MYSQL_ROOT_PASSWORD DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test
