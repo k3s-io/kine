@@ -23,10 +23,10 @@ start-test() {
 export -f start-test
 
 VERSION_LIST="\
-    postgres 15.4
-    postgres 14.9
-    postgres 13.12
-    postgres 12.16"
+    postgres 17
+    postgres 16
+    postgres 15
+    postgres 14"
 
 while read ENGINE VERSION; do
     LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test
