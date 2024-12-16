@@ -325,29 +325,18 @@ func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMut
 		return true
 	}
 
-	l.deleteTTLEvent(ctx, rwMutex, queue, store, eventKV)
-	return true
-}
-
-func (l *LogStructured) deleteTTLEvent(ctx context.Context, rwMutex *sync.RWMutex, queue workqueue.DelayingInterface, store map[string]*ttlEventKV, preEventKV *ttlEventKV) {
-	logrus.Tracef("TTL delete key=%v, modRev=%v", preEventKV.key, preEventKV.modRevision)
-	_, _, _, err := l.Delete(ctx, preEventKV.key, preEventKV.modRevision)
+	logrus.Tracef("TTL delete key=%v, modRev=%v", eventKV.key, eventKV.modRevision)
+	if _, _, _, err := l.Delete(ctx, eventKV.key, eventKV.modRevision); err != nil {
+		logrus.Errorf("TTL delete trigger failed for key=%v: %v, requeuing", eventKV.key, err)
+		queue.AddAfter(eventKV.key, retryInterval)
+		return true
+	}
 
 	rwMutex.Lock()
 	defer rwMutex.Unlock()
-	curEventKV := store[preEventKV.key]
-	if expires := time.Until(preEventKV.expiredAt); expires > 0 {
-		logrus.Tracef("TTL changed for key=%v, ttl=%v, requeuing", curEventKV.key, expires)
-		queue.AddAfter(curEventKV.key, expires)
-		return
-	}
-	if err != nil {
-		logrus.Errorf("TTL delete trigger failed for key=%v: %v, requeuing", curEventKV.key, err)
-		queue.AddAfter(curEventKV.key, retryInterval)
-		return
-	}
+	delete(store, eventKV.key)
 
-	delete(store, curEventKV.key)
+	return true
 }
 
 // ttlEvents starts a goroutine to do a ListWatch on the root prefix. First it lists
