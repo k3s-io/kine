@@ -1,7 +1,6 @@
 module github.com/k3s-io/kine
 
 go 1.22.7
-toolchain go1.23.4
 
 require (
 	github.com/Rican7/retry v0.3.1
@@ -24,8 +23,8 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.17
 	go.etcd.io/etcd/server/v3 v3.5.17
 	google.golang.org/grpc v1.69.0
-	k8s.io/apimachinery v0.32.0
-	k8s.io/client-go v0.32.0
+	k8s.io/apimachinery v0.29.12
+	k8s.io/client-go v0.29.12
 )
 
 require (

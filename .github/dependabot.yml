@@ -41,11 +41,27 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      k8s-dependencies:
-        patterns:
-          - k8s.io/*
       etcd-dependencies:
         patterns:
           - go.etcd.io/*
     ignore:
       - dependency-name: "github.com/nats-io/nats-server/v2"
+      - dependency-name: "k8s.io/*"
+    
+    # Maintain dependencies for K8s seperately, with a different schedule
+  - package-ecosystem: "gomod"
+    target-branch: main # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
+    open-pull-requests-limit: 1
+    directory: "/"
+    labels:
+      - "kind/dependabot"
+    reviewers:
+      - "k3s-io/k3s-dev"
+    schedule:
+      interval: "monthly"
+    groups:
+      k8s-dependencies:
+        patterns:
+          - k8s.io/*
+    allow:
+      - dependency-name: "k8s.io/*"
