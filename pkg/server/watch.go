@@ -191,12 +191,19 @@ func toEvents(events ...*Event) []*mvccpb.Event {
 }
 
 func toEvent(event *Event) *mvccpb.Event {
+	emptyEvent := &mvccpb.KeyValue{}
+
 	e := &mvccpb.Event{
-		Kv:     toKV(event.KV),
-		PrevKv: toKV(event.PrevKV),
+		Kv:     toKV(event.KV, emptyEvent),
+		PrevKv: toKV(event.PrevKV, emptyEvent),
 	}
 	if event.Delete {
 		e.Type = mvccpb.DELETE
+		if e.PrevKv.ModRevision == 0 {
+			e.PrevKv = toKV(event.KV, emptyEvent)
+		}
+		e.Kv.Value = nil
+		e.PrevKv.Key = e.Kv.Key
 	} else {
 		e.Type = mvccpb.PUT
 	}

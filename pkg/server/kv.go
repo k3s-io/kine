@@ -71,7 +71,7 @@ func toKVs(kvs ...*KeyValue) []*mvccpb.KeyValue {
 
 	ret := make([]*mvccpb.KeyValue, 0, len(kvs))
 	for _, kv := range kvs {
-		newKV := toKV(kv)
+		newKV := toKV(kv, nil)
 		if newKV != nil {
 			ret = append(ret, newKV)
 		}
@@ -79,9 +79,9 @@ func toKVs(kvs ...*KeyValue) []*mvccpb.KeyValue {
 	return ret
 }
 
-func toKV(kv *KeyValue) *mvccpb.KeyValue {
+func toKV(kv *KeyValue, defaultValue *mvccpb.KeyValue) *mvccpb.KeyValue {
 	if kv == nil {
-		return nil
+		return defaultValue
 	}
 	return &mvccpb.KeyValue{
 		Key:            []byte(kv.Key),
