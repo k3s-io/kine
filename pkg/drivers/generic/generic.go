@@ -35,7 +35,7 @@ var (
 		FROM kine AS rkv`
 
 	compactRevSQL = `
-		SELECT MAX(crkv.prev_revision) AS prev_revision
+		SELECT COALESCE(MAX(crkv.prev_revision), 0) AS prev_revision
 		FROM kine AS crkv
 		WHERE crkv.name = 'compact_rev_key'`
 
