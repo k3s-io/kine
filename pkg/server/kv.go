@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -50,7 +51,9 @@ func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest
 
 	resp, err := k.limited.Range(ctx, r)
 	if err != nil {
-		logrus.Errorf("error while range on %s %s: %v", r.Key, r.RangeEnd, err)
+		if !errors.Is(err, context.Canceled) {
+			logrus.Errorf("error while range on %s %s: %v", r.Key, r.RangeEnd, err)
+		}
 		return nil, err
 	}
 
@@ -103,7 +106,9 @@ func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.Delete
 func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	res, err := k.limited.Txn(ctx, r)
 	if err != nil {
-		logrus.Errorf("error in txn %s: %v", r, err)
+		if !errors.Is(err, context.Canceled) {
+			logrus.Errorf("error in txn %s: %v", r, err)
+		}
 	}
 	return res, err
 }
