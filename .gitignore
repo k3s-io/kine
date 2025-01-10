@@ -68,3 +68,6 @@ dist/
 
 # dapper binaries
 .dapper
+
+# Debug builds
+__debug_*
