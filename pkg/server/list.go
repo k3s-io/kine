@@ -44,6 +44,9 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		Count:  int64(len(kvs)),
 		Kvs:    kvs,
 	}
+	if err != nil {
+		return resp, err
+	}
 
 	// if the number of items returned exceeds the limit, count the keys remaining that follow the start key
 	if limit > 0 && resp.Count > r.Limit {
