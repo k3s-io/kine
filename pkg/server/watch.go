@@ -11,7 +11,6 @@ import (
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var watchID int64
@@ -39,7 +38,19 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 
 	logrus.Tracef("WATCH SERVER CREATE")
 
-	go wait.PollInfiniteWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced)
+	go func(ctx context.Context) {
+		ticker := time.NewTicker(s.getProgressReportInterval())
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ws.Context().Done():
+				return
+			case <-ticker.C:
+				w.ProgressIfSynced(ctx)
+			}
+		}
+	}(ws.Context())
 
 	for {
 		msg, err := ws.Recv()
