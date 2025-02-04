@@ -53,7 +53,14 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	})
 
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "building kine")
+		// Don't print the endpoint string in the error message as it may contain
+		// credentials - but we do want to indicate whether the failure was in the
+		// default or provided value.
+		epType := "default endpoint"
+		if config.Endpoint != "" {
+			epType = "configured endpoint"
+		}
+		return ETCDConfig{}, errors.Wrap(err, "failed to create driver for "+epType)
 	}
 
 	if backend == nil {
