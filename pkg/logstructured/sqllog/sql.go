@@ -173,11 +173,15 @@ func (s *SQLLog) compactor(interval time.Duration) {
 			}
 		}
 
-		// Store the final results for this compact interval.
-		// Note that one or more of the small-batch compact transactions
-		// may have succeeded and moved the compact revision forward, even if err is non-nil.
-		compactRev = compactedRev
-		targetCompactRev = currentRev
+		// Only store the final results for this compact interval if currentRev is
+		// updated to the current compact revision.
+		//
+		// Note that one or more of the small-batch compact transactions may have
+		// succeeded and moved the compact revision forward, even if err is non-nil.
+		if currentRev > 0 {
+			compactRev = compactedRev
+			targetCompactRev = currentRev
+		}
 
 		// ErrCompacted indicates that no further work is necessary - either compactRev changed since the
 		// last iteration because another client has compacted, or the requested revision has already been compacted.
