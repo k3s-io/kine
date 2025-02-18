@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -38,19 +39,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 
 	logrus.Tracef("WATCH SERVER CREATE")
 
-	go func(ctx context.Context) {
-		ticker := time.NewTicker(s.getProgressReportInterval())
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ws.Context().Done():
-				return
-			case <-ticker.C:
-				w.ProgressIfSynced(ctx)
-			}
-		}
-	}(ws.Context())
+	go util.PollWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced)
 
 	for {
 		msg, err := ws.Recv()
