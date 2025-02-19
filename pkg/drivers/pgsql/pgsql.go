@@ -208,7 +208,7 @@ func setup(db *sql.DB) error {
 }
 
 func createDBIfNotExist(dataSourceName string) error {
-	u, err := url.Parse(dataSourceName)
+	u, err := util.ParseURL(dataSourceName)
 	if err != nil {
 		return err
 	}
@@ -256,7 +256,7 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	} else {
 		dataSourceName = "postgres://" + dataSourceName
 	}
-	u, err := url.Parse(dataSourceName)
+	u, err := util.ParseURL(dataSourceName)
 	if err != nil {
 		return "", err
 	}

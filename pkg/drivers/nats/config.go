@@ -9,6 +9,7 @@ import (
 
 	natsserver "github.com/k3s-io/kine/pkg/drivers/nats/server"
 	"github.com/k3s-io/kine/pkg/tls"
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/nats-io/jsm.go/natscontext"
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
@@ -55,7 +56,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	// Parse the first URL in the connection string which contains the
 	// query parameters.
 	connections := strings.Split(dsn, ",")
-	u, err := url.Parse(connections[0])
+	u, err := util.ParseURL(connections[0])
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 			connBuilder.WriteString(",")
 		}
 
-		u, err := url.Parse(c)
+		u, err := util.ParseURL(c)
 		if err != nil {
 			return nil, err
 		}
