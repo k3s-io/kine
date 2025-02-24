@@ -4,7 +4,7 @@ go 1.22.7
 
 require (
 	github.com/Rican7/retry v0.3.1
-	github.com/go-sql-driver/mysql v1.8.1
+	github.com/go-sql-driver/mysql v1.9.0
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/klauspost/compress v1.18.0
