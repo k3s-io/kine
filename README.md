@@ -1,5 +1,5 @@
-# Kine (Kine is not etcd)
-==========================
+Kine (Kine is not etcd)
+=======================
 
 Kine is an etcdshim that translates etcd API to:
 - SQLite
