@@ -17,7 +17,7 @@ require (
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tidwall/btree v1.6.0
-	github.com/urfave/cli/v2 v2.27.5
+	github.com/urfave/cli/v2 v2.27.6
 	go.etcd.io/etcd/api/v3 v3.5.18
 	go.etcd.io/etcd/client/pkg/v3 v3.5.18
 	go.etcd.io/etcd/client/v3 v3.5.18
