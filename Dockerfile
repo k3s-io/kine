@@ -44,3 +44,11 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 FROM scratch AS binary
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 COPY --from=build ${SRC_DIR}/bin /bin
+
+FROM alpine:3.21 AS package
+COPY bin/kine /bin/kine
+RUN mkdir /db && chown nobody /db
+VOLUME /db
+EXPOSE 2379/tcp
+USER nobody
+ENTRYPOINT ["/bin/kine"]

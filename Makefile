@@ -20,6 +20,9 @@ build:
 		$(DEFAULT_BUILD_ARGS) --build-arg="DRONE_TAG=$(DRONE_TAG)" --build-arg="CROSS=$(CROSS)" \
 		-f Dockerfile --target=binary --output=. .
 
-.PHONY: ci
-ci: validate build
+.PHONY: package
+package:
 	ARCH=$(ARCH) ./scripts/package
+
+.PHONY: ci
+ci: validate build package
