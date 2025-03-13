@@ -1,4 +1,5 @@
 #!/bin/bash
+# Builds kine for the HOST architecture and OS
 set -e
 
 source $(dirname $0)/version
@@ -22,8 +23,3 @@ LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
 
 echo Building Kine
 CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine
-if [ "$CROSS" = "true" ] && [ "$ARCH" = "amd64" ]; then
-    GOOS=darwin go build -ldflags "$LINKFLAGS" -tags nats -o bin/kine-darwin
-    GOOS=windows go build -ldflags "$LINKFLAGS" -tags nats -o bin/kine-windows
-    GOOS=linux go build -ldflags "$LINKFLAGS" -tags nats -o bin/kine-amd64
-fi
