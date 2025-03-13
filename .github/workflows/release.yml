@@ -1,0 +1,101 @@
+name: release
+
+on:
+  release:
+    types:
+      - created
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      ARCH: amd64
+    permissions:
+      contents: write # Needed to update release with binary assets
+      packages: write # Needed for GHCR image push
+      id-token: write # needed for the Vault authentication
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build binaries
+        run: make multi-arch-build
+
+      - name: Compute checksum for each binary
+        run: |
+          arch=("amd64" "arm64" "arm")
+          cd dist/artifacts
+          for a in "${arch[@]}"; do
+            sha256sum kine-"${a}" > sha256sum-"${a}".txt
+          done
+          
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2.2.1 # https://github.com/softprops/action-gh-release/issues/587
+        with:
+          files: |
+            dist/artifacts/kine-*
+            dist/artifacts/*.txt
+
+      - name: "Read Vault secrets"
+        if: github.repository_owner == 'k3s-io'
+        uses: rancher-eio/read-vault-secrets@main
+        with:
+          secrets: |
+            secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
+            secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_TOKEN ;
+    
+      - name: Login to DockerHub with Rancher Secrets
+        if: github.repository_owner == 'k3s-io'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_TOKEN }}
+
+      # For forks, setup DockerHub login with GHA secrets
+      - name: Login to DockerHub with GHA Secrets
+        if: github.repository_owner != 'k3s-io'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (k3s-io)
+        if: github.repository_owner == 'k3s-io'
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          context: .
+          target: multi-arch-package
+          push: true
+          tags: |
+            rancher/kine:latest
+            rancher/kine:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/kine:latest
+            ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
+
+      - name: Build and push (forks)
+        if: github.repository_owner != 'k3s-io'
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          context: .
+          target: multi-arch-package
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/kine:latest
+            ${{ secrets.DOCKER_USERNAME }}/kine:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/kine:latest
+            ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
