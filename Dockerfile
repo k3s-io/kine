@@ -8,7 +8,7 @@ RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificate
 RUN go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
 RUN rm -rf /go/src /go/pkg
 RUN if [ "${ARCH}" == "amd64" ]; then \
-    curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s;  \
+    curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/refs/tags/v1.64.8/install.sh | sh -s -- v1.64.8;  \
     fi
 
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
