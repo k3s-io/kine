@@ -1,12 +1,13 @@
 module github.com/k3s-io/kine
 
 go 1.23.6
+toolchain go1.24.1
 
 require (
 	github.com/Rican7/retry v0.3.1
 	github.com/go-sql-driver/mysql v1.9.1
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgx/v5 v5.7.4
 	github.com/klauspost/compress v1.18.0
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/nats-io/jsm.go v0.0.31-0.20220317133147-fe318f464eee
