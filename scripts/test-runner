@@ -12,5 +12,9 @@ test-setup
 provision-database $DB_ARGS
 start-test $@
 
-./scripts/test-load
-./scripts/test-conformance
+if [ -z "$SKIP_LOAD" ]; then
+    ./scripts/test-load
+fi
+if [ -z "$SKIP_CONFORMANCE" ]; then
+    ./scripts/test-conformance
+fi

@@ -42,7 +42,24 @@ steps:
   - > 
     docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
     -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
-    --privileged kine:test-${DRONE_COMMIT} "./scripts/test sqlite"
+    --privileged kine:test-${DRONE_COMMIT} "SKIP_CONFORMANCE=true ./scripts/test sqlite"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+  when:
+    event:
+    - pull_request
+
+- name: test-sqlite-conformance
+  image: docker:25.0.5
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "SKIP_LOAD=true ./scripts/test sqlite"
   volumes:
   - name: docker
     path: /var/run/docker.sock
