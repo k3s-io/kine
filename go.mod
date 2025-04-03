@@ -5,15 +5,15 @@ go 1.23.6
 require (
 	github.com/Rican7/retry v0.3.1
 	github.com/go-sql-driver/mysql v1.9.1
-	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
-	github.com/jackc/pgx/v5 v5.7.2
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
+	github.com/jackc/pgx/v5 v5.7.4
 	github.com/klauspost/compress v1.18.0
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-sqlite3 v1.14.26
 	github.com/nats-io/jsm.go v0.0.31-0.20220317133147-fe318f464eee
 	github.com/nats-io/nats-server/v2 v2.10.12
 	github.com/nats-io/nats.go v1.34.0
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.21.0
+	github.com/prometheus/client_golang v1.21.1
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/tidwall/btree v1.6.0
@@ -22,8 +22,8 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.21
 	go.etcd.io/etcd/client/v3 v3.5.21
 	go.etcd.io/etcd/server/v3 v3.5.21
-	google.golang.org/grpc v1.71.0
-	k8s.io/client-go v0.30.9
+	google.golang.org/grpc v1.71.1
+	k8s.io/client-go v0.30.11
 )
 
 require (
@@ -95,7 +95,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	google.golang.org/protobuf v1.36.4 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
-	k8s.io/apimachinery v0.30.9 // indirect
+	k8s.io/apimachinery v0.30.11 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
