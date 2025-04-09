@@ -15,8 +15,8 @@ elif [ ${ARCH} = riscv64 ]; then
     export GOARCH="riscv64"
 fi
 
-if [ "$(uname)" = "Linux" ]; then
-    OTHER_LINKFLAGS="-extldflags -static -s"
+if [ "$(uname)" = "linux" ]; then
+    OTHER_LINKFLAGS="-s -extldflags=-static"
 fi
 LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.Version=$VERSION"
 LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
