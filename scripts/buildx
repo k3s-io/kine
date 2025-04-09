@@ -23,11 +23,11 @@ if [ "$TARGETOS" != "linux" ]; then
     OPT_OS="-${TARGETOS}"
 fi
 
-if [ "$TARGETOS" = "Linux" ]; then
-    OTHER_LINKFLAGS="-extldflags -static -s"
+if [ "$TARGETOS" = "linux" ]; then
+    OTHER_LINKFLAGS="-s -extldflags=-static"
 fi
 LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.Version=$VERSION"
 LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
 
 echo Building Mutliplaform Kine
-CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine"${OPT_OS}${ARCH}"
+CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" go build -trimpath -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine"${OPT_OS}${ARCH}"

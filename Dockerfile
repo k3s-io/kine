@@ -29,6 +29,7 @@ ARG TAG
 ARG DRONE_TAG
 ARG ARCH=amd64
 ENV ARCH=${ARCH}
+ENV CGO_ENABLED=1
 
 COPY ./scripts/build ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
@@ -63,6 +64,7 @@ ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 WORKDIR ${SRC_DIR}/
 ARG TARGETOS
 ARG TARGETARCH
+ENV CGO_ENABLED=1
 COPY ./scripts/buildx ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
 COPY ./pkg ./pkg
