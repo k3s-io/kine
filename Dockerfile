@@ -53,7 +53,7 @@ EXPOSE 2379/tcp
 USER nobody
 ENTRYPOINT ["/bin/kine"]
 
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.20 AS multi-arch-build
+FROM golang:1.24-alpine3.20 AS multi-arch-build
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
 # go imports version gopls/v0.15.3
 # https://github.com/golang/tools/releases/latest

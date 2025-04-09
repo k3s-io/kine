@@ -29,7 +29,7 @@ jobs:
 
       - name: Compute checksum for each binary
         run: |
-          arch=("amd64" "arm64" "arm")
+          arch=("amd64" "arm64" "arm" "riscv64" "ppc64le")
           cd dist/artifacts
           for a in "${arch[@]}"; do
             sha256sum kine-"${a}" > sha256sum-"${a}".txt
@@ -76,7 +76,7 @@ jobs:
         if: github.repository_owner == 'k3s-io'
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64,linux/ppc64le
           context: .
           target: multi-arch-package
           push: true
@@ -90,7 +90,7 @@ jobs:
         if: github.repository_owner != 'k3s-io'
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64,linux/ppc64le
           context: .
           target: multi-arch-package
           push: true
