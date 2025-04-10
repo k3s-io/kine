@@ -53,16 +53,21 @@ EXPOSE 2379/tcp
 USER nobody
 ENTRYPOINT ["/bin/kine"]
 
+FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
+
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.20 AS multi-arch-build
-RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
+COPY --from=xx / /
+ARG TARGETOS
+ARG TARGETARCH
+ENV CGO_ENABLED=1
+RUN apk -U add bash coreutils git vim less curl wget ca-certificates clang lld
+RUN xx-apk add musl-dev gcc
 # go imports version gopls/v0.15.3
 # https://github.com/golang/tools/releases/latest
-RUN go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
+RUN xx-go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
 RUN rm -rf /go/src /go/pkg
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 WORKDIR ${SRC_DIR}/
-ARG TARGETOS
-ARG TARGETARCH
 COPY ./scripts/buildx ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
 COPY ./pkg ./pkg

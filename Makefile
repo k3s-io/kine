@@ -24,7 +24,7 @@ build:
 		-f Dockerfile --target=binary --output=. .
 
 .PHONY: multi-arch-build
-PLATFORMS = linux/amd64,linux/arm64,linux/arm/v7
+PLATFORMS = linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
 multi-arch-build:
 	docker buildx build --platform=$(PLATFORMS) --target=multi-arch-binary --output=type=local,dest=bin .
 	mv bin/linux*/kine* bin/

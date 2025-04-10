@@ -18,9 +18,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -29,7 +26,7 @@ jobs:
 
       - name: Compute checksum for each binary
         run: |
-          arch=("amd64" "arm64" "arm")
+          arch=("amd64" "arm64" "arm" "riscv64")
           cd dist/artifacts
           for a in "${arch[@]}"; do
             sha256sum kine-"${a}" > sha256sum-"${a}".txt
