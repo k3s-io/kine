@@ -73,6 +73,7 @@ type ConnectionPoolConfig struct {
 type Generic struct {
 	sync.Mutex
 
+	TableName             string
 	LockWrites            bool
 	LastInsertID          bool
 	DB                    *sql.DB
