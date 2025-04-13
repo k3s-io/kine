@@ -28,9 +28,12 @@ const (
 	defaultDSN = "postgres://postgres:postgres@localhost/"
 )
 
+var createDB = `CREATE DATABASE "%s";`
+
 func getSchema(tableName string) []string {
+	quotedTableName := `"` + tableName + `"`
 	return []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s
+		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
  			(
 				id BIGSERIAL PRIMARY KEY,
 				name text COLLATE "C",
@@ -41,27 +44,26 @@ func getSchema(tableName string) []string {
  				lease INTEGER,
  				value bytea,
  				old_value bytea
- 			);`, tableName),
+ 			);`,
 
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_index ON %s (name)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_id_index ON %s (name,id)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_id_deleted_index ON %s (id,deleted)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_prev_revision_index ON %s (prev_revision)`, tableName, tableName),
-		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS %s_name_prev_revision_uindex ON %s (name, prev_revision)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_list_query_index on %s(name, id DESC, deleted)`, tableName, tableName),
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_index" ON ` + quotedTableName + ` (name)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_id_index" ON ` + quotedTableName + ` (name,id)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_id_deleted_index" ON ` + quotedTableName + ` (id,deleted)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_prev_revision_index" ON ` + quotedTableName + ` (prev_revision)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "` + tableName + `_name_prev_revision_uindex" ON ` + quotedTableName + ` (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_list_query_index" on ` + quotedTableName + `(name, id DESC, deleted)`,
 	}
 }
 
 func getSchemaMigrations(tableName string) []string {
+	quotedTableName := `"` + tableName + `"`
 	return []string{
-		fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE %s_id_seq AS BIGINT`, tableName, tableName),
+		`ALTER TABLE ` + quotedTableName + ` ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE "` + tableName + `_id_seq" AS BIGINT`,
 		// It is important to set the collation to "C" to ensure that LIKE and COMPARISON
 		// queries use the index.
-		fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN name SET DATA TYPE TEXT COLLATE "C" USING name::TEXT COLLATE "C"`, tableName),
+		`ALTER TABLE ` + quotedTableName + ` ALTER COLUMN name SET DATA TYPE TEXT COLLATE "C" USING name::TEXT COLLATE "C"`,
 	}
 }
-
-var createDB = `CREATE DATABASE "%s";`
 
 func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
 	parsedDSN, err := prepareDSN(cfg.DataSourceName, cfg.BackendTLSConfig)
@@ -73,70 +75,69 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer, cfg.TableName)
-	if err != nil {
-		return false, nil, err
-	}
-
 	tableName := cfg.TableName
 	if tableName == "" {
 		tableName = "kine"
 	}
+	quotedTableName := `"` + tableName + `"`
 
-	listSQL := fmt.Sprintf(`
+	dialect, err := generic.Open(ctx, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer, tableName)
+	if err != nil {
+		return false, nil, err
+	}
+	listSQL := `
 		SELECT
-			(SELECT MAX(rkv.id) AS id FROM %s AS rkv),
-			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM %s AS crkv WHERE crkv.name = 'compact_rev_key'),
+			(SELECT MAX(rkv.id) AS id FROM ` + quotedTableName + ` AS rkv),
+			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM ` + quotedTableName + ` AS crkv WHERE crkv.name = 'compact_rev_key'),
 			maxkv.*
 		FROM (
 			SELECT DISTINCT ON (name)
 				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
 			FROM
-				%s AS kv
+				` + quotedTableName + ` AS kv
 			WHERE
 				kv.name LIKE ? 
-				%%s
+				%s
 			ORDER BY kv.name, theid DESC
 		) AS maxkv
 		WHERE
 			maxkv.deleted = 0 OR ?
 		ORDER BY maxkv.name, maxkv.theid DESC
-	`, tableName, tableName, tableName)
+	`
 
-	countSQL := fmt.Sprintf(`
+	countSQL := `
 		SELECT
-			(SELECT MAX(rkv.id) AS id FROM %s AS rkv),
+			(SELECT MAX(rkv.id) AS id FROM ` + quotedTableName + ` AS rkv),
 			COUNT(c.theid)
 		FROM (
 			SELECT DISTINCT ON (name)
 				kv.id AS theid, kv.deleted
-			FROM %s AS kv
+			FROM ` + quotedTableName + ` AS kv
 			WHERE
 				kv.name LIKE ?
-				%%s
+				%s
 			ORDER BY kv.name, theid DESC
 			) AS c
 		WHERE c.deleted = 0 OR ?
-		`, tableName, tableName)
-
-	dialect.GetSizeSQL = fmt.Sprintf(`SELECT pg_total_relation_size('%s')`, tableName)
-	dialect.CompactSQL = fmt.Sprintf(`
-		DELETE FROM %s AS kv
+		`
+	dialect.GetSizeSQL = `SELECT pg_total_relation_size('` + tableName + `')`
+	dialect.CompactSQL = `
+		DELETE FROM ` + quotedTableName + ` AS kv
 		USING	(
 			SELECT kp.prev_revision AS id
-			FROM %s AS kp
+			FROM ` + quotedTableName + ` AS kp
 			WHERE
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
 				kp.id <= $1
 			UNION
 			SELECT kd.id AS id
-			FROM %s AS kd
+			FROM ` + quotedTableName + ` AS kd
 			WHERE
 				kd.deleted != 0 AND
 				kd.id <= $2
 		) AS ks
-		WHERE kv.id = ks.id`, tableName, tableName, tableName)
+		WHERE kv.id = ks.id`
 	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ?"))
 	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND kv.id <= ?"))
 	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ? AND kv.id <= ?"))
@@ -144,7 +145,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 	dialect.CountRevisionSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ? AND kv.id <= ?"))
 	dialect.FillRetryDuration = time.Millisecond + 5
 	dialect.InsertRetry = func(err error) bool {
-		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == fmt.Sprintf("%s_pkey", cfg.TableName) {
+		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
 			return true
 		}
 		return false
