@@ -97,7 +97,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 	var (
 		count     = 0
 		countKV   = d.queryRow(ctx, "SELECT COUNT(*) FROM key_value")
-		countKine = d.queryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTableName))
+		countKine = d.queryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName)
 	)
 
 	if err := countKV.Scan(&count); err != nil || count == 0 {
@@ -110,10 +110,10 @@ func (d *Generic) Migrate(ctx context.Context) {
 
 	logrus.Infof("Migrating content from old table")
 	_, err := d.execute(ctx,
-		fmt.Sprintf(`INSERT INTO %s(deleted, create_revision, prev_revision, name, value, created, lease)
+		`INSERT INTO `+quotedTableName+`(deleted, create_revision, prev_revision, name, value, created, lease)
 					SELECT 0, 0, 0, kv.name, kv.value, 1, CASE WHEN kv.ttl > 0 THEN 15 ELSE 0 END
 					FROM key_value kv
-						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`, quotedTableName))
+						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`)
 	if err != nil {
 		logrus.Errorf("Migration failed: %v", err)
 	}
