@@ -22,14 +22,20 @@ import (
 )
 
 const (
-	defaultMaxIdleConns = 2 // copied from database/sql
+	defaultMaxIdleConns = 2  // copied from database/sql
+	tableNameMaxLength  = 32 // set to 32 to avoid table name and index name too long
 )
 
 // explicit interface check
 var _ server.Dialect = (*Generic)(nil)
 
 var (
-	columns = "kv.id AS theid, kv.name AS thename, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
+	columns         = "kv.id AS theid, kv.name AS thename, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
+	revSQL          string
+	compactRevSQL   string
+	listSQL         string
+	tableName       string
+	quotedTableName string
 )
 
 type ErrRetry func(error) bool
@@ -45,7 +51,6 @@ type ConnectionPoolConfig struct {
 type Generic struct {
 	sync.Mutex
 
-	TableName             string
 	LockWrites            bool
 	LastInsertID          bool
 	DB                    *sql.DB
@@ -72,45 +77,6 @@ type Generic struct {
 	FillRetryDuration     time.Duration
 }
 
-// RevSQL use d.TableName to format the origin revSQL
-func (d *Generic) RevSQL() string {
-	return fmt.Sprintf(`
-		SELECT MAX(rkv.id) AS id
-		FROM %s AS rkv`, d.TableName)
-}
-
-// CompactRevSQL use d.TableName to format the origin compactRevSQL
-func (d *Generic) CompactRevSQL() string {
-	return fmt.Sprintf(`
-		SELECT MAX(crkv.prev_revision) AS prev_revision
-		FROM %s AS crkv
-		WHERE crkv.name = 'compact_rev_key'`, d.TableName)
-}
-
-// ListSQL use d.TableName to format the origin listSQL
-func (d *Generic) ListSQL() string {
-	return fmt.Sprintf(`
-		SELECT *
-		FROM (
-			SELECT (%s), (%s), %s
-			FROM %s AS kv
-			JOIN (
-				SELECT MAX(mkv.id) AS id
-				FROM %s AS mkv
-				WHERE
-					mkv.name LIKE ?
-					%%s
-				GROUP BY mkv.name) AS maxkv
-				ON maxkv.id = kv.id
-			WHERE
-				kv.deleted = 0 OR
-				?
-		) AS lkv
-		ORDER BY lkv.thename ASC
-		`, d.RevSQL(), d.CompactRevSQL(), columns, d.TableName,
-		d.TableName)
-}
-
 func q(sql, param string, numbered bool) string {
 	if param == "?" && !numbered {
 		return sql
@@ -131,7 +97,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 	var (
 		count     = 0
 		countKV   = d.queryRow(ctx, "SELECT COUNT(*) FROM key_value")
-		countKine = d.queryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", d.TableName))
+		countKine = d.queryRow(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTableName))
 	)
 
 	if err := countKV.Scan(&count); err != nil || count == 0 {
@@ -147,7 +113,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 		fmt.Sprintf(`INSERT INTO %s(deleted, create_revision, prev_revision, name, value, created, lease)
 					SELECT 0, 0, 0, kv.name, kv.value, 1, CASE WHEN kv.ttl > 0 THEN 15 ELSE 0 END
 					FROM key_value kv
-						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`, d.TableName))
+						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`, quotedTableName))
 	if err != nil {
 		logrus.Errorf("Migration failed: %v", err)
 	}
@@ -167,6 +133,54 @@ func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB,
 	db.SetConnMaxLifetime(connPoolConfig.MaxLifetime)
 }
 
+func validateTableName(customTableName string) error {
+	if len(customTableName) > tableNameMaxLength {
+		return fmt.Errorf("invalid table name '%s': must be less than %d characters", customTableName, tableNameMaxLength)
+	}
+
+	matched, err := regexp.MatchString(`^[a-zA-Z][a-zA-Z0-9_\$]*$`, customTableName)
+	if err != nil {
+		return fmt.Errorf("failed to validate table name: %w", err)
+	}
+	if !matched {
+		return fmt.Errorf("invalid table name '%s': must contain only letters, numbers, underscores, dollar signs and start with letter", customTableName)
+	}
+	return nil
+}
+
+func buildSQLStatements() (rev, compactRev, list string) {
+	rev = fmt.Sprintf(`
+		SELECT MAX(rkv.id) AS id
+		FROM %s AS rkv`, quotedTableName)
+
+	compactRev = fmt.Sprintf(`
+		SELECT MAX(crkv.prev_revision) AS prev_revision
+		FROM %s AS crkv
+		WHERE crkv.name = 'compact_rev_key'`, quotedTableName)
+
+	list = fmt.Sprintf(`
+		SELECT *
+		FROM (
+			SELECT (%s), (%s), %s
+			FROM %s AS kv
+			JOIN (
+				SELECT MAX(mkv.id) AS id
+				FROM %s AS mkv
+				WHERE
+					mkv.name LIKE ?
+					%%s
+				GROUP BY mkv.name) AS maxkv
+				ON maxkv.id = kv.id
+			WHERE
+				kv.deleted = 0 OR
+				?
+		) AS lkv
+		ORDER BY lkv.thename ASC
+		`, rev, compactRev, columns, quotedTableName, quotedTableName)
+
+	return rev, compactRev, list
+}
+
 func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	db, err := sql.Open(driverName, dataSourceName)
 	if err != nil {
@@ -183,15 +197,28 @@ func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer, tableName string) (*Generic, error) {
+func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer, customTableName string) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
 	)
 
-	if tableName == "" {
-		tableName = "kine"
+	if err := validateTableName(customTableName); err != nil {
+		return nil, err
 	}
+
+	tableName = customTableName
+
+	// In case of MySQL, we need to quote the table name using ` `
+	// In case of SQLite and Postgres, we need to quote the table name using " "
+	switch driverName {
+	case "mysql":
+		quotedTableName = "`" + tableName + "`"
+	default:
+		quotedTableName = `"` + tableName + `"`
+	}
+
+	revSQL, compactRevSQL, listSQL = buildSQLStatements()
 
 	for i := 0; i < 300; i++ {
 		db, err = openAndTest(driverName, dataSourceName)
@@ -213,64 +240,57 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		metricsRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
 	}
 
-	d := &Generic{
-		DB:        db,
-		TableName: tableName,
-	}
+	return &Generic{
+		DB: db,
 
-	revSQL := d.RevSQL()
-	compactRevSQL := d.CompactRevSQL()
-	listSQL := d.ListSQL()
+		GetRevisionSQL: q(fmt.Sprintf(`
+			SELECT
+			0, 0, %s
+			FROM %s AS kv
+			WHERE kv.id = ?`, columns, quotedTableName), paramCharacter, numbered),
 
-	d.GetRevisionSQL = q(fmt.Sprintf(`
-		SELECT
-		0, 0, %s
-		FROM %s AS kv
-		WHERE kv.id = ?`, columns, tableName), paramCharacter, numbered)
+		GetCurrentSQL:        q(fmt.Sprintf(listSQL, "AND mkv.name > ?"), paramCharacter, numbered),
+		ListRevisionStartSQL: q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
+		GetRevisionAfterSQL:  q(fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered),
 
-	d.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND mkv.name > ?"), paramCharacter, numbered)
-	d.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered)
-	d.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered)
+		CountCurrentSQL: q(fmt.Sprintf(`
+			SELECT (%s), COUNT(c.theid)
+			FROM (
+				%s
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ?")), paramCharacter, numbered),
 
-	d.CountCurrentSQL = q(fmt.Sprintf(`
-		SELECT (%s), COUNT(c.theid)
-		FROM (
-			%s
-		) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ?")), paramCharacter, numbered)
+		CountRevisionSQL: q(fmt.Sprintf(`
+			SELECT (%s), COUNT(c.theid)
+			FROM (
+				%s
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?")), paramCharacter, numbered),
 
-	d.CountRevisionSQL = q(fmt.Sprintf(`
-		SELECT (%s), COUNT(c.theid)
-		FROM (
-			%s
-		) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?")), paramCharacter, numbered)
+		AfterSQL: q(fmt.Sprintf(`
+			SELECT (%s), (%s), %s
+			FROM %s AS kv
+			WHERE
+				kv.name LIKE ? AND
+				kv.id > ?
+			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns, quotedTableName), paramCharacter, numbered),
 
-	d.AfterSQL = q(fmt.Sprintf(`
-		SELECT (%s), (%s), %s
-		FROM %s AS kv
-		WHERE
-			kv.name LIKE ? AND
-			kv.id > ?
-		ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns, tableName), paramCharacter, numbered)
+		DeleteSQL: q(fmt.Sprintf(`
+			DELETE FROM %s AS kv
+			WHERE kv.id = ?`, quotedTableName), paramCharacter, numbered),
 
-	d.DeleteSQL = q(fmt.Sprintf(`
-		DELETE FROM %s AS kv
-		WHERE kv.id = ?`, tableName), paramCharacter, numbered)
+		UpdateCompactSQL: q(fmt.Sprintf(`
+			UPDATE %s
+			SET prev_revision = ?
+			WHERE name = 'compact_rev_key'`, quotedTableName), paramCharacter, numbered),
 
-	d.UpdateCompactSQL = q(fmt.Sprintf(`
-		UPDATE %s
-		SET prev_revision = ?
-		WHERE name = 'compact_rev_key'`, tableName), paramCharacter, numbered)
+		InsertLastInsertIDSQL: q(fmt.Sprintf(`INSERT INTO %s(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?)`, quotedTableName), paramCharacter, numbered),
 
-	d.InsertLastInsertIDSQL = q(fmt.Sprintf(`INSERT INTO %s(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-		values(?, ?, ?, ?, ?, ?, ?, ?)`, tableName), paramCharacter, numbered)
+		InsertSQL: q(fmt.Sprintf(`INSERT INTO %s(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, quotedTableName), paramCharacter, numbered),
 
-	d.InsertSQL = q(fmt.Sprintf(`INSERT INTO %s(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-		values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, tableName), paramCharacter, numbered)
-
-	d.FillSQL = q(fmt.Sprintf(`INSERT INTO %s(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-		values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, tableName), paramCharacter, numbered)
-
-	return d, err
+		FillSQL: q(fmt.Sprintf(`INSERT INTO %s(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, quotedTableName), paramCharacter, numbered),
+	}, err
 }
 
 func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (result *sql.Rows, err error) {
@@ -314,7 +334,7 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 
 func (d *Generic) GetCompactRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := d.queryRow(ctx, d.CompactRevSQL())
+	row := d.queryRow(ctx, compactRevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -404,7 +424,7 @@ func (d *Generic) Count(ctx context.Context, prefix, startKey string, revision i
 
 func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := d.queryRow(ctx, d.RevSQL())
+	row := d.queryRow(ctx, revSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
