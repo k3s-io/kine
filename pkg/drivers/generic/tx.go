@@ -57,7 +57,7 @@ func (t *Tx) MustRollback() {
 
 func (t *Tx) GetCompactRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := t.queryRow(ctx, t.d.CompactRevSQL())
+	row := t.queryRow(ctx, compactRevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -92,7 +92,7 @@ func (t *Tx) DeleteRevision(ctx context.Context, revision int64) error {
 
 func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := t.queryRow(ctx, t.d.RevSQL())
+	row := t.queryRow(ctx, revSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
