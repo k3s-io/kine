@@ -21,8 +21,9 @@ import (
 )
 
 func getSchema(tableName string) []string {
+	quotedTableName := `"` + tableName + `"`
 	return []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s
+		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
 			(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				name INTEGER,
@@ -33,12 +34,12 @@ func getSchema(tableName string) []string {
 				lease INTEGER,
 				value BLOB,
 				old_value BLOB
-			)`, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_index ON %s (name)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_name_id_index ON %s (name,id)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_id_deleted_index ON %s (id,deleted)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_prev_revision_index ON %s (prev_revision)`, tableName, tableName),
-		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS %s_name_prev_revision_uindex ON %s (name, prev_revision)`, tableName, tableName),
+			)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_index" ON ` + quotedTableName + ` (name)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_id_index" ON ` + quotedTableName + ` (name,id)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_id_deleted_index" ON ` + quotedTableName + ` (id,deleted)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_prev_revision_index" ON ` + quotedTableName + ` (prev_revision)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "` + tableName + `_name_prev_revision_uindex" ON ` + quotedTableName + ` (name, prev_revision)`,
 		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
 }
@@ -61,31 +62,32 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 	if tableName == "" {
 		tableName = "kine"
 	}
+	quotedTableName := `"` + tableName + `"`
 
-	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, cfg.TableName)
+	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, tableName)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	dialect.LastInsertID = true
 	dialect.GetSizeSQL = `SELECT SUM(pgsize) FROM dbstat`
-	dialect.CompactSQL = fmt.Sprintf(`
-		DELETE FROM %s AS kv
+	dialect.CompactSQL = `
+		DELETE FROM ` + quotedTableName + ` AS kv
 		WHERE
 			kv.id IN (
 				SELECT kp.prev_revision AS id
-				FROM %s AS kp
+				FROM ` + quotedTableName + ` AS kp
 				WHERE
 					kp.name != 'compact_rev_key' AND
 					kp.prev_revision != 0 AND
 					kp.id <= ?
 				UNION
 				SELECT kd.id AS id
-				FROM %s AS kd
+				FROM ` + quotedTableName + ` AS kd
 				WHERE
 					kd.deleted != 0 AND
 					kd.id <= ?
-			)`, tableName, tableName, tableName)
+			)`
 	dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
@@ -103,7 +105,7 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 		return err.Error()
 	}
 
-	if err := setup(dialect.DB, tableName); err != nil {
+	if err := setup(dialect.DB, cfg.TableName); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
 

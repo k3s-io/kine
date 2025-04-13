@@ -24,9 +24,12 @@ const (
 	defaultHostDSN = "root@tcp(127.0.0.1)/"
 )
 
+var createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
+
 func getSchema(tableName string) []string {
+	quotedTableName := "`" + tableName + "`"
 	return []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s
+		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
 			(
 				id BIGINT UNSIGNED AUTO_INCREMENT,
 				name VARCHAR(630) CHARACTER SET ascii,
@@ -38,25 +41,24 @@ func getSchema(tableName string) []string {
 				value MEDIUMBLOB,
 				old_value MEDIUMBLOB,
 				PRIMARY KEY (id)
-			);`, tableName),
-		fmt.Sprintf(`CREATE INDEX %s_name_index ON %s (name)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX %s_name_id_index ON %s (name,id)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX %s_id_deleted_index ON %s (id,deleted)`, tableName, tableName),
-		fmt.Sprintf(`CREATE INDEX %s_prev_revision_index ON %s (prev_revision)`, tableName, tableName),
-		fmt.Sprintf(`CREATE UNIQUE INDEX %s_name_prev_revision_uindex ON %s (name, prev_revision)`, tableName, tableName),
+			);`,
+		"CREATE INDEX `" + tableName + "_name_index` ON " + quotedTableName + " (name)",
+		"CREATE INDEX `" + tableName + "_name_id_index` ON " + quotedTableName + " (name,id)",
+		"CREATE INDEX `" + tableName + "_id_deleted_index` ON " + quotedTableName + " (id,deleted)",
+		"CREATE INDEX `" + tableName + "_prev_revision_index` ON " + quotedTableName + " (prev_revision)",
+		"CREATE UNIQUE INDEX `" + tableName + "_name_prev_revision_uindex` ON " + quotedTableName + " (name, prev_revision)",
 	}
 }
 
 func getSchemaMigrations(tableName string) []string {
+	quotedTableName := "`" + tableName + "`"
 	return []string{
-		fmt.Sprintf(`ALTER TABLE %s MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`, tableName),
+		`ALTER TABLE ` + quotedTableName + ` MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
 		// Creating an empty migration to ensure that postgresql and mysql migrations match up
 		// with each other for a give value of KINE_SCHEMA_MIGRATION env var
 		``,
 	}
 }
-
-var createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
 
 func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
 	tlsConfig, err := cfg.BackendTLSConfig.ClientConfig()
@@ -77,38 +79,39 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, cfg.TableName)
-	if err != nil {
-		return false, nil, err
-	}
-
 	tableName := cfg.TableName
 	if tableName == "" {
 		tableName = "kine"
 	}
+	quotedTableName := "`" + tableName + "`"
+
+	dialect, err := generic.Open(ctx, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, tableName)
+	if err != nil {
+		return false, nil, err
+	}
 
 	dialect.LastInsertID = true
-	dialect.GetSizeSQL = fmt.Sprintf(`
+	dialect.GetSizeSQL = `
 		SELECT SUM(data_length + index_length)
 		FROM information_schema.TABLES
-		WHERE table_schema = DATABASE() AND table_name = '%s'`, tableName)
-	dialect.CompactSQL = fmt.Sprintf(`
-		DELETE kv FROM %s AS kv
+		WHERE table_schema = DATABASE() AND table_name = '` + tableName + `'`
+	dialect.CompactSQL = `
+		DELETE kv FROM ` + quotedTableName + ` AS kv
 		INNER JOIN (
 			SELECT kp.prev_revision AS id
-			FROM %s AS kp
+			FROM ` + quotedTableName + ` AS kp
 			WHERE
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
 				kp.id <= ?
 			UNION
 			SELECT kd.id AS id
-			FROM %s AS kd
+			FROM ` + quotedTableName + ` AS kd
 			WHERE
 				kd.deleted != 0 AND
 				kd.id <= ?
 		) AS ks
-		ON kv.id = ks.id`, tableName, tableName, tableName)
+		ON kv.id = ks.id`
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1062 {
 			return server.ErrKeyExists
