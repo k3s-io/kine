@@ -1,0 +1,23 @@
+name: Pull Request
+on:
+  pull_request:
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ARCH: amd64
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build binaries
+        run: make multi-arch-build

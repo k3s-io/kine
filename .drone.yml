@@ -19,6 +19,9 @@ steps:
   volumes:
   - name: docker
     path: /var/run/docker.sock
+  when:
+    event:
+    - pull_request
 
 - name: test-image
   image: docker:25.0.5
@@ -142,60 +145,6 @@ steps:
   when:
     event:
     - pull_request
-
-volumes:
-- name: docker
-  host:
-    path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: arm64
-
-platform:
-  os: linux
-  arch: arm64
-
-steps:
-- name: build
-  image: docker:25.0.5
-  commands:
-  - apk add make git bash file
-  - git config --global --add safe.directory /drone/src
-  - make
-  environment:
-    ARCH: "${DRONE_STAGE_ARCH}"
-  volumes:
-  - name: docker
-    path: /var/run/docker.sock
-
-volumes:
-- name: docker
-  host:
-    path: /var/run/docker.sock
-
----
-kind: pipeline
-type: docker
-name: arm
-
-platform:
-  os: linux
-  arch: arm
-
-steps:
-- name: build
-  image: docker:25.0.5
-  commands:
-  - apk add make git bash file
-  - git config --global --add safe.directory /drone/src
-  - make
-  environment:
-    ARCH: "${DRONE_STAGE_ARCH}"
-  volumes:
-  - name: docker
-    path: /var/run/docker.sock
 
 volumes:
 - name: docker
