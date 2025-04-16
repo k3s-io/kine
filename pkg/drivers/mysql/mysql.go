@@ -120,7 +120,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 	}
 
 	dialect.Migrate(context.Background())
-	return true, logstructured.New(sqllog.New(dialect)), nil
+	return true, logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), nil
 }
 
 func setup(db *sql.DB) error {
