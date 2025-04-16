@@ -442,10 +442,18 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	for i := uint(0); i < 20; i++ {
 		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 		err = row.Scan(&id)
+
 		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
+			logrus.Warnf("unique violation retry for key %v: %v", key, err)
+			metrics.InsertRetriesTotal.WithLabelValues().Inc()
 			wait(i)
 			continue
 		}
+
+		if err != nil {
+			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("unique violation error for key %v: %v", key, err)
+		}
+
 		return id, err
 	}
 	return
