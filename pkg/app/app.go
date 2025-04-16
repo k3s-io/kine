@@ -56,6 +56,12 @@ func New() *cli.App {
 			Value:       false,
 		},
 		&cli.StringFlag{
+			Name:        "log-format",
+			Usage:       "Log format to use. Options are 'plain' or 'json'.",
+			Destination: &config.LogFormat,
+			Value:       "plain",
+		},
+		&cli.StringFlag{
 			Name:        "metrics-bind-address",
 			Usage:       "The address the metric endpoint binds to. Default :8080, set 0 to disable metrics serving.",
 			Destination: &metricsConfig.ServerAddress,
@@ -155,10 +161,23 @@ func New() *cli.App {
 }
 
 func run(c *cli.Context) error {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC3339Nano,
-	})
+	if config.LogFormat == "plain" {
+		logrus.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: time.RFC3339Nano,
+		})
+	} else if config.LogFormat == "json" {
+		logrus.SetFormatter(&logrus.JSONFormatter{
+			// To align with https://cloud.google.com/logging/docs/structured-logging
+			FieldMap: logrus.FieldMap{
+				logrus.FieldKeyLevel: "severity",
+				logrus.FieldKeyMsg:   "message",
+			},
+		})
+	} else {
+		return fmt.Errorf("invalid log format: %s", config.LogFormat)
+	}
+
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.TraceLevel)
 	}

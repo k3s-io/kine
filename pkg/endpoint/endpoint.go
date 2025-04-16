@@ -41,6 +41,7 @@ type Config struct {
 	CompactMinRetain     int64
 	CompactBatchSize     int64
 	PollBatchSize        int64
+	LogFormat            string
 }
 
 type ETCDConfig struct {
