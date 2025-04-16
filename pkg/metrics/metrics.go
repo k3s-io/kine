@@ -30,6 +30,11 @@ var (
 		Name: "kine_compact_total",
 		Help: "Total number of compactions",
 	}, []string{"result"})
+
+	InsertRetriesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kine_insert_retries_total",
+		Help: "Total number of insert retries due to unique constraint violations",
+	}, []string{})
 )
 
 var (
