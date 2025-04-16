@@ -111,6 +111,36 @@ func New() *cli.App {
 			Destination: &config.EmulatedETCDVersion,
 			Value:       "3.5.13",
 		},
+		&cli.DurationFlag{
+			Name:        "compact-interval",
+			Usage:       "Interval between automatic compaction. Default is 5m.",
+			Destination: &config.CompactInterval,
+			Value:       5 * time.Minute,
+		},
+		&cli.DurationFlag{
+			Name:        "compact-timeout",
+			Usage:       "Timeout for automatic compaction. Default is 5s.",
+			Destination: &config.CompactTimeout,
+			Value:       5 * time.Second,
+		},
+		&cli.Int64Flag{
+			Name:        "compact-min-retain",
+			Usage:       "Minimum number of revisions to retain when compacting. Default is 1000.",
+			Destination: &config.CompactMinRetain,
+			Value:       1000,
+		},
+		&cli.Int64Flag{
+			Name:        "compact-batch-size",
+			Usage:       "Number of revisions to compact in a single batch. Default is 1000.",
+			Destination: &config.CompactBatchSize,
+			Value:       1000,
+		},
+		&cli.Int64Flag{
+			Name:        "poll-batch-size",
+			Usage:       "Number of revisions to poll in a single batch. Default is 500.",
+			Destination: &config.PollBatchSize,
+			Value:       500,
+		},
 		&cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run

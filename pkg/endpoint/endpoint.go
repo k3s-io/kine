@@ -36,6 +36,11 @@ type Config struct {
 	MetricsRegisterer    prometheus.Registerer
 	NotifyInterval       time.Duration
 	EmulatedETCDVersion  string
+	CompactInterval      time.Duration
+	CompactTimeout       time.Duration
+	CompactMinRetain     int64
+	CompactBatchSize     int64
+	PollBatchSize        int64
 }
 
 type ETCDConfig struct {
@@ -50,6 +55,11 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 		Endpoint:             config.Endpoint,
 		BackendTLSConfig:     config.BackendTLSConfig,
 		ConnectionPoolConfig: config.ConnectionPoolConfig,
+		CompactInterval:      config.CompactInterval,
+		CompactTimeout:       config.CompactTimeout,
+		CompactMinRetain:     config.CompactMinRetain,
+		CompactBatchSize:     config.CompactBatchSize,
+		PollBatchSize:        config.PollBatchSize,
 	})
 
 	if err != nil {

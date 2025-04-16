@@ -103,7 +103,7 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 	}
 
 	dialect.Migrate(context.Background())
-	return logstructured.New(sqllog.New(dialect)), dialect, nil
+	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
 }
 
 func setup(db *sql.DB) error {
