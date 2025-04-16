@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	config        endpoint.Config
-	metricsConfig metrics.Config
+	config                 endpoint.Config
+	metricsConfig          metrics.Config
+	metricsIgnoreTLSConfig bool
 )
 
 func New() *cli.App {
@@ -99,6 +100,12 @@ func New() *cli.App {
 			Usage:       "Enable net/http/pprof handlers on the metrics bind address. Default is false.",
 			Destination: &metricsConfig.EnableProfiling,
 		},
+		&cli.BoolFlag{
+			Name:        "metrics-ignore-tls-config",
+			Usage:       "Ignore TLS config for metrics server. Default is false.",
+			Destination: &metricsIgnoreTLSConfig,
+			Value:       false,
+		},
 		&cli.DurationFlag{
 			Name:        "watch-progress-notify-interval",
 			Usage:       "Interval between periodic watch progress notifications. Default is 5s to ensure support for watch progress notifications.",
@@ -157,7 +164,9 @@ func run(c *cli.Context) error {
 	}
 	ctx := signals.SetupSignalContext()
 
-	metricsConfig.ServerTLSConfig = config.ServerTLSConfig
+	if !metricsIgnoreTLSConfig {
+		metricsConfig.ServerTLSConfig = config.ServerTLSConfig
+	}
 	go metrics.Serve(ctx, metricsConfig)
 	config.MetricsRegisterer = metrics.Registry
 	_, err := endpoint.Listen(ctx, config)
