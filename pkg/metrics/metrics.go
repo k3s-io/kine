@@ -48,7 +48,7 @@ func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args ...inte
 	SQLTotal.WithLabelValues(errCode).Inc()
 	duration := time.Since(start)
 	SQLTime.WithLabelValues(errCode).Observe(duration.Seconds())
-	if SlowSQLThreshold > 0 && duration >= SlowSQLThreshold && duration < SlowSQLWarningThreshold {
+	if SlowSQLThreshold > 0 && duration >= SlowSQLThreshold {
 		instrumentedLogger := logrus.WithField("sql", sql).WithField("duration", duration)
 
 		if logrus.GetLevel() == logrus.TraceLevel {

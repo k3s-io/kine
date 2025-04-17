@@ -444,14 +444,14 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		err = row.Scan(&id)
 
 		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
-			logrus.Warnf("unique violation retry for key %v: %v", key, err)
+			logrus.Warnf("retriable insert error: duplicate key %v violates unique constraint: %v", key, err)
 			metrics.InsertRetriesTotal.WithLabelValues().Inc()
 			wait(i)
 			continue
 		}
 
 		if err != nil {
-			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("unique violation error for key %v: %v", key, err)
+			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("insert error: duplicate key %v violates unique constraint: %v", key, err)
 		}
 
 		return id, err
