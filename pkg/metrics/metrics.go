@@ -31,10 +31,10 @@ var (
 		Help: "Total number of compactions",
 	}, []string{"result"})
 
-	InsertRetriesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "kine_insert_retries_total",
+	InsertErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kine_insert_errors_total",
 		Help: "Total number of insert retries due to unique constraint violations",
-	}, []string{})
+	}, []string{"key", "retriable"})
 )
 
 var (
@@ -49,7 +49,7 @@ func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args ...inte
 	duration := time.Since(start)
 	SQLTime.WithLabelValues(errCode).Observe(duration.Seconds())
 	if SlowSQLThreshold > 0 && duration >= SlowSQLThreshold {
-		instrumentedLogger := logrus.WithField("sql", sql).WithField("duration", duration)
+		instrumentedLogger := logrus.WithField("duration", duration)
 
 		if logrus.GetLevel() == logrus.TraceLevel {
 			instrumentedLogger.WithField("args", args)
