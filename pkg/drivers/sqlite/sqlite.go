@@ -20,9 +20,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	schema = []string{
-		`CREATE TABLE IF NOT EXISTS kine
+func getSchema(tableName string) []string {
+	quotedTableName := `"` + tableName + `"`
+	return []string{
+		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
 			(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				name INTEGER,
@@ -34,14 +35,14 @@ var (
 				value BLOB,
 				old_value BLOB
 			)`,
-		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
-		`CREATE INDEX IF NOT EXISTS kine_name_id_index ON kine (name,id)`,
-		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
-		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_index" ON ` + quotedTableName + ` (name)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_id_index" ON ` + quotedTableName + ` (name,id)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_id_deleted_index" ON ` + quotedTableName + ` (id,deleted)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_prev_revision_index" ON ` + quotedTableName + ` (prev_revision)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "` + tableName + `_name_prev_revision_uindex" ON ` + quotedTableName + ` (name, prev_revision)`,
 		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
-)
+}
 
 func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
 	backend, _, err := NewVariant(ctx, "sqlite3", cfg)
@@ -57,7 +58,13 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
 	}
 
-	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	tableName := cfg.TableName
+	if tableName == "" {
+		tableName = "kine"
+	}
+	quotedTableName := `"` + tableName + `"`
+
+	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, tableName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -65,18 +72,18 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 	dialect.LastInsertID = true
 	dialect.GetSizeSQL = `SELECT SUM(pgsize) FROM dbstat`
 	dialect.CompactSQL = `
-		DELETE FROM kine AS kv
+		DELETE FROM ` + quotedTableName + ` AS kv
 		WHERE
 			kv.id IN (
 				SELECT kp.prev_revision AS id
-				FROM kine AS kp
+				FROM ` + quotedTableName + ` AS kp
 				WHERE
 					kp.name != 'compact_rev_key' AND
 					kp.prev_revision != 0 AND
 					kp.id <= ?
 				UNION
 				SELECT kd.id AS id
-				FROM kine AS kd
+				FROM ` + quotedTableName + ` AS kd
 				WHERE
 					kd.deleted != 0 AND
 					kd.id <= ?
@@ -98,7 +105,7 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 		return err.Error()
 	}
 
-	if err := setup(dialect.DB); err != nil {
+	if err := setup(dialect.DB, cfg.TableName); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
 
@@ -106,10 +113,10 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 	return logstructured.New(sqllog.New(dialect)), dialect, nil
 }
 
-func setup(db *sql.DB) error {
+func setup(db *sql.DB, tableName string) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
-	for _, stmt := range schema {
+	for _, stmt := range getSchema(tableName) {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {

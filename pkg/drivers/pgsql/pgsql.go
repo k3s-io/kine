@@ -28,9 +28,12 @@ const (
 	defaultDSN = "postgres://postgres:postgres@localhost/"
 )
 
-var (
-	schema = []string{
-		`CREATE TABLE IF NOT EXISTS kine
+var createDB = `CREATE DATABASE "%s";`
+
+func getSchema(tableName string) []string {
+	quotedTableName := `"` + tableName + `"`
+	return []string{
+		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
  			(
 				id BIGSERIAL PRIMARY KEY,
 				name text COLLATE "C",
@@ -43,21 +46,24 @@ var (
  				old_value bytea
  			);`,
 
-		`CREATE INDEX IF NOT EXISTS kine_name_index ON kine (name)`,
-		`CREATE INDEX IF NOT EXISTS kine_name_id_index ON kine (name,id)`,
-		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
-		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
-		`CREATE INDEX IF NOT EXISTS kine_list_query_index on kine(name, id DESC, deleted)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_index" ON ` + quotedTableName + ` (name)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_id_index" ON ` + quotedTableName + ` (name,id)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_id_deleted_index" ON ` + quotedTableName + ` (id,deleted)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_prev_revision_index" ON ` + quotedTableName + ` (prev_revision)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "` + tableName + `_name_prev_revision_uindex" ON ` + quotedTableName + ` (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_list_query_index" on ` + quotedTableName + `(name, id DESC, deleted)`,
 	}
-	schemaMigrations = []string{
-		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
+}
+
+func getSchemaMigrations(tableName string) []string {
+	quotedTableName := `"` + tableName + `"`
+	return []string{
+		`ALTER TABLE ` + quotedTableName + ` ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE "` + tableName + `_id_seq" AS BIGINT`,
 		// It is important to set the collation to "C" to ensure that LIKE and COMPARISON
 		// queries use the index.
-		`ALTER TABLE kine ALTER COLUMN name SET DATA TYPE TEXT COLLATE "C" USING name::TEXT COLLATE "C"`,
+		`ALTER TABLE ` + quotedTableName + ` ALTER COLUMN name SET DATA TYPE TEXT COLLATE "C" USING name::TEXT COLLATE "C"`,
 	}
-	createDB = `CREATE DATABASE "%s";`
-)
+}
 
 func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
 	parsedDSN, err := prepareDSN(cfg.DataSourceName, cfg.BackendTLSConfig)
@@ -69,20 +75,26 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
+	tableName := cfg.TableName
+	if tableName == "" {
+		tableName = "kine"
+	}
+	quotedTableName := `"` + tableName + `"`
+
+	dialect, err := generic.Open(ctx, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer, tableName)
 	if err != nil {
 		return false, nil, err
 	}
 	listSQL := `
 		SELECT
-			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
-			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
+			(SELECT MAX(rkv.id) AS id FROM ` + quotedTableName + ` AS rkv),
+			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM ` + quotedTableName + ` AS crkv WHERE crkv.name = 'compact_rev_key'),
 			maxkv.*
 		FROM (
 			SELECT DISTINCT ON (name)
 				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
 			FROM
-				kine AS kv
+				` + quotedTableName + ` AS kv
 			WHERE
 				kv.name LIKE ? 
 				%s
@@ -95,12 +107,12 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 
 	countSQL := `
 		SELECT
-			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+			(SELECT MAX(rkv.id) AS id FROM ` + quotedTableName + ` AS rkv),
 			COUNT(c.theid)
 		FROM (
 			SELECT DISTINCT ON (name)
 				kv.id AS theid, kv.deleted
-			FROM kine AS kv
+			FROM ` + quotedTableName + ` AS kv
 			WHERE
 				kv.name LIKE ?
 				%s
@@ -108,19 +120,19 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 			) AS c
 		WHERE c.deleted = 0 OR ?
 		`
-	dialect.GetSizeSQL = `SELECT pg_total_relation_size('kine')`
+	dialect.GetSizeSQL = `SELECT pg_total_relation_size('` + tableName + `')`
 	dialect.CompactSQL = `
-		DELETE FROM kine AS kv
+		DELETE FROM ` + quotedTableName + ` AS kv
 		USING	(
 			SELECT kp.prev_revision AS id
-			FROM kine AS kp
+			FROM ` + quotedTableName + ` AS kp
 			WHERE
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
 				kp.id <= $1
 			UNION
 			SELECT kd.id AS id
-			FROM kine AS kd
+			FROM ` + quotedTableName + ` AS kd
 			WHERE
 				kd.deleted != 0 AND
 				kd.id <= $2
@@ -154,7 +166,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return err.Error()
 	}
 
-	if err := setup(dialect.DB); err != nil {
+	if err := setup(dialect.DB, tableName); err != nil {
 		return false, nil, err
 	}
 
@@ -162,7 +174,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 	return true, logstructured.New(sqllog.New(dialect)), nil
 }
 
-func setup(db *sql.DB) error {
+func setup(db *sql.DB, tableName string) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 	var version string
 	collationSupported := true
@@ -173,7 +185,7 @@ func setup(db *sql.DB) error {
 		collationSupported = false
 	}
 
-	for _, stmt := range schema {
+	for _, stmt := range getSchema(tableName) {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		if !collationSupported {
 			stmt = strings.ReplaceAll(stmt, ` COLLATE "C"`, "")
@@ -187,7 +199,7 @@ func setup(db *sql.DB) error {
 	// Note that the schema created by the `schema` var is always the latest revision;
 	// migrations should handle deltas between prior schema versions.
 	schemaVersion, _ := strconv.ParseUint(os.Getenv("KINE_SCHEMA_MIGRATION"), 10, 64)
-	for i, stmt := range schemaMigrations {
+	for i, stmt := range getSchemaMigrations(tableName) {
 		if i >= int(schemaVersion) {
 			break
 		}

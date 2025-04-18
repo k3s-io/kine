@@ -111,6 +111,12 @@ func New() *cli.App {
 			Destination: &config.EmulatedETCDVersion,
 			Value:       "3.5.13",
 		},
+		&cli.StringFlag{
+			Name:        "table-name",
+			Usage:       "The table name for the selected backend. Defaults to 'kine'.",
+			Destination: &config.TableName,
+			Value:       "kine",
+		},
 		&cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run

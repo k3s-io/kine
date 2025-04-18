@@ -36,6 +36,7 @@ type Config struct {
 	MetricsRegisterer    prometheus.Registerer
 	NotifyInterval       time.Duration
 	EmulatedETCDVersion  string
+	TableName            string
 }
 
 type ETCDConfig struct {
@@ -50,6 +51,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 		Endpoint:             config.Endpoint,
 		BackendTLSConfig:     config.BackendTLSConfig,
 		ConnectionPoolConfig: config.ConnectionPoolConfig,
+		TableName:            config.TableName,
 	})
 
 	if err != nil {
