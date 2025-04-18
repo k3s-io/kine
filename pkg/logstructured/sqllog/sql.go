@@ -3,6 +3,7 @@ package sqllog
 import (
 	"context"
 	"database/sql"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -14,27 +15,29 @@ import (
 )
 
 type SQLLog struct {
-	d                server.Dialect
-	broadcaster      broadcaster.Broadcaster
-	ctx              context.Context
-	notify           chan int64
-	currentRev       int64
-	compactInterval  time.Duration
-	compactTimeout   time.Duration
-	compactMinRetain int64
-	compactBatchSize int64
-	pollBatchSize    int64
+	d                     server.Dialect
+	broadcaster           broadcaster.Broadcaster
+	ctx                   context.Context
+	notify                chan int64
+	currentRev            int64
+	compactInterval       time.Duration
+	compactIntervalJitter int
+	compactTimeout        time.Duration
+	compactMinRetain      int64
+	compactBatchSize      int64
+	pollBatchSize         int64
 }
 
-func New(d server.Dialect, compactInterval time.Duration, compactTimeout time.Duration, compactMinRetain int64, compactBatchSize int64, pollBatchSize int64) *SQLLog {
+func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter int, compactTimeout time.Duration, compactMinRetain int64, compactBatchSize int64, pollBatchSize int64) *SQLLog {
 	l := &SQLLog{
-		d:                d,
-		notify:           make(chan int64, 1024),
-		compactInterval:  compactInterval,
-		compactTimeout:   compactTimeout,
-		compactMinRetain: compactMinRetain,
-		compactBatchSize: compactBatchSize,
-		pollBatchSize:    pollBatchSize,
+		d:                     d,
+		notify:                make(chan int64, 1024),
+		compactInterval:       compactInterval,
+		compactIntervalJitter: compactIntervalJitter,
+		compactTimeout:        compactTimeout,
+		compactMinRetain:      compactMinRetain,
+		compactBatchSize:      compactBatchSize,
+		pollBatchSize:         pollBatchSize,
 	}
 	return l
 }
@@ -430,9 +433,16 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 	}
 
 	c := make(chan interface{})
+
+	if s.compactIntervalJitter < 0 || s.compactIntervalJitter > 100 {
+		panic("jitterPercent must be between 0 and 100")
+	}
+	maxJitter := float64(s.compactIntervalJitter) / 100.0 * float64(s.compactInterval)
+	jitter := time.Duration(rand.Float64()*2*maxJitter - maxJitter)
+
 	// start compaction and polling at the same time to watch starts
 	// at the oldest revision, but compaction doesn't create gaps
-	go s.compactor(s.compactInterval)
+	go s.compactor(s.compactInterval + jitter)
 	go s.poll(c, pollStart)
 	return c, nil
 }
