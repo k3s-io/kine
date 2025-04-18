@@ -97,9 +97,15 @@ func New() *cli.App {
 		},
 		&cli.DurationFlag{
 			Name:        "slow-sql-threshold",
-			Usage:       "The duration which SQL executed longer than will be logged. Default 1s, set <= 0 to disable slow SQL log.",
+			Usage:       "The duration which SQL executed longer than will be logged at level info. Default 1s, set <= 0 to disable slow SQL log.",
 			Destination: &metrics.SlowSQLThreshold,
 			Value:       time.Second,
+		},
+		&cli.DurationFlag{
+			Name:        "slow-sql-warning-threshold",
+			Usage:       "The duration which SQL executed longer than will be logged at level warn. Default 5s.",
+			Destination: &metrics.SlowSQLWarningThreshold,
+			Value:       5 * time.Second,
 		},
 		&cli.BoolFlag{
 			Name:        "metrics-enable-profiling",
