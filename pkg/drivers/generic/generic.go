@@ -442,10 +442,19 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	for i := uint(0); i < 20; i++ {
 		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
 		err = row.Scan(&id)
+
 		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
+			logrus.Warnf("retriable insert error for key %v: %v", key, err)
+			metrics.InsertErrorsTotal.WithLabelValues(key, "true").Inc()
 			wait(i)
 			continue
 		}
+
+		if err != nil {
+			metrics.InsertErrorsTotal.WithLabelValues(key, "false").Inc()
+			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("insert error for key %v: %v", key, err)
+		}
+
 		return id, err
 	}
 	return

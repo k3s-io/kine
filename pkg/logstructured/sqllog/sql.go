@@ -3,6 +3,7 @@ package sqllog
 import (
 	"context"
 	"database/sql"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -13,26 +14,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	compactInterval  = 5 * time.Minute
-	compactTimeout   = 5 * time.Second
-	compactMinRetain = 1000
-	compactBatchSize = 1000
-	pollBatchSize    = 500
-)
-
 type SQLLog struct {
-	d           server.Dialect
-	broadcaster broadcaster.Broadcaster
-	ctx         context.Context
-	notify      chan int64
-	currentRev  int64
+	d                     server.Dialect
+	broadcaster           broadcaster.Broadcaster
+	ctx                   context.Context
+	notify                chan int64
+	currentRev            int64
+	compactInterval       time.Duration
+	compactIntervalJitter int
+	compactTimeout        time.Duration
+	compactMinRetain      int64
+	compactBatchSize      int64
+	pollBatchSize         int64
 }
 
-func New(d server.Dialect) *SQLLog {
+func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter int, compactTimeout time.Duration, compactMinRetain int64, compactBatchSize int64, pollBatchSize int64) *SQLLog {
 	l := &SQLLog{
-		d:      d,
-		notify: make(chan int64, 1024),
+		d:                     d,
+		notify:                make(chan int64, 1024),
+		compactInterval:       compactInterval,
+		compactIntervalJitter: compactIntervalJitter,
+		compactTimeout:        compactTimeout,
+		compactMinRetain:      compactMinRetain,
+		compactBatchSize:      compactBatchSize,
+		pollBatchSize:         pollBatchSize,
 	}
 	return l
 }
@@ -145,7 +150,7 @@ func (s *SQLLog) compactor(interval time.Duration) {
 			// Set move iteration target compactBatchSize revisions forward, or
 			// just as far as we need to hit the compaction target if that would
 			// overshoot it.
-			iterCompactRev += compactBatchSize
+			iterCompactRev += s.compactBatchSize
 			if iterCompactRev > targetCompactRev {
 				iterCompactRev = targetCompactRev
 			}
@@ -205,7 +210,7 @@ func (s *SQLLog) compactor(interval time.Duration) {
 //
 // This logic is cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64, error) {
-	ctx, cancel := context.WithTimeout(s.ctx, compactTimeout)
+	ctx, cancel := context.WithTimeout(s.ctx, s.compactTimeout)
 	defer cancel()
 
 	t, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -231,7 +236,7 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	}
 
 	// Ensure that we never compact the most recent 1000 revisions
-	targetCompactRev = safeCompactRev(targetCompactRev, currentRev)
+	targetCompactRev = safeCompactRev(targetCompactRev, currentRev, s.compactMinRetain)
 
 	// Don't bother compacting to a revision that has already been compacted
 	if targetCompactRev <= compactRev {
@@ -428,9 +433,16 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 	}
 
 	c := make(chan interface{})
+
+	if s.compactIntervalJitter < 0 || s.compactIntervalJitter > 100 {
+		panic("jitterPercent must be between 0 and 100")
+	}
+	maxJitter := float64(s.compactIntervalJitter) / 100.0 * float64(s.compactInterval)
+	jitter := time.Duration(rand.Float64()*2*maxJitter - maxJitter)
+
 	// start compaction and polling at the same time to watch starts
 	// at the oldest revision, but compaction doesn't create gaps
-	go s.compactor(compactInterval)
+	go s.compactor(s.compactInterval + jitter)
 	go s.poll(c, pollStart)
 	return c, nil
 }
@@ -462,7 +474,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		}
 		waitForMore = true
 
-		rows, err := s.d.After(s.ctx, "%", s.currentRev, pollBatchSize)
+		rows, err := s.d.After(s.ctx, "%", s.currentRev, s.pollBatchSize)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				logrus.Errorf("fail to list latest changes: %v", err)
@@ -476,7 +488,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			continue
 		}
 
-		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", s.currentRev, pollBatchSize, len(events))
+		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", s.currentRev, s.pollBatchSize, len(events))
 
 		if len(events) == 0 {
 			continue
@@ -630,7 +642,7 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event) error
 }
 
 // safeCompactRev ensures that we never compact the most recent 1000 revisions.
-func safeCompactRev(targetCompactRev int64, currentRev int64) int64 {
+func safeCompactRev(targetCompactRev int64, currentRev int64, compactMinRetain int64) int64 {
 	safeRev := currentRev - compactMinRetain
 	if targetCompactRev < safeRev {
 		safeRev = targetCompactRev

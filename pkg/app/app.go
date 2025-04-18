@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	config        endpoint.Config
-	metricsConfig metrics.Config
+	config                 endpoint.Config
+	metricsConfig          metrics.Config
+	metricsIgnoreTLSConfig bool
 )
 
 func New() *cli.App {
@@ -55,6 +56,12 @@ func New() *cli.App {
 			Value:       false,
 		},
 		&cli.StringFlag{
+			Name:        "log-format",
+			Usage:       "Log format to use. Options are 'plain' or 'json'.",
+			Destination: &config.LogFormat,
+			Value:       "plain",
+		},
+		&cli.StringFlag{
 			Name:        "metrics-bind-address",
 			Usage:       "The address the metric endpoint binds to. Default :8080, set 0 to disable metrics serving.",
 			Destination: &metricsConfig.ServerAddress,
@@ -90,14 +97,26 @@ func New() *cli.App {
 		},
 		&cli.DurationFlag{
 			Name:        "slow-sql-threshold",
-			Usage:       "The duration which SQL executed longer than will be logged. Default 1s, set <= 0 to disable slow SQL log.",
+			Usage:       "The duration which SQL executed longer than will be logged at level info. Default 1s, set <= 0 to disable slow SQL log.",
 			Destination: &metrics.SlowSQLThreshold,
 			Value:       time.Second,
+		},
+		&cli.DurationFlag{
+			Name:        "slow-sql-warning-threshold",
+			Usage:       "The duration which SQL executed longer than will be logged at level warn. Default 5s.",
+			Destination: &metrics.SlowSQLWarningThreshold,
+			Value:       5 * time.Second,
 		},
 		&cli.BoolFlag{
 			Name:        "metrics-enable-profiling",
 			Usage:       "Enable net/http/pprof handlers on the metrics bind address. Default is false.",
 			Destination: &metricsConfig.EnableProfiling,
+		},
+		&cli.BoolFlag{
+			Name:        "metrics-ignore-tls-config",
+			Usage:       "Ignore TLS config for metrics server. Default is false.",
+			Destination: &metricsIgnoreTLSConfig,
+			Value:       false,
 		},
 		&cli.DurationFlag{
 			Name:        "watch-progress-notify-interval",
@@ -111,6 +130,42 @@ func New() *cli.App {
 			Destination: &config.EmulatedETCDVersion,
 			Value:       "3.5.13",
 		},
+		&cli.DurationFlag{
+			Name:        "compact-interval",
+			Usage:       "Interval between automatic compaction. Default is 5m.",
+			Destination: &config.CompactInterval,
+			Value:       5 * time.Minute,
+		},
+		&cli.IntFlag{
+			Name:        "compact-interval-jitter",
+			Usage:       "Percentage of jitter to apply to interval durations. A value of 10 will apply a jitter of +/-10 percent to the interval duration. It cannot be negative, and must be less than 100. Default is 0.",
+			Destination: &config.CompactIntervalJitter,
+			Value:       0,
+		},
+		&cli.DurationFlag{
+			Name:        "compact-timeout",
+			Usage:       "Timeout for automatic compaction. Default is 5s.",
+			Destination: &config.CompactTimeout,
+			Value:       5 * time.Second,
+		},
+		&cli.Int64Flag{
+			Name:        "compact-min-retain",
+			Usage:       "Minimum number of revisions to retain when compacting. Default is 1000.",
+			Destination: &config.CompactMinRetain,
+			Value:       1000,
+		},
+		&cli.Int64Flag{
+			Name:        "compact-batch-size",
+			Usage:       "Number of revisions to compact in a single batch. Default is 1000.",
+			Destination: &config.CompactBatchSize,
+			Value:       1000,
+		},
+		&cli.Int64Flag{
+			Name:        "poll-batch-size",
+			Usage:       "Number of revisions to poll in a single batch. Default is 500.",
+			Destination: &config.PollBatchSize,
+			Value:       500,
+		},
 		&cli.BoolFlag{Name: "debug"},
 	}
 	app.Action = run
@@ -118,16 +173,31 @@ func New() *cli.App {
 }
 
 func run(c *cli.Context) error {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: time.RFC3339Nano,
-	})
+	if config.LogFormat == "plain" {
+		logrus.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp:   true,
+			TimestampFormat: time.RFC3339Nano,
+		})
+	} else if config.LogFormat == "json" {
+		logrus.SetFormatter(&logrus.JSONFormatter{
+			// To align with https://cloud.google.com/logging/docs/structured-logging
+			FieldMap: logrus.FieldMap{
+				logrus.FieldKeyLevel: "severity",
+				logrus.FieldKeyMsg:   "message",
+			},
+		})
+	} else {
+		return fmt.Errorf("invalid log format: %s", config.LogFormat)
+	}
+
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.TraceLevel)
 	}
 	ctx := signals.SetupSignalContext()
 
-	metricsConfig.ServerTLSConfig = config.ServerTLSConfig
+	if !metricsIgnoreTLSConfig {
+		metricsConfig.ServerTLSConfig = config.ServerTLSConfig
+	}
 	go metrics.Serve(ctx, metricsConfig)
 	config.MetricsRegisterer = metrics.Registry
 	_, err := endpoint.Listen(ctx, config)
