@@ -9,15 +9,16 @@ import (
 )
 
 type Config struct {
-	MetricsRegisterer    prometheus.Registerer
-	Endpoint             string
-	Scheme               string
-	DataSourceName       string
-	ConnectionPoolConfig generic.ConnectionPoolConfig
-	BackendTLSConfig     tls.Config
-	CompactInterval      time.Duration
-	CompactTimeout       time.Duration
-	CompactMinRetain     int64
-	CompactBatchSize     int64
-	PollBatchSize        int64
+	MetricsRegisterer     prometheus.Registerer
+	Endpoint              string
+	Scheme                string
+	DataSourceName        string
+	ConnectionPoolConfig  generic.ConnectionPoolConfig
+	BackendTLSConfig      tls.Config
+	CompactInterval       time.Duration
+	CompactIntervalJitter int
+	CompactTimeout        time.Duration
+	CompactMinRetain      int64
+	CompactBatchSize      int64
+	PollBatchSize         int64
 }

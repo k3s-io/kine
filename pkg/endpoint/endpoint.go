@@ -27,21 +27,22 @@ const (
 )
 
 type Config struct {
-	GRPCServer           *grpc.Server
-	Listener             string
-	Endpoint             string
-	ConnectionPoolConfig generic.ConnectionPoolConfig
-	ServerTLSConfig      tls.Config
-	BackendTLSConfig     tls.Config
-	MetricsRegisterer    prometheus.Registerer
-	NotifyInterval       time.Duration
-	EmulatedETCDVersion  string
-	CompactInterval      time.Duration
-	CompactTimeout       time.Duration
-	CompactMinRetain     int64
-	CompactBatchSize     int64
-	PollBatchSize        int64
-	LogFormat            string
+	GRPCServer            *grpc.Server
+	Listener              string
+	Endpoint              string
+	ConnectionPoolConfig  generic.ConnectionPoolConfig
+	ServerTLSConfig       tls.Config
+	BackendTLSConfig      tls.Config
+	MetricsRegisterer     prometheus.Registerer
+	NotifyInterval        time.Duration
+	EmulatedETCDVersion   string
+	CompactInterval       time.Duration
+	CompactIntervalJitter int
+	CompactTimeout        time.Duration
+	CompactMinRetain      int64
+	CompactBatchSize      int64
+	PollBatchSize         int64
+	LogFormat             string
 }
 
 type ETCDConfig struct {
@@ -52,15 +53,16 @@ type ETCDConfig struct {
 
 func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	leaderElect, backend, err := drivers.New(ctx, &drivers.Config{
-		MetricsRegisterer:    config.MetricsRegisterer,
-		Endpoint:             config.Endpoint,
-		BackendTLSConfig:     config.BackendTLSConfig,
-		ConnectionPoolConfig: config.ConnectionPoolConfig,
-		CompactInterval:      config.CompactInterval,
-		CompactTimeout:       config.CompactTimeout,
-		CompactMinRetain:     config.CompactMinRetain,
-		CompactBatchSize:     config.CompactBatchSize,
-		PollBatchSize:        config.PollBatchSize,
+		MetricsRegisterer:     config.MetricsRegisterer,
+		Endpoint:              config.Endpoint,
+		BackendTLSConfig:      config.BackendTLSConfig,
+		ConnectionPoolConfig:  config.ConnectionPoolConfig,
+		CompactInterval:       config.CompactInterval,
+		CompactIntervalJitter: config.CompactIntervalJitter,
+		CompactTimeout:        config.CompactTimeout,
+		CompactMinRetain:      config.CompactMinRetain,
+		CompactBatchSize:      config.CompactBatchSize,
+		PollBatchSize:         config.PollBatchSize,
 	})
 
 	if err != nil {

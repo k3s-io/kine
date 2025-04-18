@@ -130,6 +130,12 @@ func New() *cli.App {
 			Destination: &config.CompactInterval,
 			Value:       5 * time.Minute,
 		},
+		&cli.IntFlag{
+			Name:        "compact-interval-jitter",
+			Usage:       "Percentage of jitter to apply to interval durations. A value of 10 will apply a jitter of +/-10 percent to the interval duration. It cannot be negative, and must be less than 100. Default is 0.",
+			Destination: &config.CompactIntervalJitter,
+			Value:       0,
+		},
 		&cli.DurationFlag{
 			Name:        "compact-timeout",
 			Usage:       "Timeout for automatic compaction. Default is 5s.",
