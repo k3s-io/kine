@@ -33,7 +33,7 @@ jobs:
           done
           
       - name: Upload binaries to release
-        uses: softprops/action-gh-release@v2.2.1 # https://github.com/softprops/action-gh-release/issues/587
+        uses: softprops/action-gh-release@v2.2.2 # https://github.com/softprops/action-gh-release/issues/587
         with:
           files: |
             dist/artifacts/kine-*
