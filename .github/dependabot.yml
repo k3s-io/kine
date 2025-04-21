@@ -34,6 +34,7 @@ updates:
   - package-ecosystem: "gomod"
     open-pull-requests-limit: 15
     directory: "/"
+    target-branch: "master" # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
     labels:
       - "kind/dependabot"
     reviewers:
