@@ -23,7 +23,7 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.21
 	go.etcd.io/etcd/server/v3 v3.5.21
 	google.golang.org/grpc v1.71.1
-	k8s.io/client-go v0.30.11
+	k8s.io/client-go v0.32.3
 )
 
 require (
@@ -95,8 +95,8 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250115164207-1a7da9e5054f // indirect
 	google.golang.org/protobuf v1.36.4 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
-	k8s.io/apimachinery v0.30.11 // indirect
+	k8s.io/apimachinery v0.32.3 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8 // indirect
+	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
