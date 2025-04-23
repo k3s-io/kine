@@ -13,4 +13,5 @@ type Config struct {
 	DataSourceName       string
 	ConnectionPoolConfig generic.ConnectionPoolConfig
 	BackendTLSConfig     tls.Config
+	TableName            string
 }
