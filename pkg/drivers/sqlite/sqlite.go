@@ -21,9 +21,8 @@ import (
 )
 
 func getSchema(tableName string) []string {
-	quotedTableName := `"` + tableName + `"`
 	return []string{
-		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
+		`CREATE TABLE IF NOT EXISTS "` + tableName + `"
 			(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				name INTEGER,
@@ -35,11 +34,11 @@ func getSchema(tableName string) []string {
 				value BLOB,
 				old_value BLOB
 			)`,
-		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_index" ON ` + quotedTableName + ` (name)`,
-		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_id_index" ON ` + quotedTableName + ` (name,id)`,
-		`CREATE INDEX IF NOT EXISTS "` + tableName + `_id_deleted_index" ON ` + quotedTableName + ` (id,deleted)`,
-		`CREATE INDEX IF NOT EXISTS "` + tableName + `_prev_revision_index" ON ` + quotedTableName + ` (prev_revision)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS "` + tableName + `_name_prev_revision_uindex" ON ` + quotedTableName + ` (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_index" ON "` + tableName + `" (name)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_name_id_index" ON "` + tableName + `" (name,id)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_id_deleted_index" ON "` + tableName + `" (id,deleted)`,
+		`CREATE INDEX IF NOT EXISTS "` + tableName + `_prev_revision_index" ON "` + tableName + `" (prev_revision)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS "` + tableName + `_name_prev_revision_uindex" ON "` + tableName + `" (name, prev_revision)`,
 		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
 }
@@ -62,7 +61,6 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 	if tableName == "" {
 		tableName = "kine"
 	}
-	quotedTableName := `"` + tableName + `"`
 
 	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, tableName)
 	if err != nil {
@@ -72,18 +70,18 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 	dialect.LastInsertID = true
 	dialect.GetSizeSQL = `SELECT SUM(pgsize) FROM dbstat`
 	dialect.CompactSQL = `
-		DELETE FROM ` + quotedTableName + ` AS kv
+		DELETE FROM "` + tableName + `" AS kv
 		WHERE
 			kv.id IN (
 				SELECT kp.prev_revision AS id
-				FROM ` + quotedTableName + ` AS kp
+				FROM "` + tableName + `" AS kp
 				WHERE
 					kp.name != 'compact_rev_key' AND
 					kp.prev_revision != 0 AND
 					kp.id <= ?
 				UNION
 				SELECT kd.id AS id
-				FROM ` + quotedTableName + ` AS kd
+				FROM "` + tableName + `" AS kd
 				WHERE
 					kd.deleted != 0 AND
 					kd.id <= ?

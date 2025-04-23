@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
@@ -27,9 +28,8 @@ const (
 var createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
 
 func getSchema(tableName string) []string {
-	quotedTableName := "`" + tableName + "`"
 	return []string{
-		`CREATE TABLE IF NOT EXISTS ` + quotedTableName + `
+		`CREATE TABLE IF NOT EXISTS "` + tableName + `"
 			(
 				id BIGINT UNSIGNED AUTO_INCREMENT,
 				name VARCHAR(630) CHARACTER SET ascii,
@@ -42,18 +42,17 @@ func getSchema(tableName string) []string {
 				old_value MEDIUMBLOB,
 				PRIMARY KEY (id)
 			);`,
-		"CREATE INDEX `" + tableName + "_name_index` ON " + quotedTableName + " (name)",
-		"CREATE INDEX `" + tableName + "_name_id_index` ON " + quotedTableName + " (name,id)",
-		"CREATE INDEX `" + tableName + "_id_deleted_index` ON " + quotedTableName + " (id,deleted)",
-		"CREATE INDEX `" + tableName + "_prev_revision_index` ON " + quotedTableName + " (prev_revision)",
-		"CREATE UNIQUE INDEX `" + tableName + "_name_prev_revision_uindex` ON " + quotedTableName + " (name, prev_revision)",
+		`CREATE INDEX "` + tableName + `_name_index" ON "` + tableName + `" (name)`,
+		`CREATE INDEX "` + tableName + `_name_id_index" ON "` + tableName + `" (name,id)`,
+		`CREATE INDEX "` + tableName + `_id_deleted_index" ON "` + tableName + `" (id,deleted)`,
+		`CREATE INDEX "` + tableName + `_prev_revision_index" ON "` + tableName + `" (prev_revision)`,
+		`CREATE UNIQUE INDEX "` + tableName + `_name_prev_revision_uindex" ON "` + tableName + `" (name, prev_revision)`,
 	}
 }
 
 func getSchemaMigrations(tableName string) []string {
-	quotedTableName := "`" + tableName + "`"
 	return []string{
-		`ALTER TABLE ` + quotedTableName + ` MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
+		`ALTER TABLE "` + tableName + `" MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
 		// Creating an empty migration to ensure that postgresql and mysql migrations match up
 		// with each other for a give value of KINE_SCHEMA_MIGRATION env var
 		``,
@@ -83,7 +82,6 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 	if tableName == "" {
 		tableName = "kine"
 	}
-	quotedTableName := "`" + tableName + "`"
 
 	dialect, err := generic.Open(ctx, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer, tableName)
 	if err != nil {
@@ -96,17 +94,17 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		FROM information_schema.TABLES
 		WHERE table_schema = DATABASE() AND table_name = '` + tableName + `'`
 	dialect.CompactSQL = `
-		DELETE kv FROM ` + quotedTableName + ` AS kv
+		DELETE kv FROM "` + tableName + `" AS kv
 		INNER JOIN (
 			SELECT kp.prev_revision AS id
-			FROM ` + quotedTableName + ` AS kp
+			FROM "` + tableName + `" AS kp
 			WHERE
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
 				kp.id <= ?
 			UNION
 			SELECT kd.id AS id
-			FROM ` + quotedTableName + ` AS kd
+			FROM "` + tableName + `" AS kd
 			WHERE
 				kd.deleted != 0 AND
 				kd.id <= ?
@@ -228,6 +226,27 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 	if err != nil {
 		return "", err
 	}
+
+	// ensure that ASNI_QUOTES is set in sql_mode
+	// this is required for using "" for quoting identifiers
+	// https://dev.mysql.com/doc/refman/8.0/en/sql-mode.html#sqlmode_ansi_quotes
+	if config.Params == nil {
+		config.Params = map[string]string{}
+	}
+
+	if mode, exists := config.Params["sql_mode"]; exists {
+		// check if ANSI_QUOTES is already set
+		if !strings.Contains(strings.ToUpper(mode), "ANSI_QUOTES") {
+			if mode == "" {
+				config.Params["sql_mode"] = "ANSI_QUOTES"
+			} else {
+				config.Params["sql_mode"] = mode + ",ANSI_QUOTES"
+			}
+		}
+	} else {
+		config.Params["sql_mode"] = "ANSI_QUOTES"
+	}
+
 	// setting up tlsConfig
 	if tlsConfig != nil {
 		if err := mysql.RegisterTLSConfig("kine", tlsConfig); err != nil {

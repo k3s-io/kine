@@ -30,12 +30,11 @@ const (
 var _ server.Dialect = (*Generic)(nil)
 
 var (
-	columns         = "kv.id AS theid, kv.name AS thename, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value"
-	revSQL          string
-	compactRevSQL   string
-	listSQL         string
-	tableName       string
-	quotedTableName string
+	columns       = `kv.id AS theid, kv.name AS thename, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value`
+	revSQL        string
+	compactRevSQL string
+	listSQL       string
+	tableName     string
 )
 
 type ErrRetry func(error) bool
@@ -96,8 +95,8 @@ func q(sql, param string, numbered bool) string {
 func (d *Generic) Migrate(ctx context.Context) {
 	var (
 		count     = 0
-		countKV   = d.queryRow(ctx, "SELECT COUNT(*) FROM key_value")
-		countKine = d.queryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName)
+		countKV   = d.queryRow(ctx, `SELECT COUNT(*) FROM key_value`)
+		countKine = d.queryRow(ctx, `SELECT COUNT(*) FROM "`+tableName+`"`)
 	)
 
 	if err := countKV.Scan(&count); err != nil || count == 0 {
@@ -110,7 +109,7 @@ func (d *Generic) Migrate(ctx context.Context) {
 
 	logrus.Infof("Migrating content from old table")
 	_, err := d.execute(ctx,
-		`INSERT INTO `+quotedTableName+`(deleted, create_revision, prev_revision, name, value, created, lease)
+		`INSERT INTO "`+tableName+`"(deleted, create_revision, prev_revision, name, value, created, lease)
 					SELECT 0, 0, 0, kv.name, kv.value, 1, CASE WHEN kv.ttl > 0 THEN 15 ELSE 0 END
 					FROM key_value kv
 						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`)
@@ -151,21 +150,21 @@ func validateTableName(customTableName string) error {
 func buildSQLStatements() (rev, compactRev, list string) {
 	rev = fmt.Sprintf(`
 		SELECT MAX(rkv.id) AS id
-		FROM %s AS rkv`, quotedTableName)
+		FROM "%s" AS rkv`, tableName)
 
 	compactRev = fmt.Sprintf(`
 		SELECT MAX(crkv.prev_revision) AS prev_revision
-		FROM %s AS crkv
-		WHERE crkv.name = 'compact_rev_key'`, quotedTableName)
+		FROM "%s" AS crkv
+		WHERE crkv.name = 'compact_rev_key'`, tableName)
 
 	list = fmt.Sprintf(`
 		SELECT *
 		FROM (
 			SELECT (%s), (%s), %s
-			FROM %s AS kv
+			FROM "%s" AS kv
 			JOIN (
 				SELECT MAX(mkv.id) AS id
-				FROM %s AS mkv
+				FROM "%s" AS mkv
 				WHERE
 					mkv.name LIKE ?
 					%%s
@@ -176,7 +175,7 @@ func buildSQLStatements() (rev, compactRev, list string) {
 				?
 		) AS lkv
 		ORDER BY lkv.thename ASC
-		`, rev, compactRev, columns, quotedTableName, quotedTableName)
+		`, rev, compactRev, columns, tableName, tableName)
 
 	return rev, compactRev, list
 }
@@ -208,16 +207,6 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 	}
 
 	tableName = customTableName
-
-	// In case of MySQL, we need to quote the table name using ` `
-	// In case of SQLite and Postgres, we need to quote the table name using " "
-	switch driverName {
-	case "mysql":
-		quotedTableName = "`" + tableName + "`"
-	default:
-		quotedTableName = `"` + tableName + `"`
-	}
-
 	revSQL, compactRevSQL, listSQL = buildSQLStatements()
 
 	for i := 0; i < 300; i++ {
@@ -246,8 +235,8 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 		GetRevisionSQL: q(fmt.Sprintf(`
 			SELECT
 			0, 0, %s
-			FROM %s AS kv
-			WHERE kv.id = ?`, columns, quotedTableName), paramCharacter, numbered),
+			FROM "%s" AS kv
+			WHERE kv.id = ?`, columns, tableName), paramCharacter, numbered),
 
 		GetCurrentSQL:        q(fmt.Sprintf(listSQL, "AND mkv.name > ?"), paramCharacter, numbered),
 		ListRevisionStartSQL: q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
@@ -267,29 +256,29 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 
 		AfterSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
-			FROM %s AS kv
+			FROM "%s" AS kv
 			WHERE
 				kv.name LIKE ? AND
 				kv.id > ?
-			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns, quotedTableName), paramCharacter, numbered),
+			ORDER BY kv.id ASC`, revSQL, compactRevSQL, columns, tableName), paramCharacter, numbered),
 
 		DeleteSQL: q(fmt.Sprintf(`
-			DELETE FROM %s AS kv
-			WHERE kv.id = ?`, quotedTableName), paramCharacter, numbered),
+			DELETE FROM "%s" AS kv
+			WHERE kv.id = ?`, tableName), paramCharacter, numbered),
 
 		UpdateCompactSQL: q(fmt.Sprintf(`
-			UPDATE %s
+			UPDATE "%s"
 			SET prev_revision = ?
-			WHERE name = 'compact_rev_key'`, quotedTableName), paramCharacter, numbered),
+			WHERE name = 'compact_rev_key'`, tableName), paramCharacter, numbered),
 
-		InsertLastInsertIDSQL: q(fmt.Sprintf(`INSERT INTO %s(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?)`, quotedTableName), paramCharacter, numbered),
+		InsertLastInsertIDSQL: q(fmt.Sprintf(`INSERT INTO "%s"(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?)`, tableName), paramCharacter, numbered),
 
-		InsertSQL: q(fmt.Sprintf(`INSERT INTO %s(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, quotedTableName), paramCharacter, numbered),
+		InsertSQL: q(fmt.Sprintf(`INSERT INTO "%s"(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, tableName), paramCharacter, numbered),
 
-		FillSQL: q(fmt.Sprintf(`INSERT INTO %s(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, quotedTableName), paramCharacter, numbered),
+		FillSQL: q(fmt.Sprintf(`INSERT INTO "%s"(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`, tableName), paramCharacter, numbered),
 	}, err
 }
 
