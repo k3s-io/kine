@@ -34,7 +34,7 @@ var (
 	InsertErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "kine_insert_errors_total",
 		Help: "Total number of insert retries due to unique constraint violations",
-	}, []string{"key", "retriable"})
+	}, []string{"retriable"})
 )
 
 var (

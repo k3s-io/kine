@@ -445,13 +445,13 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 
 		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
 			logrus.Warnf("retriable insert error for key %v: %v", key, err)
-			metrics.InsertErrorsTotal.WithLabelValues(key, "true").Inc()
+			metrics.InsertErrorsTotal.WithLabelValues("true").Inc()
 			wait(i)
 			continue
 		}
 
 		if err != nil {
-			metrics.InsertErrorsTotal.WithLabelValues(key, "false").Inc()
+			metrics.InsertErrorsTotal.WithLabelValues("false").Inc()
 			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("insert error for key %v: %v", key, err)
 		}
 
