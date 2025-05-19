@@ -22,7 +22,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.21
 	go.etcd.io/etcd/client/v3 v3.5.21
 	go.etcd.io/etcd/server/v3 v3.5.21
-	google.golang.org/grpc v1.72.0
+	google.golang.org/grpc v1.72.1
 	k8s.io/client-go v0.30.11
 )
 
