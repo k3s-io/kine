@@ -45,7 +45,7 @@ FROM scratch AS binary
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 COPY --from=build ${SRC_DIR}/bin /bin
 
-FROM alpine:3.21 AS package
+FROM alpine:3.22 AS package
 COPY bin/kine /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
@@ -82,7 +82,7 @@ FROM scratch AS multi-arch-binary
 ENV SRC_DIR=/go/src/github.com/k3s-io/kine
 COPY --from=multi-arch-build ${SRC_DIR}/bin /
 
-FROM alpine:3.21 AS multi-arch-package
+FROM alpine:3.22 AS multi-arch-package
 ARG TARGETARCH
 ENV ARCH=${TARGETARCH}
 RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
