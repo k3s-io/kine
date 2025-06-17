@@ -450,7 +450,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 			continue
 		}
 
-		if err != nil {
+		if err != nil && (d.TranslateErr == nil || d.TranslateErr(err) != server.ErrKeyExists) {
 			metrics.InsertErrorsTotal.WithLabelValues("false").Inc()
 			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("insert error for key %v: %v", key, err)
 		}
