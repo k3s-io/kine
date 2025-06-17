@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -206,4 +207,12 @@ func run(c *cli.Context) error {
 	}
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+// Config returns the endpoint config provided by parsing the provided CLI flags.
+func Config(args []string) endpoint.Config {
+	a := New()
+	a.Before = func(*cli.Context) error { return errors.New("parse") }
+	a.Run(args)
+	return config
 }
