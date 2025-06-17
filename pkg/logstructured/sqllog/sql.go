@@ -112,6 +112,11 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 // Interval is the time interval between each compaction. The first compaction happens after "interval".
 // This logic is directly cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compactor(interval time.Duration) {
+	if interval <= 0 || s.compactBatchSize <= 0 {
+		logrus.Debugf("COMPACT disabled; automatic compaction will not occur")
+		return
+	}
+
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	compactRev, _ := s.d.GetCompactRevision(s.ctx)
