@@ -36,8 +36,8 @@ func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (
 	if rev, key, value, lease, ok := isUpdate(txn); ok {
 		return l.update(ctx, rev, key, value, lease)
 	}
-	if isCompact(txn) {
-		return l.compact()
+	if ver, ok := isCompact(txn); ok {
+		return l.compact(ctx, ver)
 	}
 	return nil, ErrNotSupported
 }
