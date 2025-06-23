@@ -30,6 +30,7 @@ type Config struct {
 	GRPCServer            *grpc.Server
 	Listener              string
 	Endpoint              string
+	TableName             string
 	ConnectionPoolConfig  generic.ConnectionPoolConfig
 	ServerTLSConfig       tls.Config
 	BackendTLSConfig      tls.Config
@@ -55,6 +56,7 @@ func Listen(ctx context.Context, config Config) (ETCDConfig, error) {
 	leaderElect, backend, err := drivers.New(ctx, &drivers.Config{
 		MetricsRegisterer:     config.MetricsRegisterer,
 		Endpoint:              config.Endpoint,
+		TableName:             config.TableName,
 		BackendTLSConfig:      config.BackendTLSConfig,
 		ConnectionPoolConfig:  config.ConnectionPoolConfig,
 		CompactInterval:       config.CompactInterval,
