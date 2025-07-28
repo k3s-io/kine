@@ -26,9 +26,9 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 
 FROM infra AS build
 ARG TAG
-ARG DRONE_TAG
+ARG DIRTY
 ARG ARCH=amd64
-ENV ARCH=${ARCH}
+ENV TAG=${TAG} DIRTY=${DIRTY} ARCH=${ARCH}
 
 COPY ./scripts/build ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
@@ -57,9 +57,11 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.22 AS multi-arch-build
 COPY --from=xx / /
+ARG TAG
+ARG DIRTY
 ARG TARGETOS
 ARG TARGETARCH
-ENV CGO_ENABLED=1
+ENV TAG=${TAG} DIRTY=${DIRTY} CGO_ENABLED=1
 RUN apk -U add bash coreutils git vim less curl wget ca-certificates clang lld
 RUN xx-apk add musl-dev gcc
 # go imports version gopls/v0.15.3

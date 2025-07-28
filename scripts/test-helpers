@@ -323,12 +323,7 @@ pid-cleanup() {
         printf '\033[32mAll tests passed.\033[m\n'
     else
         printf "\033[31m$failCount tests failed.\033[m\n"
-        if [ "$DRONE_BUILD_EVENT" = 'tag' ]; then
-            printf "\033[31mIgnoring test failures on tag.\033[m\n"
-            code=0
-        else
-            code=1
-        fi
+        code=1
     fi
     echo
     exit $code
