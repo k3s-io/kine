@@ -1,14 +1,9 @@
 #!/bin/bash
 
-# Without Dapper, DIRTY is determined in the Makefile and passed in as a build arg/env var
-if [ -z "$DIRTY" ] && [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-    DIRTY="-dirty"
-fi
-
 COMMIT=$(git rev-parse --short HEAD)
-GIT_TAG=${DRONE_TAG:-$(git tag -l --contains HEAD | head -n 1)}
+GIT_TAG=${TAG:-$(git tag -l --contains HEAD | head -n 1)}
 
-if [ -z "$DIRTY" ] && [ -n "$GIT_TAG" ]; then
+if [ -z "$DIRTY" ] && [ -n "$GIT_TAG" ] && [ -n "$(git status --porcelain --untracked-files=no)" ]; then
     VERSION=$GIT_TAG
 else
     VERSION="${COMMIT}${DIRTY}"

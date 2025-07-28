@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ARCH: amd64
+      TAG: ${{ github.ref_name }}
     permissions:
       contents: write # Needed to update release with binary assets
       packages: write # Needed for GHCR image push
