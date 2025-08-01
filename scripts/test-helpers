@@ -218,7 +218,7 @@ provision-server() {
         -p $testPort:6443 \
         -e K3S_DEBUG=true \
         -e K3S_DATASTORE_ENDPOINT=$K3S_DATASTORE_ENDPOINT \
-        ${K3S_IMAGE:-docker.io/rancher/k3s:v1.29.4-k3s1} server \
+        ${K3S_IMAGE:-ghcr.io/k3s-io/k3s:v1.31.12-k3s1} server \
         --kube-apiserver-arg=feature-gates=WatchList=true \
         --disable=coredns,servicelb,traefik,local-storage,metrics-server \
         --disable-network-policy
