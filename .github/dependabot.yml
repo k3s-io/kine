@@ -6,8 +6,6 @@ updates:
     directory: "/"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
@@ -15,8 +13,6 @@ updates:
     directory: "/package"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
@@ -25,8 +21,6 @@ updates:
     directory: "/"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
@@ -37,8 +31,6 @@ updates:
     target-branch: "master" # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
     groups:
@@ -54,8 +46,6 @@ updates:
     directory: "/"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "monthly"
     groups:
