@@ -35,6 +35,12 @@ func New() *cli.App {
 			Destination: &config.Endpoint,
 		},
 		&cli.StringFlag{
+			Name:        "table-name",
+			Usage:       "The table name for the selected backend. Defaults to 'kine'.",
+			Destination: &config.TableName,
+			Value:       "kine",
+		},
+		&cli.StringFlag{
 			Name:        "ca-file",
 			Usage:       "CA cert for DB connection",
 			Destination: &config.BackendTLSConfig.CAFile,
