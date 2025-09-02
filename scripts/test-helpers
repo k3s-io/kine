@@ -212,6 +212,9 @@ provision-server() {
 
     run-function server-pre-hook $count
 
+    # TODO: Once we move to testing with k3s v1.34+, 
+    # we can stop skipping DynamicResourceAllocation and OrderedNamespaceDeletion 
+    # tests in test-confomance script
     docker container run \
         -d --name $name \
         --privileged \

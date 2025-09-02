@@ -18,12 +18,15 @@ test-conformance() {
     echo "Running conformance tests against $(grep server: $KUBECONFIG)"
     # We can't just mount $KUBECONFIG as a volume, because in CI this script is
     # also running in a docker container, and the mount will not work.
+    # TODO: Once we move to k3s v1.34+, we can stop skipping
+    # DynamicResourceAllocation, WatchList, and OrderedNamespaceDeletion tests
+    # TODO: Once we move to k3s v1.32+, we can remove the E2E_SKIP for WatchListClient
     docker container run \
         --rm -d --name $name \
         --entrypoint /usr/bin/sh \
         -e "KUBECONFIG=/root/.kube/config" \
         -e "E2E_FOCUS=sig-api-machinery" \
-        -e "E2E_SKIP=StorageVersionAPI|Slow|Flaky" \
+        -e "E2E_SKIP=StorageVersionAPI|Slow|Flaky|DynamicResourceAllocation|OrderedNamespaceDeletion|WatchList|WatchListClient" \
         -e "E2E_EXTRA_ARGS=--ginkgo.fail-fast" \
         registry.k8s.io/conformance:$version \
         -c 'mkdir -p /root/.kube; sleep 36000'
