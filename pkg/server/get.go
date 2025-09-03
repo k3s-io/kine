@@ -12,11 +12,21 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		return nil, fmt.Errorf("invalid combination of rangeEnd and limit, limit should be 0 got %d", r.Limit)
 	}
 
-	rev, kv, err := l.backend.Get(ctx, string(r.Key), string(r.RangeEnd), r.Limit, r.Revision)
+	key := string(r.Key)
+	// redirect apiserver get to the substitute compact revision key
+	if key == compactRevKey {
+		key = compactRevAPI
+	}
+
+	rev, kv, err := l.backend.Get(ctx, key, string(r.RangeEnd), r.Limit, r.Revision)
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 	}
 	if kv != nil {
+		// fix up apiserver get with original compact revision key
+		if kv.Key == compactRevAPI {
+			kv.Key = compactRevKey
+		}
 		resp.Kvs = []*KeyValue{kv}
 		resp.Count = 1
 	}

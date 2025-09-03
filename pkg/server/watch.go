@@ -88,6 +88,11 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 	key := string(r.Key)
 	startRevision := r.StartRevision
 
+	// redirect apiserver watches to the substitute compact revision key
+	if key == compactRevKey {
+		key = compactRevAPI
+	}
+
 	var progressCh chan int64
 	if r.ProgressNotify {
 		progressCh = make(chan int64)
