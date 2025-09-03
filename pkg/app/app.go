@@ -198,8 +198,9 @@ func run(c *cli.Context) error {
 	if !metricsIgnoreTLSConfig {
 		metricsConfig.ServerTLSConfig = config.ServerTLSConfig
 	}
-	go metrics.Serve(ctx, metricsConfig)
 	config.MetricsRegisterer = metrics.Registry
+	metrics.RegisterCoreCollectors()
+	go metrics.Serve(ctx, metricsConfig)
 	_, err := endpoint.Listen(ctx, config)
 	if err != nil {
 		return err
