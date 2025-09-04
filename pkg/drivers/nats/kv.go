@@ -433,7 +433,7 @@ func (e *KeyValue) Count(ctx context.Context, prefix, startKey string, revision 
 	return count, nil
 }
 
-func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, revision int64) ([]jetstream.KeyValueEntry, error) {
+func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) ([]jetstream.KeyValueEntry, error) {
 	seekKey := prefix
 	if startKey != "" {
 		seekKey = strings.TrimSuffix(seekKey, "/")

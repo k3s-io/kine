@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
 
@@ -18,7 +19,8 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		key = compactRevAPI
 	}
 
-	rev, kv, err := l.backend.Get(ctx, key, string(r.RangeEnd), r.Limit, r.Revision)
+	rev, kv, err := l.backend.Get(ctx, key, string(r.RangeEnd), r.Limit, r.Revision, r.KeysOnly)
+	logrus.Tracef("GET key=%s, end=%s, revision=%d, currentRev=%d, limit=%d, keysOnly=%v", r.Key, r.RangeEnd, r.Revision, rev, r.Limit, r.KeysOnly)
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 	}

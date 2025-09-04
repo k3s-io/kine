@@ -33,7 +33,7 @@ func (l *LimitedServer) update(ctx context.Context, rev int64, key string, value
 	if rev == 0 {
 		rev, err = l.backend.Create(ctx, key, value, lease)
 		if err == ErrKeyExists {
-			rev, kv, err = l.backend.Get(ctx, key, "", 1, rev)
+			rev, kv, err = l.backend.Get(ctx, key, "", 1, rev, false)
 		} else {
 			ok = true
 		}
