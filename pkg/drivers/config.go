@@ -11,6 +11,7 @@ import (
 type Config struct {
 	MetricsRegisterer     prometheus.Registerer
 	Endpoint              string
+	TableName             string
 	Scheme                string
 	DataSourceName        string
 	ConnectionPoolConfig  generic.ConnectionPoolConfig
