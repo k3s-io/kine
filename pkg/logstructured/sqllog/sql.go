@@ -3,6 +3,7 @@ package sqllog
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+const minCompactBatchSize = 100
 
 type SQLLog struct {
 	d                     server.Dialect
@@ -43,6 +46,10 @@ func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter 
 }
 
 func (s *SQLLog) Start(ctx context.Context) error {
+	if s.compactBatchSize < minCompactBatchSize {
+		return fmt.Errorf("compact-batch-size %d too small: must be at least %d", s.compactBatchSize, minCompactBatchSize)
+	}
+
 	s.ctx = ctx
 	return s.compactStart(s.ctx)
 }
@@ -447,7 +454,7 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 
 	// start compaction and polling at the same time to watch starts
 	// at the oldest revision, but compaction doesn't create gaps
-	if s.compactInterval <= 0 || s.compactBatchSize <= 0 {
+	if s.compactInterval <= 0 {
 		logrus.Debugf("COMPACT disabled; automatic compaction will not occur")
 	} else {
 		go s.compactor(s.compactInterval + jitter)
@@ -668,7 +675,7 @@ func (s *SQLLog) DbSize(ctx context.Context) (int64, error) {
 }
 
 func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, error) {
-	if s.compactInterval <= 0 || s.compactBatchSize <= 0 {
+	if s.compactInterval <= 0 {
 		// manual compact is a no-op unless automatic compaction is disabled
 		compactRev, _ := s.d.GetCompactRevision(s.ctx)
 		s.compactIter(compactRev, targetCompactRev)
