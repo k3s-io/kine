@@ -146,7 +146,7 @@ func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision i
 }
 
 // Get returns the store's current revision, the associated server.KeyValue or an error.
-func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64) (int64, *server.KeyValue, error) {
+func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
 	storeRev := b.kv.BucketRevision()
 	// Get the kv entry and return the revision.
 	rev, nv, err := b.get(ctx, key, revision, false)
@@ -338,8 +338,8 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 // that are alphanumerically equal to or greater than the startKey.
 // If limit is provided, the maximum set of matches is limited.
 // If revision is provided, this indicates the maximum revision to return.
-func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxRevision int64) (int64, []*server.KeyValue, error) {
-	matches, err := b.kv.List(ctx, prefix, startKey, limit, maxRevision)
+func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxRevision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
+	matches, err := b.kv.List(ctx, prefix, startKey, limit, maxRevision, keysOnly)
 	if err != nil {
 		return 0, nil, err
 	}

@@ -37,8 +37,8 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		limit++
 	}
 
-	rev, kvs, err := l.backend.List(ctx, prefix, start, limit, revision)
-	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d", r.Key, r.RangeEnd, revision, rev, len(kvs), r.Limit)
+	rev, kvs, err := l.backend.List(ctx, prefix, start, limit, revision, r.KeysOnly)
+	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d, keysOnly=%v", r.Key, r.RangeEnd, revision, rev, len(kvs), r.Limit, r.KeysOnly)
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 		Count:  int64(len(kvs)),

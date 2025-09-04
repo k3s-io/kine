@@ -73,25 +73,28 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 	if err != nil {
 		return false, nil, err
 	}
-	listSQL := `
+	columns := "kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease"
+	withVal := columns + ", kv.value"
+	listFmt := `
 		SELECT
 			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
 			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
 			maxkv.*
 		FROM (
 			SELECT DISTINCT ON (name)
-				kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease, kv.value, kv.old_value
+				%s
 			FROM
 				kine AS kv
 			WHERE
 				kv.name LIKE ? 
-				%s
+				%%s
 			ORDER BY kv.name, theid DESC
 		) AS maxkv
 		WHERE
 			maxkv.deleted = 0 OR ?
 		ORDER BY maxkv.name, maxkv.theid DESC
 	`
+	listValSQL := fmt.Sprintf(listFmt, withVal)
 
 	countSQL := `
 		SELECT
@@ -126,9 +129,9 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 				kd.id <= $2
 		) AS ks
 		WHERE kv.id = ks.id`
-	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ?"))
-	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND kv.id <= ?"))
-	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ? AND kv.id <= ?"))
+	dialect.GetCurrentSQL = q(fmt.Sprintf(listValSQL, "AND kv.name > ?"))
+	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listValSQL, "AND kv.id <= ?"))
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listValSQL, "AND kv.name > ? AND kv.id <= ?"))
 	dialect.CountCurrentSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ?"))
 	dialect.CountRevisionSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ? AND kv.id <= ?"))
 	dialect.FillRetryDuration = time.Millisecond + 5

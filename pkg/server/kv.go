@@ -13,10 +13,6 @@ import (
 var _ etcdserverpb.KVServer = (*KVServerBridge)(nil)
 
 func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest) (*etcdserverpb.RangeResponse, error) {
-	if r.KeysOnly {
-		return nil, unsupported("keysOnly")
-	}
-
 	if r.MaxCreateRevision != 0 {
 		return nil, unsupported("maxCreateRevision")
 	}
