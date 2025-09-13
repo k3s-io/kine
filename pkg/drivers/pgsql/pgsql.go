@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgerrcode"
@@ -59,7 +60,7 @@ var (
 	createDB = `CREATE DATABASE "%s";`
 )
 
-func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
 	parsedDSN, err := prepareDSN(cfg.DataSourceName, cfg.BackendTLSConfig)
 	if err != nil {
 		return false, nil, err
@@ -69,7 +70,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}

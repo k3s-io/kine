@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
@@ -11,13 +12,13 @@ import (
 
 var ErrUnknownDriver = errors.New("unknown driver")
 
-func New(ctx context.Context, cfg *Config) (leaderElect bool, backend server.Backend, err error) {
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *Config) (leaderElect bool, backend server.Backend, err error) {
 	if cfg.Endpoint == "" {
 		driver := GetDefault()
 		if driver == nil {
 			return false, nil, errors.New("no default driver found")
 		}
-		return driver(ctx, cfg)
+		return driver(ctx, wg, cfg)
 	}
 
 	if err := validateDSNuri(cfg.Endpoint); err != nil {
@@ -30,7 +31,7 @@ func New(ctx context.Context, cfg *Config) (leaderElect bool, backend server.Bac
 	if !ok {
 		return false, nil, ErrUnknownDriver
 	}
-	return driver(ctx, cfg)
+	return driver(ctx, wg, cfg)
 }
 
 // validateDSNuri ensure that the given string is of that format <scheme://<authority>
