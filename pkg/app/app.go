@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/endpoint"
@@ -172,7 +173,7 @@ func New() *cli.App {
 	return app
 }
 
-func run(c *cli.Context) error {
+func run(c *cli.Context) (rerr error) {
 	if config.LogFormat == "plain" {
 		logrus.SetFormatter(&logrus.TextFormatter{
 			FullTimestamp:   true,
@@ -200,13 +201,25 @@ func run(c *cli.Context) error {
 	}
 	config.MetricsRegisterer = metrics.Registry
 	metrics.RegisterCoreCollectors()
-	go metrics.Serve(ctx, metricsConfig)
+
+	config.WaitGroup = &sync.WaitGroup{}
 	_, err := endpoint.Listen(ctx, config)
 	if err != nil {
 		return err
 	}
-	<-ctx.Done()
-	return ctx.Err()
+
+	go metrics.Serve(ctx, metricsConfig)
+
+	// Wait for WaitGroup to finish before exiting, and capture error from
+	// context if it is not already set.
+	defer func() {
+		config.WaitGroup.Wait()
+		if rerr == nil {
+			rerr = ctx.Err()
+		}
+	}()
+
+	return nil
 }
 
 // Config returns the endpoint config provided by parsing the provided CLI flags.

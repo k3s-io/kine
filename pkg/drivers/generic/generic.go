@@ -176,7 +176,7 @@ func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
+func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
@@ -188,13 +188,23 @@ func Open(ctx context.Context, driverName, dataSourceName string, connPoolConfig
 			break
 		}
 
-		logrus.Errorf("failed to ping connection: %v", err)
+		logrus.Errorf("Failed to ping database connection: %v", err)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(time.Second):
 		}
 	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		logrus.Infof("Closing database connections...")
+		if err := db.Close(); err != nil {
+			logrus.Errorf("Failed to close database: %v", err)
+		}
+	}()
 
 	configureConnectionPooling(connPoolConfig, db, driverName)
 

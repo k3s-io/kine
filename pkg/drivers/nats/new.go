@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/drivers"
@@ -44,20 +45,20 @@ var (
 
 // New return an implementation of server.Backend using NATS + JetStream.
 // See the `examples/nats.md` file for examples of connection strings.
-func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, err := newBackend(ctx, cfg.Endpoint, cfg.BackendTLSConfig, false)
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, err := newBackend(ctx, wg, cfg.Endpoint, cfg.BackendTLSConfig, false)
 	return true, backend, err
 }
 
 // NewLegacy return an implementation of server.Backend using NATS + JetStream
 // with legacy jetstream:// behavior, ignoring the embedded server.
-func NewLegacy(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, err := newBackend(ctx, cfg.DataSourceName, cfg.BackendTLSConfig, true)
+func NewLegacy(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, err := newBackend(ctx, wg, cfg.DataSourceName, cfg.BackendTLSConfig, true)
 	return true, backend, err
 
 }
 
-func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, legacy bool) (server.Backend, error) {
+func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsInfo tls.Config, legacy bool) (server.Backend, error) {
 	config, err := parseConnection(connection, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -182,7 +183,9 @@ func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, lega
 		// TODO: No method on backend.Driver exists to indicate a shutdown.
 		sigch := make(chan os.Signal, 1)
 		signal.Notify(sigch, os.Interrupt)
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			<-sigch
 			backend.Close()
 			ns.Shutdown()

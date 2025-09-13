@@ -2,12 +2,13 @@ package drivers
 
 import (
 	"context"
+	"sync"
 
 	"github.com/k3s-io/kine/pkg/server"
 )
 
-// Constructor is a function that takes a context and a config and returns a leaderElect bool, a server.Backend and an error
-type Constructor func(ctx context.Context, cfg *Config) (leaderElect bool, backend server.Backend, err error)
+// Constructor is a function that takes a context, waitgroup, and config and returns a leaderElect bool, a server.Backend and an error
+type Constructor func(ctx context.Context, wg *sync.WaitGroup, cfg *Config) (leaderElect bool, backend server.Backend, err error)
 
 var driverRegistry = map[string]Constructor{}
 var defaultScheme string

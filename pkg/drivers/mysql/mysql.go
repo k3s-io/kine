@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
@@ -54,7 +55,7 @@ var (
 	createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
 )
 
-func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
 	tlsConfig, err := cfg.BackendTLSConfig.ClientConfig()
 	if err != nil {
 		return false, nil, err
@@ -73,7 +74,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
