@@ -6,7 +6,7 @@ require (
 	github.com/Rican7/retry v0.3.1
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
-	github.com/jackc/pgx/v5 v5.7.5
+	github.com/jackc/pgx/v5 v5.7.6
 	github.com/klauspost/compress v1.18.0
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/nats-io/jsm.go v0.2.4
