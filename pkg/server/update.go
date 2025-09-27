@@ -60,13 +60,14 @@ func (l *LimitedServer) update(ctx context.Context, rev int64, key string, value
 			},
 		}
 	} else {
+		kvs := toKVs(kv)
 		resp.Responses = []*etcdserverpb.ResponseOp{
 			{
 				Response: &etcdserverpb.ResponseOp_ResponseRange{
 					ResponseRange: &etcdserverpb.RangeResponse{
 						Header: txnHeader(rev),
-						Kvs:    toKVs(kv),
-						Count:  1,
+						Kvs:    kvs,
+						Count:  int64(len(kvs)),
 					},
 				},
 			},

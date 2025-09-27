@@ -33,6 +33,7 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 		return nil, err
 	}
 
+	kvs := toKVs(kv)
 	if !ok {
 		return &etcdserverpb.TxnResponse{
 			Header: txnHeader(rev),
@@ -41,8 +42,8 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 					Response: &etcdserverpb.ResponseOp_ResponseRange{
 						ResponseRange: &etcdserverpb.RangeResponse{
 							Header: txnHeader(rev),
-							Kvs:    toKVs(kv),
-							Count:  1,
+							Kvs:    kvs,
+							Count:  int64(len(kvs)),
 						},
 					},
 				},
@@ -58,7 +59,8 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 				Response: &etcdserverpb.ResponseOp_ResponseDeleteRange{
 					ResponseDeleteRange: &etcdserverpb.DeleteRangeResponse{
 						Header:  txnHeader(rev),
-						PrevKvs: toKVs(kv),
+						PrevKvs: kvs,
+						Deleted: int64(len(kvs)),
 					},
 				},
 			},
