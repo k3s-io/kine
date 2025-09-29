@@ -191,11 +191,24 @@ export -f wait-for-kubeconfig
 
 # ---
 
+wait-for-apiserver() {
+    local num=${1:-1}
+    local name=$(cat $TEST_DIR/servers/$num/metadata/name)
+    while ! docker exec -i $name kubectl --request-timeout=5s version; do
+        echo 'Waiting for apiserver to become available...' &>2
+        sleep 5
+    done
+}
+export -f wait-for-apiserver
+
+# ---
+
 provision-cluster() {
     run-function cluster-pre-hook
 
     provision-server
     timeout --foreground 120s bash -c "wait-for-kubeconfig $i"
+    timeout --foreground 120s bash -c "wait-for-apiserver $i"
     export KUBECONFIG=$TEST_DIR/servers/1/kubeconfig.yaml
 
     run-function cluster-post-hook
@@ -212,16 +225,13 @@ provision-server() {
 
     run-function server-pre-hook $count
 
-    # TODO: Once we move to testing with k3s v1.34+, 
-    # we can stop skipping DynamicResourceAllocation and OrderedNamespaceDeletion 
-    # tests in test-confomance script
     docker container run \
         -d --name $name \
         --privileged \
         -p $testPort:6443 \
         -e K3S_DEBUG=true \
         -e K3S_DATASTORE_ENDPOINT=$K3S_DATASTORE_ENDPOINT \
-        ${K3S_IMAGE:-ghcr.io/k3s-io/k3s:v1.31.12-k3s1} server \
+        ${K3S_IMAGE:-ghcr.io/k3s-io/k3s:v1.34.1-k3s1} server \
         --kube-apiserver-arg=feature-gates=WatchList=true \
         --disable=coredns,servicelb,traefik,local-storage,metrics-server \
         --disable-network-policy
@@ -253,6 +263,7 @@ provision-kine() {
         -d --name $name \
         $KINE_ENV \
         $KINE_IMAGE \
+        --compact-interval=0 \
         --watch-progress-notify-interval=5s \
         --endpoint=$KINE_ENDPOINT
 
