@@ -3,7 +3,6 @@
 
 # This is a terrible ugly hack of a script.
 
-import sys
 import logging
 import argparse
 import random
@@ -25,7 +24,7 @@ def main(rounds, *args, **kwargs):
         logging.info(f"Connected to {Configuration._default.host} - {version.git_version}")
     except Exception as e:
         logging.error(f"Kubernetes version check failed: {e}")
-        sys.exit(1)
+        raise SystemExit(e)
 
     v1 = client.CoreV1Api()
     ns = client.V1Namespace(
@@ -59,7 +58,7 @@ def update_or_merge_configmap(cm):
             return v1.replace_namespaced_config_map(name=cm.metadata.name, namespace=namespace, body=cm)
         except client.exceptions.ApiException as e:
             logging.debug(f"\tError: {e.status}")
-            if e.status == 409 and 'StorageError: invalid object' in e.body:
+            if e.status == 404:
                 logging.debug("\tCreating and merging...")
                 cm1 = create_or_get_configmap(cm)
                 if not cm1.data:
@@ -157,7 +156,9 @@ def list_configmaps():
         return
     cml = v1.list_namespaced_config_map(namespace=namespace)
     for cm in cml.items:
-        configmaps[cm.metadata.name] = cm
+        if cm.metadata.name.startswith("test-"):
+            i = int(cm.metadata.name.strip("test-"), 10)
+            configmaps[i] = cm
 
 
 if __name__ == '__main__':
@@ -171,5 +172,5 @@ if __name__ == '__main__':
         main(**vars(args))
     except KeyboardInterrupt:
         pass
-    except Exception:
-        logging.exception('Unhandled exception')
+    except Exception as e:
+        raise SystemExit(e)

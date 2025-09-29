@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 cd $(dirname $0)/..
 
 if [[ "$LABEL" = "" ]]; then
@@ -11,6 +12,8 @@ test-load() {
         python3 hack/loadmap.py &
     done
     wait
+    loadret=$?
+    echo "Loadmap wait exited with code $loadret"
     python3 hack/histogram.py --backend-name "$LABEL" | awk '{print "[PERF]\t" $0}'
 }
 
