@@ -3,7 +3,7 @@ package nats
 import (
 	"context"
 	"errors"
-	"io/ioutil"
+	"io"
 	"testing"
 	"time"
 
@@ -19,13 +19,6 @@ func noErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func expErr(t *testing.T, err error) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected error")
 	}
 }
 
@@ -88,7 +81,7 @@ func setupBackend(t *testing.T) (*server.Server, *nats.Conn, *Backend) {
 	ekv := NewKeyValue(ctx, bkt, js)
 
 	l := logrus.New()
-	l.SetOutput(ioutil.Discard)
+	l.SetOutput(io.Discard)
 
 	b := Backend{
 		l:  l,
