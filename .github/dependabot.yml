@@ -6,8 +6,6 @@ updates:
     directory: "/"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
@@ -15,8 +13,6 @@ updates:
     directory: "/package"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
@@ -25,8 +21,6 @@ updates:
     directory: "/"
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
 
@@ -34,18 +28,29 @@ updates:
   - package-ecosystem: "gomod"
     open-pull-requests-limit: 15
     directory: "/"
+    target-branch: "master" # see https://github.com/dependabot/dependabot-core/issues/1778#issuecomment-1988140219
     labels:
       - "kind/dependabot"
-    reviewers:
-      - "k3s-io/k3s-dev"
     schedule:
       interval: "weekly"
     groups:
-      k8s-dependencies:
-        patterns:
-          - k8s.io/*
       etcd-dependencies:
         patterns:
           - go.etcd.io/*
     ignore:
+      - dependency-name: k8s.io/*
       - dependency-name: "github.com/nats-io/nats-server/v2"
+
+   # Maintain dependencies for K8s monthly
+  - package-ecosystem: "gomod"
+    directory: "/"
+    labels:
+      - "kind/dependabot"
+    schedule:
+      interval: "monthly"
+    groups:
+      k8s-dependencies:
+        patterns:
+          - k8s.io/*
+    ignore:
+      - dependency-name: "*"

@@ -23,7 +23,7 @@ test-conformance() {
         --entrypoint /usr/bin/sh \
         -e "KUBECONFIG=/root/.kube/config" \
         -e "E2E_FOCUS=sig-api-machinery" \
-        -e "E2E_SKIP=StorageVersionAPI|Slow|Flaky" \
+        -e "E2E_SKIP=StorageVersionAPI|Slow|Flaky|Feature:OffByDefault" \
         -e "E2E_EXTRA_ARGS=--ginkgo.fail-fast" \
         registry.k8s.io/conformance:$version \
         -c 'mkdir -p /root/.kube; sleep 36000'

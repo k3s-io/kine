@@ -5,11 +5,17 @@ start-test() {
     local port=$(cat $TEST_DIR/databases/*/metadata/port)
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
     local image=$(cat $TEST_DIR/databases/*/metadata/image)
+    # Starting with mariadb 11, you have to call to mariadb instead of mysql
+    if [[ $image == *mariadb* ]]; then
+       db_type="mariadb"
+    else
+       db_type="mysql"
+    fi
     DB_CONNECTION_TEST="
         docker run --rm
         --name connection-test
         $image
-        mysql
+        $db_type
           --host=$ip
           --port=$port
           --user=root
@@ -23,11 +29,11 @@ start-test() {
 export -f start-test
 
 VERSION_LIST="\
+    mysql 8.4
     mysql 8.0
-    mysql 5.7
+    mariadb 11.4
     mariadb 10.11
-    mariadb 10.5
-    mariadb 10.4"
+    mariadb 10.6"
 
 while read ENGINE VERSION; do
     LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=MYSQL_ROOT_PASSWORD DB_IMAGE=docker.io/library/$ENGINE:$VERSION run-test

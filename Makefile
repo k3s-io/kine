@@ -8,6 +8,9 @@ ifneq ($(DIRTY),)
 	DIRTY="-dirty"
 endif
 
+clean:
+	rm -rf ./bin ./dist
+
 .PHONY: validate
 validate:
 	DOCKER_BUILDKIT=1 docker build \
@@ -17,9 +20,21 @@ validate:
 .PHONY: build
 build:
 	DOCKER_BUILDKIT=1 docker build \
-		$(DEFAULT_BUILD_ARGS) --build-arg="DRONE_TAG=$(DRONE_TAG)" --build-arg="CROSS=$(CROSS)" \
+		$(DEFAULT_BUILD_ARGS) --build-arg="DRONE_TAG=$(DRONE_TAG)" \
 		-f Dockerfile --target=binary --output=. .
 
-.PHONY: ci
-ci: validate build
+.PHONY: multi-arch-build
+PLATFORMS = linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
+multi-arch-build:
+	docker buildx build --build-arg="REPO=$(REPO)" --build-arg="TAG=$(TAG)" --build-arg="DIRTY=$(DIRTY)" --platform=$(PLATFORMS) --target=multi-arch-binary --output=type=local,dest=bin .
+	mv bin/linux*/kine* bin/
+	rmdir bin/linux*
+	mkdir -p dist/artifacts
+	cp bin/kine* dist/artifacts/
+
+.PHONY: package
+package:
 	ARCH=$(ARCH) ./scripts/package
+
+.PHONY: ci
+ci: validate build package

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
@@ -46,7 +47,7 @@ var (
 		`CREATE UNIQUE INDEX kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 	}
 	schemaMigrations = []string{
-		`ALTER TABLE kine MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL UNIQUE, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
+		`ALTER TABLE kine MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT, MODIFY COLUMN create_revision BIGINT UNSIGNED, MODIFY COLUMN prev_revision BIGINT UNSIGNED`,
 		// Creating an empty migration to ensure that postgresql and mysql migrations match up
 		// with each other for a give value of KINE_SCHEMA_MIGRATION env var
 		``,
@@ -54,7 +55,7 @@ var (
 	createDB = "CREATE DATABASE IF NOT EXISTS `%s`;"
 )
 
-func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
 	tlsConfig, err := cfg.BackendTLSConfig.ClientConfig()
 	if err != nil {
 		return false, nil, err
@@ -73,7 +74,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
@@ -120,7 +121,7 @@ func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error)
 	}
 
 	dialect.Migrate(context.Background())
-	return true, logstructured.New(sqllog.New(dialect)), nil
+	return true, logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), nil
 }
 
 func setup(db *sql.DB) error {

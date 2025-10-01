@@ -30,12 +30,18 @@ var (
 		Name: "kine_compact_total",
 		Help: "Total number of compactions",
 	}, []string{"result"})
+
+	InsertErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "kine_insert_errors_total",
+		Help: "Total number of insert retries due to unique constraint violations",
+	}, []string{"retriable"})
 )
 
 var (
 	// SlowSQLThreshold is a duration which SQL executed longer than will be logged.
 	// This can be directly modified to override the default value when kine is used as a library.
-	SlowSQLThreshold = time.Second
+	SlowSQLThreshold        = time.Second
+	SlowSQLWarningThreshold = 5 * time.Second
 )
 
 func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args ...interface{}) {
@@ -43,10 +49,16 @@ func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args ...inte
 	duration := time.Since(start)
 	SQLTime.WithLabelValues(errCode).Observe(duration.Seconds())
 	if SlowSQLThreshold > 0 && duration >= SlowSQLThreshold {
+		instrumentedLogger := logrus.WithField("duration", duration)
+
 		if logrus.GetLevel() == logrus.TraceLevel {
-			logrus.Tracef("Slow SQL (started: %v) (total time: %v): %s : %v", start, duration, sql, args)
+			instrumentedLogger.WithField("args", args)
+		}
+
+		if duration < SlowSQLWarningThreshold {
+			instrumentedLogger.Infof("Slow SQL (started: %v) (total time: %v): %s", start, duration, sql)
 		} else {
-			logrus.Infof("Slow SQL (started: %v) (total time: %v): %s", start, duration, sql)
+			instrumentedLogger.Warnf("Slow SQL (started: %v) (total time: %v): %s", start, duration, sql)
 		}
 	}
 }

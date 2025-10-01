@@ -12,7 +12,7 @@ type RegistererGatherer interface {
 
 var Registry RegistererGatherer = prometheus.NewRegistry()
 
-func init() {
+func RegisterCoreCollectors() {
 	Registry.MustRegister(
 		// expose process metrics like CPU, Memory, file descriptor usage etc.
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),

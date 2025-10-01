@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Go Unit Tests
       run: go test -cover -tags=test ./...
+    - name: Go Unit Tests (nocgo)
+      run: go test -cover -tags=test ./...
+      env:
+        CGO_ENABLED: "0"

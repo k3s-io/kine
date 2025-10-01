@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/util"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 var watchID int64
@@ -39,7 +39,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 
 	logrus.Tracef("WATCH SERVER CREATE")
 
-	go wait.PollInfiniteWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced)
+	go util.PollWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced)
 
 	for {
 		msg, err := ws.Recv()
@@ -87,6 +87,11 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 
 	key := string(r.Key)
 	startRevision := r.StartRevision
+
+	// redirect apiserver watches to the substitute compact revision key
+	if key == compactRevKey {
+		key = compactRevAPI
+	}
 
 	var progressCh chan int64
 	if r.ProgressNotify {
@@ -172,7 +177,12 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			}
 		}
 
-		w.Cancel(id, 0, 0, nil)
+		select {
+		case err := <-wr.Errorc:
+			w.Cancel(id, 0, 0, err)
+		default:
+			w.Cancel(id, 0, 0, nil)
+		}
 		logrus.Tracef("WATCH CLOSE id=%d, key=%s", id, key)
 	}()
 }
@@ -219,7 +229,7 @@ func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
 
 	serr := w.server.Send(&etcdserverpb.WatchResponse{
 		Header:          txnHeader(revision),
-		Canceled:        err != nil,
+		Canceled:        true,
 		CancelReason:    reason,
 		WatchId:         watchID,
 		CompactRevision: compactRev,

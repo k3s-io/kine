@@ -8,7 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"time"
+	"sync"
 
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
@@ -44,12 +44,12 @@ var (
 	}
 )
 
-func New(ctx context.Context, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, "sqlite3", cfg)
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
 	return false, backend, err
 }
 
-func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
+func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
 	dataSourceName := cfg.DataSourceName
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
@@ -58,7 +58,7 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
 	}
 
-	dialect, err := generic.Open(ctx, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -99,27 +99,12 @@ func NewVariant(ctx context.Context, driverName string, cfg *drivers.Config) (se
 		return err.Error()
 	}
 
-	// this is the first SQL that will be executed on a new DB conn so
-	// loop on failure here because in the case of dqlite it could still be initializing
-	for i := 0; i < 300; i++ {
-		err = setup(dialect.DB)
-		if err == nil {
-			break
-		}
-		logrus.Errorf("failed to setup db: %v", err)
-		select {
-		case <-ctx.Done():
-			return nil, nil, ctx.Err()
-		case <-time.After(time.Second):
-		}
-		time.Sleep(time.Second)
-	}
-	if err != nil {
+	if err := setup(dialect.DB); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
 
 	dialect.Migrate(context.Background())
-	return logstructured.New(sqllog.New(dialect)), dialect, nil
+	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
 }
 
 func setup(db *sql.DB) error {

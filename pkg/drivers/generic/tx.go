@@ -80,10 +80,6 @@ func (t *Tx) Compact(ctx context.Context, revision int64) (int64, error) {
 	return res.RowsAffected()
 }
 
-func (t *Tx) GetRevision(ctx context.Context, revision int64) (*sql.Rows, error) {
-	return t.query(ctx, t.d.GetRevisionSQL, revision)
-}
-
 func (t *Tx) DeleteRevision(ctx context.Context, revision int64) error {
 	logrus.Tracef("TX DELETEREVISION %v", revision)
 	_, err := t.execute(ctx, t.d.DeleteSQL, revision)

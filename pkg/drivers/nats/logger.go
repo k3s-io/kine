@@ -31,7 +31,7 @@ func (b *BackendLogger) Start(ctx context.Context) error {
 }
 
 // Get returns the store's current revision, the associated server.KeyValue or an error.
-func (b *BackendLogger) Get(ctx context.Context, key, rangeEnd string, limit, revision int64) (revRet int64, kvRet *server.KeyValue, errRet error) {
+func (b *BackendLogger) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (revRet int64, kvRet *server.KeyValue, errRet error) {
 	start := time.Now()
 	defer func() {
 		dur := time.Since(start)
@@ -43,7 +43,7 @@ func (b *BackendLogger) Get(ctx context.Context, key, rangeEnd string, limit, re
 		b.logMethod(dur, fStr, key, revision, revRet, kvRet != nil, size, errRet, dur)
 	}()
 
-	return b.backend.Get(ctx, key, rangeEnd, limit, revision)
+	return b.backend.Get(ctx, key, rangeEnd, limit, revision, keysOnly)
 }
 
 // Create attempts to create the key-value entry and returns the revision number.
@@ -69,7 +69,7 @@ func (b *BackendLogger) Delete(ctx context.Context, key string, revision int64) 
 	return b.backend.Delete(ctx, key, revision)
 }
 
-func (b *BackendLogger) List(ctx context.Context, prefix, startKey string, limit, revision int64) (revRet int64, kvRet []*server.KeyValue, errRet error) {
+func (b *BackendLogger) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) (revRet int64, kvRet []*server.KeyValue, errRet error) {
 	start := time.Now()
 	defer func() {
 		dur := time.Since(start)
@@ -77,7 +77,7 @@ func (b *BackendLogger) List(ctx context.Context, prefix, startKey string, limit
 		b.logMethod(dur, fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, dur)
 	}()
 
-	return b.backend.List(ctx, prefix, startKey, limit, revision)
+	return b.backend.List(ctx, prefix, startKey, limit, revision, keysOnly)
 }
 
 // Count returns an exact count of the number of matching keys and the current revision of the database

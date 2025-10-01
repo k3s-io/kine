@@ -1,0 +1,31 @@
+#!/bin/bash
+# Builds kine for multiple platforms and os
+# Intended to be run within a buildx container that provides the --platform flag
+# Also needed are the tonistiigi/xx build tools
+set -ex
+
+source $(dirname $0)/version
+
+cd $(dirname $0)/..
+
+mkdir -p bin
+
+if [ "$TARGETARCH" = "arm/v7" ]; then
+    ARCH="-arm"
+else
+    ARCH="-${TARGETARCH}"
+fi
+
+# If not linux, add the os to the binary name
+if [ "$TARGETOS" != "linux" ]; then
+    OPT_OS="-${TARGETOS}"
+fi
+
+if [ "$TARGETOS" = "linux" ]; then
+    OTHER_LINKFLAGS="-extldflags -static -s"
+fi
+LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.Version=$VERSION"
+LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
+
+echo Building Multiplatform Kine ${VERSION}
+CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" xx-go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine"${OPT_OS}${ARCH}"

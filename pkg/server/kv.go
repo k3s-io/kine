@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -12,10 +13,6 @@ import (
 var _ etcdserverpb.KVServer = (*KVServerBridge)(nil)
 
 func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest) (*etcdserverpb.RangeResponse, error) {
-	if r.KeysOnly {
-		return nil, unsupported("keysOnly")
-	}
-
 	if r.MaxCreateRevision != 0 {
 		return nil, unsupported("maxCreateRevision")
 	}
@@ -50,7 +47,9 @@ func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest
 
 	resp, err := k.limited.Range(ctx, r)
 	if err != nil {
-		logrus.Errorf("error while range on %s %s: %v", r.Key, r.RangeEnd, err)
+		if !errors.Is(err, context.Canceled) {
+			logrus.Errorf("error while range on %s %s: %v", r.Key, r.RangeEnd, err)
+		}
 		return nil, err
 	}
 
@@ -83,6 +82,10 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 	if kv == nil {
 		return nil
 	}
+	// fix up apiserver watch with original compact revision key
+	if kv.Key == compactRevAPI {
+		kv.Key = compactRevKey
+	}
 	return &mvccpb.KeyValue{
 		Key:            []byte(kv.Key),
 		Value:          kv.Value,
@@ -103,7 +106,9 @@ func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.Delete
 func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	res, err := k.limited.Txn(ctx, r)
 	if err != nil {
-		logrus.Errorf("error in txn %s: %v", r, err)
+		if !errors.Is(err, context.Canceled) {
+			logrus.Errorf("error in txn %s: %v", r, err)
+		}
 	}
 	return res, err
 }

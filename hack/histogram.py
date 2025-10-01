@@ -16,7 +16,7 @@ from kubernetes.client import Configuration
 METRIC = 'etcd_request_duration_seconds'
 
 
-def main(type, *args, **kwargs):
+def main(resource, *args, **kwargs):
     global v1
 
     try:
@@ -25,7 +25,7 @@ def main(type, *args, **kwargs):
         logging.info(f"Connected to {Configuration._default.host} - {version.git_version}")
     except Exception as e:
         logging.error(f"Kubernetes version check failed: {e}")
-        sys.exit(1)
+        raise SystemExit(e)
 
     res = client.ApiClient().call_api('/metrics', 'GET', _return_http_data_only=True, _preload_content=False)
     operations = {}
@@ -44,11 +44,11 @@ def main(type, *args, **kwargs):
                 k, v = part.split('=')
                 labels[k] = v.strip('"')
 
-            if not labels.get('type', '').endswith(type):
+            if not labels.get('resource', '').endswith(resource):
                 continue
 
             if labels['operation'] not in operations:
-                operations[labels['operation']] = {'counts': [], 'buckets': [], 'type': labels['type']}
+                operations[labels['operation']] = {'counts': [], 'buckets': [], 'resource': labels['resource']}
                 prev_value = 0
 
             if metric.endswith('_bucket'):
@@ -61,7 +61,7 @@ def main(type, *args, **kwargs):
                 operations[labels['operation']]['count'] = value
 
     for operation, stats in operations.items():
-        print(f"\n{stats['sum'] / stats['count']:.3f}  average {kwargs['backend_name']} request duration (seconds): {operation} {stats['type']}")
+        print(f"\n{stats['sum'] / stats['count']:.3f}  average {kwargs['backend_name']} request duration (seconds): {operation} {stats['resource']}")
         fig = tpl.figure()
         fig.barh(stats['counts'], stats['buckets'], max_width=50)
         fig.show()
@@ -69,7 +69,7 @@ def main(type, *args, **kwargs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--type', '-t', type=str, required=False, default='configmaps')
+    parser.add_argument('--resource', '-t', type=str, required=False, default='configmaps')
     parser.add_argument('--log-level', '-l', type=str, required=False, default='INFO')
     parser.add_argument('--backend-name', '-b', type=str, required=False, default='etcd')
     args = parser.parse_args()
@@ -79,5 +79,5 @@ if __name__ == '__main__':
         main(**vars(args))
     except KeyboardInterrupt:
         pass
-    except Exception:
-        logging.exception('Unhandled exception')
+    except Exception as e:
+        raise SystemExit(e)
