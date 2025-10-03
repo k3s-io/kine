@@ -238,7 +238,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 		return rev, nil, true, nil
 	}
 	if value.Delete {
-		return rev, value.KV, true, nil
+		return rev, nil, false, nil
 	}
 	if revision != 0 && value.KV.ModRevision != revision {
 		return rev, value.KV, false, nil
