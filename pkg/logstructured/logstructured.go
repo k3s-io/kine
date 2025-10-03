@@ -144,7 +144,7 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 	}
 
 	if event.Delete {
-		return rev, event.KV, true, nil
+		return rev, nil, false, nil
 	}
 
 	if revision != 0 && event.KV.ModRevision != revision {
