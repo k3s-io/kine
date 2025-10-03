@@ -202,6 +202,34 @@ wait-for-apiserver() {
 export -f wait-for-apiserver
 
 # ---
+run-apiserver-tests() {
+  TAG_KUBERNETES=$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' k8s.io/apiserver)
+  KINEPATH=$PWD
+  GOPATH=$(go env GOPATH)
+  mkdir -p $GOPATH/src/github.com/kubernetes
+  cd $GOPATH/src/github.com/kubernetes
+  if [[ -d apiserver ]]; then
+    cd apiserver
+    git fetch kubernetes refs/tags/$TAG_KUBERNETES
+    git checkout --force refs/tags/$TAG_KUBERNETES
+  else
+    git clone -o kubernetes --single-branch --depth 1 --branch $TAG_KUBERNETES https://github.com/kubernetes/apiserver
+    cd apiserver
+  fi
+  # replace testserver package
+  grep -rlF 'k8s.io/apiserver/pkg/storage/etcd3/testserver' pkg/ | xargs sed -i 's|k8s.io/apiserver/pkg/storage/etcd3/testserver|github.com/k3s-io/kine/pkg/testserver|'
+  # fix test that expects only 1 revision to exist at startup - kine has 2, as we store compact revision in a key.
+  sed -i 's|NewTooLargeResourceVersionError(uint64(102), 1, 0)|NewTooLargeResourceVersionError(uint64(102), 2, 0)|' pkg/storage/etcd3/watcher_test.go
+  # fix too-short test helper timeout that fails under load
+  sed -i 's|waitTimeout = 100 * waitDelay|waitTimeout = 500 * waitDelay|' pkg/storage/etcd3/compact_test.go
+  go mod edit --replace github.com/k3s-io/kine=$KINEPATH
+  go mod tidy
+  go test -failfast -count 1 -parallel 1 $GO_TEST_EXTRAFLAGS ./pkg/storage/etcd3/...
+  cd $KINEPATH
+}
+export -f run-apiserver-tests
+
+# ---
 
 provision-cluster() {
     run-function cluster-pre-hook
