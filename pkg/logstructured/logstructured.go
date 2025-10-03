@@ -3,6 +3,7 @@ package logstructured
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -174,6 +175,18 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 	defer func() {
 		logrus.Tracef("LIST %s, start=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v", prefix, startKey, limit, revision, revRet, len(kvRet), errRet)
 	}()
+
+	// It's assumed that when there is a start key that that key exists.
+	if strings.HasSuffix(prefix, "/") {
+		// In the situation of a list start the startKey will not exist so set to ""
+		if prefix == startKey {
+			startKey = ""
+		}
+		prefix += "%"
+	} else {
+		// Also if this isn't a list there is no reason to pass startKey
+		startKey = ""
+	}
 
 	rev, events, err := l.log.List(ctx, prefix, startKey, limit, revision, false, keysOnly)
 	if err != nil {
