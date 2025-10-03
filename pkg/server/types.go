@@ -51,6 +51,7 @@ type Dialect interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (Transaction, error)
 	GetSize(ctx context.Context) (int64, error)
 	FillRetryDelay(ctx context.Context)
+	TranslateStartKey(startKey string) string
 }
 
 type Transaction interface {

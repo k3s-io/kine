@@ -131,14 +131,14 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.id <= $2
 		) AS ks
 		WHERE kv.id = ks.id`
-	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ?"))
-	dialect.GetCurrentValSQL = q(fmt.Sprintf(listValSQL, "AND kv.name > ?"))
+	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name >= ?"))
+	dialect.GetCurrentValSQL = q(fmt.Sprintf(listValSQL, "AND kv.name >= ?"))
 	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND kv.id <= ?"))
 	dialect.ListRevisionStartValSQL = q(fmt.Sprintf(listValSQL, "AND kv.id <= ?"))
-	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND kv.name > ? AND kv.id <= ?"))
-	dialect.GetRevisionAfterValSQL = q(fmt.Sprintf(listValSQL, "AND kv.name > ? AND kv.id <= ?"))
-	dialect.CountCurrentSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ?"))
-	dialect.CountRevisionSQL = q(fmt.Sprintf(countSQL, "AND kv.name > ? AND kv.id <= ?"))
+	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND kv.name >= ? AND kv.id <= ?"))
+	dialect.GetRevisionAfterValSQL = q(fmt.Sprintf(listValSQL, "AND kv.name >= ? AND kv.id <= ?"))
+	dialect.CountCurrentSQL = q(fmt.Sprintf(countSQL, "AND kv.name >= ?"))
+	dialect.CountRevisionSQL = q(fmt.Sprintf(countSQL, "AND kv.name >= ? AND kv.id <= ?"))
 	dialect.FillRetryDuration = time.Millisecond + 5
 	dialect.InsertRetry = func(err error) bool {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
@@ -161,7 +161,13 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		}
 		return err.Error()
 	}
-
+	dialect.TranslateStartKeyFunc = func(startKey string) string {
+		// replace trailing null with 0x1a (substitute) as postgres does not allow null byte in UTF8 strings
+		if s, ok := strings.CutSuffix(startKey, "\x00"); ok {
+			return s + "\x1a"
+		}
+		return startKey
+	}
 	if err := setup(dialect.DB); err != nil {
 		return false, nil, err
 	}
