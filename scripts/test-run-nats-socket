@@ -1,6 +1,8 @@
 #!/bin/bash
 
 start-test() {
+    ### Disabled until NATS is validated to pass tests
+    # KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://?embedServer&dontListen" GO_TEST_EXTRAFLAGS="-tags nats" run-apiserver-tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://?embedServer&dontListen" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
