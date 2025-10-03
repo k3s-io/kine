@@ -15,6 +15,7 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 
 	key := string(r.Key)
 	// redirect apiserver get to the substitute compact revision key
+	// response is fixed up in toKV()
 	if key == compactRevKey {
 		key = compactRevAPI
 	}
@@ -25,10 +26,6 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		Header: txnHeader(rev),
 	}
 	if kv != nil {
-		// fix up apiserver get with original compact revision key
-		if kv.Key == compactRevAPI {
-			kv.Key = compactRevKey
-		}
 		resp.Kvs = []*KeyValue{kv}
 		resp.Count = 1
 	}

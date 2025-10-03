@@ -89,6 +89,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 	startRevision := r.StartRevision
 
 	// redirect apiserver watches to the substitute compact revision key
+	// response is fixed up in toKV()
 	if key == compactRevKey {
 		key = compactRevAPI
 	}

@@ -82,17 +82,21 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 	if kv == nil {
 		return nil
 	}
-	// fix up apiserver watch with original compact revision key
-	if kv.Key == compactRevAPI {
-		kv.Key = compactRevKey
-	}
-	return &mvccpb.KeyValue{
+	ret := &mvccpb.KeyValue{
 		Key:            []byte(kv.Key),
 		Value:          kv.Value,
+		Version:        kv.Version,
 		Lease:          kv.Lease,
 		CreateRevision: kv.CreateRevision,
 		ModRevision:    kv.ModRevision,
 	}
+	// fix up apiserver watch with correct compact revision key,
+	// version, and value
+	if kv.Key == compactRevAPI {
+		ret.Key = []byte(compactRevKey)
+		ret.Version, ret.Value = decodeVersion(kv.Value)
+	}
+	return ret
 }
 
 func (k *KVServerBridge) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
