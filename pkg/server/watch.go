@@ -210,8 +210,9 @@ func toEvent(event *Event) *mvccpb.Event {
 	return e
 }
 
-func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
+func (w *watcher) removeWatch(watchID int64) bool {
 	w.Lock()
+	defer w.Unlock()
 	if progressCh, ok := w.progress[watchID]; ok {
 		close(progressCh)
 		delete(w.progress, watchID)
@@ -219,8 +220,16 @@ func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
 	if cancel, ok := w.watches[watchID]; ok {
 		cancel()
 		delete(w.watches, watchID)
+		return true
 	}
-	w.Unlock()
+	return false
+}
+
+func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
+	// do not send WatchResponse for unknown watch ID
+	if !w.removeWatch(watchID) {
+		return
+	}
 
 	reason := ""
 	if err != nil {
