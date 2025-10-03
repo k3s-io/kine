@@ -100,7 +100,11 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 }
 
 func (k *KVServerBridge) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
-	return nil, unsupported("put")
+	res, err := k.limited.Put(ctx, r)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		logrus.Errorf("error in put %s: %v", r, err)
+	}
+	return res, err
 }
 
 func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.DeleteRangeRequest) (*etcdserverpb.DeleteRangeResponse, error) {
@@ -109,17 +113,15 @@ func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.Delete
 
 func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	res, err := k.limited.Txn(ctx, r)
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			logrus.Errorf("error in txn %s: %v", r, err)
-		}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		logrus.Errorf("error in txn %s: %v", r, err)
 	}
 	return res, err
 }
 
 func (k *KVServerBridge) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
 	res, err := k.limited.Compact(ctx, r)
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		logrus.Errorf("error in compact %s: %v", r, err)
 	}
 	return res, err
