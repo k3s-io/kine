@@ -67,6 +67,7 @@ var (
 type ErrRetry func(error) bool
 type TranslateErr func(error) error
 type ErrCode func(error) string
+type SubstituteFunc func(string) string
 
 type ConnectionPoolConfig struct {
 	MaxIdle     int           // zero means defaultMaxIdleConns; negative means 0
@@ -100,6 +101,7 @@ type Generic struct {
 	Retry                   ErrRetry
 	InsertRetry             ErrRetry
 	TranslateErr            TranslateErr
+	TranslateStartKeyFunc   SubstituteFunc
 	ErrCode                 ErrCode
 	FillRetryDuration       time.Duration
 }
@@ -215,24 +217,24 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 	return &Generic{
 		DB: db,
 
-		GetCurrentSQL:           q(fmt.Sprintf(listSQL, "AND mkv.name > ?"), paramCharacter, numbered),
-		GetCurrentValSQL:        q(fmt.Sprintf(listValSQL, "AND mkv.name > ?"), paramCharacter, numbered),
+		GetCurrentSQL:           q(fmt.Sprintf(listSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
+		GetCurrentValSQL:        q(fmt.Sprintf(listValSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
 		ListRevisionStartSQL:    q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
 		ListRevisionStartValSQL: q(fmt.Sprintf(listValSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterSQL:     q(fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterValSQL:  q(fmt.Sprintf(listValSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered),
+		GetRevisionAfterSQL:     q(fmt.Sprintf(listSQL, "AND mkv.name >= ? AND mkv.id <= ?"), paramCharacter, numbered),
+		GetRevisionAfterValSQL:  q(fmt.Sprintf(listValSQL, "AND mkv.name >= ? AND mkv.id <= ?"), paramCharacter, numbered),
 
 		CountCurrentSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ?")), paramCharacter, numbered),
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name >= ?")), paramCharacter, numbered),
 
 		CountRevisionSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?")), paramCharacter, numbered),
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name >= ? AND mkv.id <= ?")), paramCharacter, numbered),
 
 		AfterOldValSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s
@@ -496,4 +498,11 @@ func (d *Generic) GetSize(ctx context.Context) (int64, error) {
 
 func (d *Generic) FillRetryDelay(ctx context.Context) {
 	time.Sleep(d.FillRetryDuration)
+}
+
+func (d *Generic) TranslateStartKey(startKey string) string {
+	if d.TranslateStartKeyFunc != nil {
+		return d.TranslateStartKeyFunc(startKey)
+	}
+	return startKey
 }

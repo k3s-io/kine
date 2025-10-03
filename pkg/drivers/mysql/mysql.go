@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/go-sql-driver/mysql"
@@ -115,6 +116,13 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 			return fmt.Sprint(err.Number)
 		}
 		return err.Error()
+	}
+	dialect.TranslateStartKeyFunc = func(startKey string) string {
+		// replace trailing null with # as mysql latin1 collation does not handle nonprinting characters how we want
+		if s, ok := strings.CutSuffix(startKey, "\x00"); ok {
+			return s + "#"
+		}
+		return startKey
 	}
 	if err := setup(dialect.DB); err != nil {
 		return false, nil, err

@@ -339,6 +339,8 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 		err  error
 	)
 
+	startKey = s.d.TranslateStartKey(startKey)
+
 	if revision == 0 {
 		rows, err = s.d.ListCurrent(ctx, prefix, startKey, limit, includeDeleted, keysOnly)
 	} else {
@@ -591,6 +593,8 @@ func (s *SQLLog) Count(ctx context.Context, prefix, startKey string, revision in
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
 	}
+
+	startKey = s.d.TranslateStartKey(startKey)
 
 	if revision == 0 {
 		return s.d.CountCurrent(ctx, prefix, startKey)

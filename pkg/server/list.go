@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -19,7 +18,7 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	if !strings.HasSuffix(prefix, "/") {
 		prefix = prefix + "/"
 	}
-	start := string(bytes.TrimRight(r.Key, "\x00"))
+	start := string(r.Key)
 	revision := r.Revision
 
 	if r.CountOnly {
