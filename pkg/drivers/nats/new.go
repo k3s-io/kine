@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/signal"
 	"sync"
 	"time"
 
@@ -124,13 +122,13 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 
 	nopts = append(nopts,
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			logrus.Errorf("NATS disconnected: %s", err)
+			logrus.Errorf("NATS disconnected: %v", err)
 		}),
 		nats.DiscoveredServersHandler(func(nc *nats.Conn) {
 			logrus.Infof("NATS discovered servers: %v", nc.Servers())
 		}),
 		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
-			logrus.Errorf("NATS error callback: %s", err)
+			logrus.Errorf("NATS error callback: %v", err)
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
 			logrus.Infof("NATS reconnected: %v", nc.ConnectedUrl())
@@ -180,13 +178,10 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 	}
 
 	if ns != nil {
-		// TODO: No method on backend.Driver exists to indicate a shutdown.
-		sigch := make(chan os.Signal, 1)
-		signal.Notify(sigch, os.Interrupt)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			<-sigch
+			<-ctx.Done()
 			backend.Close()
 			ns.Shutdown()
 			logrus.Infof("embedded NATS server shutdown")
