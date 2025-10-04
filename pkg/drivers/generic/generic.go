@@ -215,24 +215,24 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 	return &Generic{
 		DB: db,
 
-		GetCurrentSQL:           q(fmt.Sprintf(listSQL, "AND mkv.name > ?"), paramCharacter, numbered),
-		GetCurrentValSQL:        q(fmt.Sprintf(listValSQL, "AND mkv.name > ?"), paramCharacter, numbered),
+		GetCurrentSQL:           q(fmt.Sprintf(listSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
+		GetCurrentValSQL:        q(fmt.Sprintf(listValSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
 		ListRevisionStartSQL:    q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
 		ListRevisionStartValSQL: q(fmt.Sprintf(listValSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterSQL:     q(fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered),
-		GetRevisionAfterValSQL:  q(fmt.Sprintf(listValSQL, "AND mkv.name > ? AND mkv.id <= ?"), paramCharacter, numbered),
+		GetRevisionAfterSQL:     q(fmt.Sprintf(listSQL, "AND mkv.name >= ? AND mkv.id <= ?"), paramCharacter, numbered),
+		GetRevisionAfterValSQL:  q(fmt.Sprintf(listValSQL, "AND mkv.name >= ? AND mkv.id <= ?"), paramCharacter, numbered),
 
 		CountCurrentSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ?")), paramCharacter, numbered),
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name >= ?")), paramCharacter, numbered),
 
 		CountRevisionSQL: q(fmt.Sprintf(`
 			SELECT (%s), COUNT(c.theid)
 			FROM (
 				%s
-			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name > ? AND mkv.id <= ?")), paramCharacter, numbered),
+			) c`, revSQL, fmt.Sprintf(listSQL, "AND mkv.name >= ? AND mkv.id <= ?")), paramCharacter, numbered),
 
 		AfterOldValSQL: q(fmt.Sprintf(`
 			SELECT (%s), (%s), %s

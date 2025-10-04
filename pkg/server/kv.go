@@ -82,21 +82,29 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 	if kv == nil {
 		return nil
 	}
-	// fix up apiserver watch with original compact revision key
-	if kv.Key == compactRevAPI {
-		kv.Key = compactRevKey
-	}
-	return &mvccpb.KeyValue{
+	ret := &mvccpb.KeyValue{
 		Key:            []byte(kv.Key),
 		Value:          kv.Value,
+		Version:        kv.Version,
 		Lease:          kv.Lease,
 		CreateRevision: kv.CreateRevision,
 		ModRevision:    kv.ModRevision,
 	}
+	// fix up apiserver watch with correct compact revision key,
+	// version, and value
+	if kv.Key == compactRevAPI {
+		ret.Key = []byte(compactRevKey)
+		ret.Version, ret.Value = decodeVersion(kv.Value)
+	}
+	return ret
 }
 
 func (k *KVServerBridge) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
-	return nil, unsupported("put")
+	res, err := k.limited.Put(ctx, r)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		logrus.Errorf("error in put %s: %v", r, err)
+	}
+	return res, err
 }
 
 func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.DeleteRangeRequest) (*etcdserverpb.DeleteRangeResponse, error) {
@@ -105,17 +113,15 @@ func (k *KVServerBridge) DeleteRange(ctx context.Context, r *etcdserverpb.Delete
 
 func (k *KVServerBridge) Txn(ctx context.Context, r *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	res, err := k.limited.Txn(ctx, r)
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			logrus.Errorf("error in txn %s: %v", r, err)
-		}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		logrus.Errorf("error in txn %s: %v", r, err)
 	}
 	return res, err
 }
 
 func (k *KVServerBridge) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
 	res, err := k.limited.Compact(ctx, r)
-	if err != nil {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		logrus.Errorf("error in compact %s: %v", r, err)
 	}
 	return res, err

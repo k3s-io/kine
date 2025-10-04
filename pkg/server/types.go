@@ -67,9 +67,10 @@ type Transaction interface {
 
 type KeyValue struct {
 	Key            string
+	Value          []byte
+	Version        int64
 	CreateRevision int64
 	ModRevision    int64
-	Value          []byte
 	Lease          int64
 }
 
