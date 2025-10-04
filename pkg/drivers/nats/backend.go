@@ -375,6 +375,8 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 			w, err = b.kv.Watch(ctx, prefix, startRevision)
 			if err == nil {
 				break
+			} else if ctx.Err() != nil {
+				return
 			}
 			b.l.Warnf("watch init: prefix=%s, err=%s", prefix, err)
 			time.Sleep(time.Second)
