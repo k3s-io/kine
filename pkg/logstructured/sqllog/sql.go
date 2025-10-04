@@ -580,6 +580,12 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		if saveLast {
 			s.currentRev = rev
 			if len(sequential) > 0 {
+				for _, event := range sequential {
+					// fix up apiserver watch with original compact revision key
+					if event.KV.Key == server.CompactRevAPI {
+						event.KV.Key = server.CompactRevKey
+					}
+				}
 				result <- sequential
 			}
 		}

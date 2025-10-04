@@ -9,11 +9,6 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 )
 
-var (
-	compactRevKey = "compact_rev_key"           // key used by apiserver to track compaction, and also used internally by kine for the same purpose
-	compactRevAPI = "compact_rev_key_apiserver" // key used by kine to store the apiserver's compact_rev_key value
-)
-
 func (l *LimitedServer) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
 	rev, err := l.backend.Compact(ctx, r.Revision)
 	return &etcdserverpb.CompactionResponse{
@@ -32,7 +27,7 @@ func isCompact(txn *etcdserverpb.TxnRequest) (int64, bool) {
 		txn.Success[0].GetRequestPut() != nil &&
 		len(txn.Failure) == 1 &&
 		txn.Failure[0].GetRequestRange() != nil &&
-		string(txn.Compare[0].Key) == compactRevKey {
+		string(txn.Compare[0].Key) == CompactRevKey {
 		return txn.Compare[0].GetVersion(), true
 	}
 	return 0, false
@@ -42,7 +37,7 @@ func isCompact(txn *etcdserverpb.TxnRequest) (int64, bool) {
 // to store the current compact rev to the compact_rev_key. Because kine
 // uses this key internally, we instead operate on a substitute key.
 func (l *LimitedServer) compact(ctx context.Context, compareVersion int64) (*etcdserverpb.TxnResponse, error) {
-	rev, kv, err := l.backend.Get(ctx, compactRevAPI, "", 1, 0, false)
+	rev, kv, err := l.backend.Get(ctx, CompactRevAPI, "", 1, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -60,14 +55,14 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64) (*etc
 	if compareVersion == version {
 		value := fmt.Appendf(nil, "%d", version+1)
 		if version == 0 {
-			rev, err = l.backend.Create(ctx, compactRevAPI, value, 0)
+			rev, err = l.backend.Create(ctx, CompactRevAPI, value, 0)
 		} else {
-			rev, _, _, err = l.backend.Update(ctx, compactRevAPI, value, modRev, 0)
+			rev, _, _, err = l.backend.Update(ctx, CompactRevAPI, value, modRev, 0)
 		}
 
 		if err != nil {
 			// create or update failed, get the version from the current value
-			rev, kv, err = l.backend.Get(ctx, compactRevAPI, "", 1, 0, false)
+			rev, kv, err = l.backend.Get(ctx, CompactRevAPI, "", 1, 0, false)
 			if err != nil {
 				return nil, err
 			}

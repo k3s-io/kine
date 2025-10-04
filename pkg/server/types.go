@@ -10,6 +10,11 @@ import (
 )
 
 var (
+	CompactRevKey = "compact_rev_key"           // key used by apiserver to track compaction, and also used internally by kine for the same purpose
+	CompactRevAPI = "compact_rev_key_apiserver" // key used by kine to store the apiserver's compact_rev_key value
+)
+
+var (
 	ErrNotSupported = status.New(codes.InvalidArgument, "etcdserver: unsupported operations in txn request").Err()
 
 	ErrKeyExists     = rpctypes.ErrGRPCDuplicateKey

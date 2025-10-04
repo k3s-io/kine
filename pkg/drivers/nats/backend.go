@@ -147,12 +147,21 @@ func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision i
 
 // Get returns the store's current revision, the associated server.KeyValue or an error.
 func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
+	// redirect apiserver get to the substitute compact revision key
+	if key == server.CompactRevKey {
+		key = server.CompactRevAPI
+	}
+
 	storeRev := b.kv.BucketRevision()
 	// Get the kv entry and return the revision.
 	rev, nv, err := b.get(ctx, key, revision, false)
 	if err == nil {
 		if nv == nil {
 			return storeRev, nil, nil
+		}
+		// fix up apiserver get with original compact revision key
+		if nv.KV.Key == server.CompactRevAPI {
+			nv.KV.Key = server.CompactRevKey
 		}
 		return rev, nv.KV, nil
 	}
@@ -366,6 +375,11 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 		rev = b.kv.BucketRevision()
 	}
 
+	// redirect apiserver watches to the substitute compact revision key
+	if prefix == server.CompactRevKey {
+		prefix = server.CompactRevAPI
+	}
+
 	go func() {
 		defer close(events)
 
@@ -415,6 +429,11 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 					if err == nil {
 						event.PrevKV = pnd.KV
 					}
+				}
+
+				// fix up apiserver watch with original compact revision key
+				if event.KV.Key == server.CompactRevAPI {
+					event.KV.Key = server.CompactRevKey
 				}
 
 				events <- []*server.Event{&event}

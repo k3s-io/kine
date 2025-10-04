@@ -65,10 +65,21 @@ func (l *LogStructured) Get(ctx context.Context, key, rangeEnd string, limit, re
 		logrus.Tracef("GET %s, rev=%d => rev=%d, kv=%v, err=%v", key, revision, revRet, kvRet != nil, errRet)
 	}()
 
+	// redirect apiserver get to the substitute compact revision key
+	if key == server.CompactRevKey {
+		key = server.CompactRevAPI
+	}
+
 	rev, event, err := l.get(ctx, key, rangeEnd, limit, revision, false, keysOnly)
 	if event == nil {
 		return rev, nil, err
 	}
+
+	// fix up apiserver get with original compact revision key
+	if event.KV != nil && event.KV.Key == server.CompactRevAPI {
+		event.KV.Key = server.CompactRevKey
+	}
+
 	return rev, event.KV, err
 }
 
@@ -411,6 +422,11 @@ func (l *LogStructured) Watch(ctx context.Context, prefix string, revision int64
 	// include the current revision in list
 	if revision > 0 {
 		revision--
+	}
+
+	// redirect apiserver watches to the substitute compact revision key
+	if prefix == server.CompactRevKey {
+		prefix = server.CompactRevAPI
 	}
 
 	result := make(chan []*server.Event, 100)
