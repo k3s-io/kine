@@ -3,6 +3,7 @@ package nats
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -523,6 +524,9 @@ func NewKeyValue(ctx context.Context, bucket jetstream.KeyValue, js jetstream.Je
 		for {
 			err := kv.btreeWatcher(ctx)
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				logrus.Errorf("btree watcher error: %v", err)
 			}
 		}
