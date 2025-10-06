@@ -87,6 +87,23 @@ steps:
     event:
     - pull_request
 
+- name: test-cockroachdb
+  image: docker:25.0.5
+  depends_on:
+   - build
+   - test-image
+  commands:
+  - > 
+    docker run -i -e ARCH -e REPO -e TAG  -e DRONE_TAG -e IMAGE_NAME
+    -v /var/run/docker.sock:/var/run/docker.sock -v kine-cache:/go/src/github.com/k3s-io/kine/.cache
+    --privileged kine:test-${DRONE_COMMIT} "./scripts/test cockroachdb"
+  volumes:
+  - name: docker
+    path: /var/run/docker.sock
+  when:
+    event:
+    - pull_request
+
 - name: test-schema-migration
   image: docker:25.0.5
   depends_on:
