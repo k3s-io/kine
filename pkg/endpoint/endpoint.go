@@ -10,6 +10,7 @@ import (
 
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
+	"github.com/k3s-io/kine/pkg/identity"
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
@@ -46,6 +47,7 @@ type Config struct {
 	CompactBatchSize      int64
 	PollBatchSize         int64
 	LogFormat             string
+	IdentityProvider      string
 }
 
 type ETCDConfig struct {
@@ -63,6 +65,11 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 		}
 	}()
 
+	identityProvider, err := identity.New(bctx, config.IdentityProvider)
+	if err != nil {
+		return ETCDConfig{}, errors.Wrap(err, "failed to create identity provider for "+config.IdentityProvider)
+	}
+
 	leaderElect, backend, err := drivers.New(bctx, wg, &drivers.Config{
 		MetricsRegisterer:     config.MetricsRegisterer,
 		Endpoint:              config.Endpoint,
@@ -74,6 +81,7 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 		CompactMinRetain:      config.CompactMinRetain,
 		CompactBatchSize:      config.CompactBatchSize,
 		PollBatchSize:         config.PollBatchSize,
+		TokenSource:           identityProvider,
 	})
 
 	if err != nil {

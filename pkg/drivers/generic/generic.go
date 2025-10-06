@@ -3,6 +3,7 @@ package generic
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"regexp"
@@ -160,12 +161,8 @@ func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB,
 	db.SetConnMaxLifetime(connPoolConfig.MaxLifetime)
 }
 
-func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
-	db, err := sql.Open(driverName, dataSourceName)
-	if err != nil {
-		return nil, err
-	}
-
+func openAndTest(connector driver.Connector) (*sql.DB, error) {
+	db := sql.OpenDB(connector)
 	for i := 0; i < 3; i++ {
 		if err := db.Ping(); err != nil {
 			db.Close()
@@ -176,14 +173,14 @@ func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
 	return db, nil
 }
 
-func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName string, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
+func Open(ctx context.Context, wg *sync.WaitGroup, driverName string, connector driver.Connector, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
 	)
 
 	for i := 0; i < 300; i++ {
-		db, err = openAndTest(driverName, dataSourceName)
+		db, err = openAndTest(connector)
 		if err == nil {
 			break
 		}

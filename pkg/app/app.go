@@ -38,6 +38,12 @@ func New() *cli.App {
 			EnvVars:     []string{"KINE_ENDPOINT"},
 		},
 		&cli.StringFlag{
+			Name:        "identity-provider",
+			Usage:       "Identity provider for temporary credentials (valid values are: aws)",
+			Destination: &config.IdentityProvider,
+			EnvVars:     []string{"KINE_IDENTITY_PROVIDER"},
+		},
+		&cli.StringFlag{
 			Name:        "ca-file",
 			Usage:       "CA cert for DB connection",
 			Destination: &config.BackendTLSConfig.CAFile,

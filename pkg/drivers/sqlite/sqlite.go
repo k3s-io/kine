@@ -6,6 +6,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"sync"
@@ -44,6 +45,26 @@ var (
 	}
 )
 
+type connector struct {
+	dsn    string
+	driver *sqlite3.SQLiteDriver
+}
+
+func newConnector(dataSourceName string) *connector {
+	return &connector{
+		dsn:    dataSourceName,
+		driver: &sqlite3.SQLiteDriver{},
+	}
+}
+
+func (c connector) Connect(ctx context.Context) (driver.Conn, error) {
+	return c.driver.Open(c.dsn)
+}
+
+func (c connector) Driver() driver.Driver {
+	return c.driver
+}
+
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
 	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
 	return false, backend, err
@@ -58,7 +79,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
 	}
 
-	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, driverName, newConnector(dataSourceName), cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}

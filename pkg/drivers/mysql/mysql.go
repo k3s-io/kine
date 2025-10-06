@@ -4,12 +4,14 @@ import (
 	"context"
 	cryptotls "crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"strconv"
 	"sync"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/k3s-io/kine/pkg/identity"
 	"github.com/sirupsen/logrus"
 
 	"github.com/k3s-io/kine/pkg/drivers"
@@ -56,25 +58,21 @@ var (
 )
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	tlsConfig, err := cfg.BackendTLSConfig.ClientConfig()
+	config, err := prepareConfig(cfg)
 	if err != nil {
 		return false, nil, err
 	}
 
-	if tlsConfig != nil {
-		tlsConfig.MinVersion = cryptotls.VersionTLS11
-	}
-
-	parsedDSN, err := prepareDSN(cfg.DataSourceName, tlsConfig)
+	connector, err := mysql.NewConnector(config)
 	if err != nil {
 		return false, nil, err
 	}
 
-	if err := createDBIfNotExist(parsedDSN); err != nil {
+	if err := createDBIfNotExist(config, connector); err != nil {
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, wg, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, "mysql", connector, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
@@ -166,21 +164,13 @@ func setup(db *sql.DB) error {
 	return nil
 }
 
-func createDBIfNotExist(dataSourceName string) error {
-	config, err := mysql.ParseDSN(dataSourceName)
-	if err != nil {
-		return err
-	}
+func createDBIfNotExist(config *mysql.Config, connector driver.Connector) error {
 	dbName := config.DBName
-
-	db, err := sql.Open("mysql", dataSourceName)
-	if err != nil {
-		return err
-	}
+	db := sql.OpenDB(connector)
 	defer db.Close()
 
 	var exists bool
-	err = db.QueryRow("SELECT 1 FROM information_schema.SCHEMATA WHERE schema_name = ?", dbName).Scan(&exists)
+	err := db.QueryRow("SELECT 1 FROM information_schema.SCHEMATA WHERE schema_name = ?", dbName).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
@@ -192,11 +182,15 @@ func createDBIfNotExist(dataSourceName string) error {
 			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
 				return err
 			}
-			config.DBName = ""
-			db, err = sql.Open("mysql", config.FormatDSN())
+
+			createConfig := config.Clone()
+			createConfig.DBName = ""
+			createConnector, err := mysql.NewConnector(createConfig)
 			if err != nil {
 				return err
 			}
+
+			db := sql.OpenDB(createConnector)
 			defer db.Close()
 			if _, err = db.Exec(stmt); err != nil {
 				return err
@@ -206,8 +200,18 @@ func createDBIfNotExist(dataSourceName string) error {
 	return nil
 }
 
-func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, error) {
-	if len(dataSourceName) == 0 {
+func prepareConfig(cfg *drivers.Config) (*mysql.Config, error) {
+	tlsConfig, err := cfg.BackendTLSConfig.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	if tlsConfig != nil {
+		tlsConfig.MinVersion = cryptotls.VersionTLS11
+	}
+
+	dataSourceName := cfg.DataSourceName
+	if len(cfg.DataSourceName) == 0 {
 		dataSourceName = defaultUnixDSN
 		if tlsConfig != nil {
 			dataSourceName = defaultHostDSN
@@ -215,23 +219,42 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 	}
 	config, err := mysql.ParseDSN(dataSourceName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+
 	// setting up tlsConfig
+	config.TLSConfig = "preferred"
 	if tlsConfig != nil {
 		if err := mysql.RegisterTLSConfig("kine", tlsConfig); err != nil {
-			return "", err
+			return nil, err
 		}
 		config.TLSConfig = "kine"
 	}
+
 	dbName := "kubernetes"
 	if len(config.DBName) > 0 {
 		dbName = config.DBName
 	}
 	config.DBName = dbName
-	parsedDSN := config.FormatDSN()
 
-	return parsedDSN, nil
+	if cfg.TokenSource != nil {
+		config.AllowCleartextPasswords = true
+		if err := config.Apply(mysql.BeforeConnect(func(ctx context.Context, config *mysql.Config) error {
+			token, err := cfg.TokenSource(ctx, identity.Config{
+				Endpoint: config.Addr,
+				User:     config.User,
+			})
+			if err != nil {
+				return err
+			}
+			config.Passwd = token
+			return nil
+		})); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
 }
 
 func init() {

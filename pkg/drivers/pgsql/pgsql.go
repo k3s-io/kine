@@ -13,10 +13,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/jackc/pgx/v5/stdlib" // sql driver
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
+	"github.com/k3s-io/kine/pkg/identity"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
@@ -66,11 +70,17 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
-	if err := createDBIfNotExist(parsedDSN); err != nil {
+	config, err := pgxpool.ParseConfig(parsedDSN)
+	if err != nil {
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, wg, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
+	if err := createDBIfNotExist(cfg, config); err != nil {
+		return false, nil, err
+	}
+
+	connector := stdlib.GetConnector(*config.ConnConfig, prepareOptions(cfg)...)
+	dialect, err := generic.Open(ctx, wg, "pgx", connector, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
@@ -215,23 +225,16 @@ func setup(db *sql.DB) error {
 	return nil
 }
 
-func createDBIfNotExist(dataSourceName string) error {
-	u, err := util.ParseURL(dataSourceName)
-	if err != nil {
-		return err
-	}
+func createDBIfNotExist(cfg *drivers.Config, config *pgxpool.Config) error {
+	dbName := config.ConnConfig.Database
 
-	dbName := strings.SplitN(u.Path, "/", 2)[1]
-	u.Path = "/postgres"
-	db, err := sql.Open("pgx", u.String())
-	if err != nil {
-		logrus.Warnf("failed to ensure existence of database %s: unable to connect to default postgres database: %v", dbName, err)
-		return nil
-	}
+	postgresConfig := config.Copy()
+	postgresConfig.ConnConfig.Database = "postgres"
+	db := stdlib.OpenDB(*postgresConfig.ConnConfig, prepareOptions(cfg)...)
 	defer db.Close()
 
 	var exists bool
-	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
+	err := db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
@@ -303,6 +306,24 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	}
 	u.RawQuery = params.Encode()
 	return u.String(), nil
+}
+
+func prepareOptions(cfg *drivers.Config) []stdlib.OptionOpenDB {
+	var opts []stdlib.OptionOpenDB
+	if cfg.TokenSource != nil {
+		opts = append(opts, stdlib.OptionBeforeConnect(func(ctx context.Context, config *pgx.ConnConfig) error {
+			token, err := cfg.TokenSource(ctx, identity.Config{
+				Endpoint: config.Host + ":" + strconv.Itoa(int(config.Port)),
+				User:     config.User,
+			})
+			if err != nil {
+				return err
+			}
+			config.Password = token
+			return nil
+		}))
+	}
+	return opts
 }
 
 func init() {
