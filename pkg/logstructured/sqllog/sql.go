@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/broadcaster"
@@ -22,7 +23,7 @@ type SQLLog struct {
 	broadcaster           broadcaster.Broadcaster
 	ctx                   context.Context
 	notify                chan int64
-	currentRev            int64
+	currentRev            atomic.Int64
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -283,10 +284,18 @@ func (s *SQLLog) postCompact() error {
 }
 
 func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
-	if s.currentRev != 0 {
-		return s.currentRev, nil
+	currRev := s.currentRev.Load()
+	if currRev != 0 {
+		return currRev, nil
 	}
-	return s.d.CurrentRevision(ctx)
+	lastRev, err := s.d.CurrentRevision(ctx)
+	if err != nil {
+		return lastRev, err
+	}
+	if s.currentRev.CompareAndSwap(currRev, lastRev) {
+		return lastRev, nil
+	}
+	return s.currentRev.Load(), nil
 }
 
 func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
@@ -468,12 +477,11 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 }
 
 func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
-	s.currentRev = pollStart
-
 	var (
-		skip        int64
-		skipTime    time.Time
-		waitForMore = true
+		skip         int64
+		skipTime     time.Time
+		waitForMore  = true
+		pollRevision = pollStart
 	)
 
 	wait := time.NewTicker(time.Second)
@@ -486,7 +494,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			case <-s.ctx.Done():
 				return
 			case check := <-s.notify:
-				if check <= s.currentRev {
+				if check <= pollRevision {
 					continue
 				}
 			case <-wait.C:
@@ -494,7 +502,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		}
 		waitForMore = true
 
-		rows, err := s.d.After(s.ctx, "%", s.currentRev, s.pollBatchSize)
+		rows, err := s.d.After(s.ctx, "%", pollRevision, s.pollBatchSize)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				logrus.Errorf("fail to list latest changes: %v", err)
@@ -508,7 +516,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 			continue
 		}
 
-		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", s.currentRev, s.pollBatchSize, len(events))
+		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", pollRevision, s.pollBatchSize, len(events))
 
 		if len(events) == 0 {
 			continue
@@ -516,7 +524,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 
 		waitForMore = len(events) < 100
 
-		rev := s.currentRev
+		rev := pollRevision
 		var (
 			sequential []*server.Event
 			saveLast   bool
@@ -578,7 +586,8 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 		}
 
 		if saveLast {
-			s.currentRev = rev
+			s.currentRev.CompareAndSwap(pollRevision, rev)
+			pollRevision = rev
 			if len(sequential) > 0 {
 				result <- sequential
 			}
@@ -626,6 +635,7 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	case s.notify <- rev:
 	default:
 	}
+	s.currentRev.Store(rev)
 	return rev, nil
 }
 
