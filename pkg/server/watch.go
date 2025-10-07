@@ -157,11 +157,6 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			// get max revision from collected events
 			if len(events) > 0 {
 				revision = events[len(events)-1].KV.ModRevision
-				if trace {
-					for _, event := range events {
-						logrus.Tracef("WATCH READ id=%d, key=%s, revision=%d", id, event.KV.Key, event.KV.ModRevision)
-					}
-				}
 			}
 
 			// send response. note that there are no events if this is a progress response.
@@ -171,7 +166,13 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 					WatchId: id,
 					Events:  toEvents(events...),
 				}
-				logrus.Tracef("WATCH SEND id=%d, key=%s, revision=%d, events=%d, size=%d, reads=%d", id, key, revision, len(wr.Events), wr.Size(), reads)
+				if trace {
+					keys := make([]string, len(wr.Events))
+					for i, event := range wr.Events {
+						keys[i] = string(event.Kv.Key)
+					}
+					logrus.Tracef("WATCH SEND id=%d, key=%s, revision=%d, events=%d, size=%d, reads=%d, keys=%s", id, key, revision, len(wr.Events), wr.Size(), reads, keys)
+				}
 				if err := w.server.Send(wr); err != nil {
 					w.Cancel(id, 0, 0, err)
 				}
