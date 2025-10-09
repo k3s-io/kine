@@ -203,7 +203,7 @@ export -f wait-for-apiserver
 
 # ---
 run-apiserver-tests() {
-  TAG_KUBERNETES=$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' k8s.io/apiserver)
+  TAG_KUBERNETES=$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' k8s.io/client-go)
   KINEPATH=$PWD
   GOPATH=$(go env GOPATH)
   mkdir -p $GOPATH/src/github.com/kubernetes

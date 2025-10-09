@@ -20,11 +20,10 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 	"google.golang.org/grpc"
-	storagetesting "k8s.io/apiserver/pkg/storage/testing"
 )
 
 // This is a drop-in replacement for the embedded etcd test server at:
-// https://github.com/kubernetes/kubernetes/blob/v1.34.1/staging/src/k8s.io/apiserver/pkg/storage/etcd3/testserver/test_server.go
+// https://github.com/kubernetes/kubernetes/blob/v1.32.9/staging/src/k8s.io/apiserver/pkg/storage/etcd3/testserver/test_server.go
 
 func NewTestConfig(t testing.TB) *embed.Config {
 	cfg := embed.NewConfig()
@@ -47,7 +46,7 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 		cfg = NewTestConfig(t)
 	}
 
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 	t.Cleanup(func() {
 		cancel()
@@ -91,8 +90,6 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.KV = storagetesting.NewKVRecorder(client.KV)
-	client.Kubernetes = storagetesting.NewKubernetesRecorder(client.Kubernetes)
 	return client
 }
 
