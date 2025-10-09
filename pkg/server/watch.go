@@ -160,7 +160,7 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 			}
 
 			// send response. note that there are no events if this is a progress response.
-			if revision >= startRevision {
+			if len(events) == 0 || revision >= startRevision {
 				wr := &etcdserverpb.WatchResponse{
 					Header:  txnHeader(revision),
 					WatchId: id,

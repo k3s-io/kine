@@ -32,6 +32,7 @@ func NewTestConfig(t testing.TB) *embed.Config {
 	clientURL := url.URL{Scheme: "unix", Path: "/tmp/kine.sock"}
 
 	cfg.ListenClientUrls = []url.URL{clientURL}
+	cfg.ExperimentalWatchProgressNotifyInterval = 5 * time.Second
 	cfg.Dir = t.TempDir()
 	os.Chmod(cfg.Dir, 0700)
 	return cfg
@@ -56,6 +57,7 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	config := app.Config(nil)
 	config.WaitGroup = wg
 	config.Listener = cfg.ListenClientUrls[0].String()
+	config.NotifyInterval = cfg.ExperimentalWatchProgressNotifyInterval
 	config.CompactInterval = 0
 	config.CompactMinRetain = 0
 
