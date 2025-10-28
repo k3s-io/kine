@@ -281,7 +281,7 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 }
 
 func (l *LogStructured) ttl(ctx context.Context) {
-	queue := workqueue.NewDelayingQueue()
+	queue := workqueue.NewTypedDelayingQueue[string]()
 	rwMutex := &sync.RWMutex{}
 	ttlEventKVMap := make(map[string]*ttlEventKV)
 	eventCh := l.ttlEvents(ctx)
@@ -321,7 +321,7 @@ func (l *LogStructured) ttl(ctx context.Context) {
 	}
 }
 
-func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMutex, queue workqueue.DelayingInterface, store map[string]*ttlEventKV) bool {
+func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMutex, queue workqueue.TypedDelayingInterface[string], store map[string]*ttlEventKV) bool {
 	key, shutdown := queue.Get()
 	if shutdown {
 		logrus.Info("TTL events work queue has shut down")
@@ -329,7 +329,7 @@ func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMut
 	}
 	defer queue.Done(key)
 
-	eventKV := loadTTLEventKV(rwMutex, store, key.(string))
+	eventKV := loadTTLEventKV(rwMutex, store, key)
 	if eventKV == nil {
 		logrus.Errorf("TTL event not found for key=%v", key)
 		return true
