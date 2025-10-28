@@ -284,6 +284,8 @@ func (l *LogStructured) ttl(ctx context.Context) {
 	queue := workqueue.NewDelayingQueue()
 	rwMutex := &sync.RWMutex{}
 	ttlEventKVMap := make(map[string]*ttlEventKV)
+	eventCh := l.ttlEvents(ctx)
+
 	go func() {
 		for l.handleTTLEvents(ctx, rwMutex, queue, ttlEventKVMap) {
 		}
@@ -294,10 +296,11 @@ func (l *LogStructured) ttl(ctx context.Context) {
 		case <-ctx.Done():
 			queue.ShutDown()
 			return
-		default:
-		}
-
-		for event := range l.ttlEvents(ctx) {
+		case event, ok := <-eventCh:
+			if !ok {
+				queue.ShutDown()
+				return
+			}
 			if event.Delete {
 				continue
 			}
@@ -339,7 +342,7 @@ func (l *LogStructured) handleTTLEvents(ctx context.Context, rwMutex *sync.RWMut
 	}
 
 	logrus.Tracef("TTL delete key=%v, modRev=%v", eventKV.key, eventKV.modRevision)
-	if _, _, _, err := l.Delete(ctx, eventKV.key, eventKV.modRevision); err != nil {
+	if _, _, _, err := l.Delete(ctx, eventKV.key, eventKV.modRevision); err != nil && !errors.Is(err, context.Canceled) {
 		logrus.Errorf("TTL delete trigger failed for key=%v: %v, requeuing", eventKV.key, err)
 		queue.AddAfter(eventKV.key, retryInterval)
 		return true
