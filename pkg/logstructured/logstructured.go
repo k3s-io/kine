@@ -281,7 +281,7 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 }
 
 func (l *LogStructured) ttl(ctx context.Context) {
-	queue := workqueue.NewTypedDelayingQueue[string]()
+	queue := workqueue.TypedNewDelayingQueue[string]()
 	rwMutex := &sync.RWMutex{}
 	ttlEventKVMap := make(map[string]*ttlEventKV)
 	eventCh := l.ttlEvents(ctx)
