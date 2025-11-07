@@ -17,9 +17,7 @@ import (
 	"github.com/tidwall/btree"
 )
 
-var (
-	errStopKeyValue = errors.New("stopping key value")
-)
+var errStopKeyValue = errors.New("stopping key value")
 
 type keySeq struct {
 	key string
@@ -461,6 +459,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 
 	return entries, nil
 }
+
 func (e *KeyValue) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, error) {
 	err := e.checkRevision("", revision)
 	if err != nil {

@@ -433,6 +433,14 @@ func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxR
 func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64) server.WatchResult {
 	events := make(chan []*server.Event, 32)
 
+	if startRevision > 0 && startRevision < b.kv.compactRev.Load() {
+		return server.WatchResult{
+			Events:          events,
+			CurrentRevision: b.kv.BucketRevision(),
+			CompactRevision: b.kv.compactRev.Load(),
+		}
+	}
+
 	go func() {
 		defer close(events)
 		lastRevision := startRevision
@@ -539,7 +547,6 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	}
 
 	_, nd, err := b.get(ctx, compactRevAPI, int64(k.Revision()), false, true)
-	// _, nd, err := b.get(ctx, compactRevAPI, 0, false, false)
 	if err != nil {
 		return 0, err
 	}

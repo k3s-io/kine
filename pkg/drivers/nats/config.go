@@ -42,10 +42,6 @@ type Config struct {
 	port int
 	// Data directory.
 	dataDir string
-	// Peer URL
-	peerURL string
-	// Path to TNE configuration file
-	tneConfig string
 }
 
 // parseConnection returns nats connection url, bucketName and []nats.Option, error
@@ -176,7 +172,6 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	}
 
 	config.clientURL = connBuilder.String()
-	config.peerURL = queryMap.Get("peerURL")
 
 	// Config options only relevant if built with embedded NATS.
 	if natsserver.Embedded {
@@ -186,9 +181,6 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		config.dontListen = queryMap.Has("dontListen")
 		config.dataDir = queryMap.Get("dataDir")
 	}
-
-	// TNE configuration file.
-	config.tneConfig = queryMap.Get("tneConfig")
 
 	logrus.Debugf("using config %#v", config)
 
