@@ -94,7 +94,7 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 	// version, and value
 	if kv.Key == compactRevAPI {
 		ret.Key = []byte(compactRevKey)
-		ret.Version, ret.Value = decodeVersion(kv.Value)
+		ret.Version, ret.Value = DecodeVersion(kv.Value)
 	}
 	return ret
 }

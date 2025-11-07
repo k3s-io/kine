@@ -8,9 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	_ server.Backend = &BackendLogger{}
-)
+var _ server.Backend = &BackendLogger{}
 
 type BackendLogger struct {
 	logger    *logrus.Logger
@@ -121,7 +119,6 @@ func (b *BackendLogger) CurrentRevision(ctx context.Context) (int64, error) {
 	return b.backend.CurrentRevision(ctx)
 }
 
-// Compact is a no-op / not implemented. Revision history is managed by the jetstream bucket.
 func (b *BackendLogger) Compact(ctx context.Context, revision int64) (int64, error) {
-	return revision, nil
+	return b.backend.Compact(ctx, revision)
 }

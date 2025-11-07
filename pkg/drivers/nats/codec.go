@@ -10,9 +10,11 @@ import (
 	"github.com/shengdoushi/base58"
 )
 
-var (
-	keyAlphabet = base58.BitcoinAlphabet
+const (
+	noRootPrefix = "meta"
 )
+
+var keyAlphabet = base58.BitcoinAlphabet
 
 // keyCodec turns keys like /this/is/a.test.key into Base58 encoded values
 // split on `.` This is because NATS keys are split on . rather than /.
@@ -23,24 +25,44 @@ func (e *keyCodec) EncodeRange(prefix string) (string, error) {
 		return ">", nil
 	}
 
+	if prefix == noRootPrefix {
+		return fmt.Sprintf("%s.>", noRootPrefix), nil
+	}
+
 	ek, err := e.Encode(prefix)
 	if err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("%s.>", ek), nil
+	enc := fmt.Sprintf("%s.>", ek)
+
+	return enc, nil
 }
 
-func (*keyCodec) Encode(key string) (retKey string, e error) {
-	if key == "" {
+func (*keyCodec) Encode(key string) (string, error) {
+	if key == "" || key == "/" {
 		return "", jetstream.ErrInvalidKey
 	}
+
+	hasRootPrefix := strings.HasPrefix(key, "/")
 
 	// Trim leading and trailing slashes.
 	key = strings.Trim(key, "/")
 
 	var parts []string
+
+	// Differentiate between key foo and /foo
+	// foo -> meta.base58(foo)
+	// /foo -> base58(foo)
+	if !hasRootPrefix {
+		parts = append(parts, noRootPrefix)
+	}
+
 	for _, part := range strings.Split(key, "/") {
+		if part == "" {
+			part = "/"
+		}
+
 		parts = append(parts, base58.Encode([]byte(part), keyAlphabet))
 	}
 
@@ -48,25 +70,46 @@ func (*keyCodec) Encode(key string) (retKey string, e error) {
 		return "", jetstream.ErrInvalidKey
 	}
 
-	return strings.Join(parts, "."), nil
+	enc := strings.Join(parts, ".")
+
+	return enc, nil
 }
 
 func (*keyCodec) Decode(key string) (retKey string, e error) {
 	var parts []string
 
+	hasRootPrefix := !strings.HasPrefix(key, noRootPrefix)
+
 	for _, s := range strings.Split(key, ".") {
+		// Skip meta prefix. It represents the absence
+		// of a leading '/'
+		if s == noRootPrefix {
+			continue
+		}
+
 		decodedPart, err := base58.Decode(s, keyAlphabet)
 		if err != nil {
 			return "", err
 		}
-		parts = append(parts, string(decodedPart[:]))
+
+		part := string(decodedPart)
+		if part == "/" {
+			part = ""
+		}
+
+		parts = append(parts, part)
 	}
 
 	if len(parts) == 0 {
 		return "", jetstream.ErrInvalidKey
 	}
 
-	return fmt.Sprintf("/%s", strings.Join(parts, "/")), nil
+	dk := strings.Join(parts, "/")
+	if hasRootPrefix {
+		dk = fmt.Sprintf("/%s", dk)
+	}
+
+	return dk, nil
 }
 
 // valueCodec is a codec that compresses values using s2.

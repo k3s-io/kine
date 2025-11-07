@@ -85,9 +85,13 @@ func New(c *Config) (Server, error) {
 	if c.Host != "" {
 		opts.Host = c.Host
 	}
+
 	if c.Port != 0 {
 		opts.Port = c.Port
+	} else {
+		opts.Port = -1
 	}
+
 	if c.DataDir != "" {
 		opts.StoreDir = c.DataDir
 	}
