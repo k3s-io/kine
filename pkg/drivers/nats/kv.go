@@ -127,6 +127,7 @@ type KeyValue struct {
 	btm        sync.RWMutex
 	lastSeq    atomic.Uint64
 	compactRev atomic.Int64
+	readyCh    chan struct{}
 	ready      atomic.Bool
 	seqCond    *sync.Cond // Broadcasts on btree update for read-after-write consistency
 	ctx        context.Context
@@ -144,6 +145,7 @@ func NewKeyValue(ctx context.Context, name string, bucket jetstream.KeyValue, js
 		vc:      &valueCodec{},
 		bt:      btree.NewMap[string, []*seqOp](0),
 		seqCond: sync.NewCond(&sync.Mutex{}),
+		readyCh: make(chan struct{}),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -202,13 +204,12 @@ func (e *KeyValue) GetRevision(ctx context.Context, key string, revision int64, 
 	if !op.ex.IsZero() && op.ex.Before(time.Now()) {
 		err := e.Delete(ctx, key, jetstream.LastRevision(op.seq))
 		if err != nil {
-			logrus.Errorf("kv: GetRevision: error deleting expired key %s: %v", key, err)
+			logrus.Errorf("getRevision: error deleting expired key %s: %v", key, err)
 		}
 		return nil, jetstream.ErrKeyNotFound
 	}
 
 	if op == nil {
-		logrus.Warnf("no revision op found in btree for key: %s", key)
 		return nil, jetstream.ErrKeyNotFound
 	}
 
@@ -232,7 +233,18 @@ func (e *KeyValue) Create(ctx context.Context, key string, value []byte) (uint64
 		return 0, err
 	}
 
-	return e.nkv.Create(ctx, ek, buf.Bytes())
+	rev, err := e.nkv.Create(ctx, ek, buf.Bytes())
+	if err != nil {
+		return rev, err
+	}
+
+	// Wait for btree watcher to process this sequence for read-after-write consistency
+	if err := e.waitForSequence(ctx, rev, waitForSeqTimeout); err != nil {
+		logrus.Warnf("create: btree watcher lag: key=%s, seq=%d, err=%v", key, rev, err)
+		// Continue anyway - data is in NATS, btree is lagging
+	}
+
+	return rev, nil
 }
 
 func (e *KeyValue) Update(ctx context.Context, key string, value []byte, last uint64) (uint64, error) {
@@ -248,7 +260,18 @@ func (e *KeyValue) Update(ctx context.Context, key string, value []byte, last ui
 		return 0, err
 	}
 
-	return e.nkv.Update(ctx, ek, buf.Bytes(), last)
+	rev, err := e.nkv.Update(ctx, ek, buf.Bytes(), last)
+	if err != nil {
+		return rev, err
+	}
+
+	// Wait for btree watcher to process this sequence for read-after-write consistency
+	if err := e.waitForSequence(ctx, rev, waitForSeqTimeout); err != nil {
+		logrus.Warnf("create: btree watcher lag: key=%s, seq=%d, err=%v", key, rev, err)
+		// Continue anyway - data is in NATS, btree is lagging
+	}
+
+	return rev, nil
 }
 
 func (e *KeyValue) Delete(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
@@ -436,13 +459,6 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 	}
 	e.btm.RUnlock()
 
-	for _, ex := range expired {
-		err = e.Delete(ctx, ex.key, jetstream.LastRevision(ex.seq))
-		if err != nil {
-			logrus.Errorf("kv: list: error deleting expired key %s: %v", ex.key, err)
-		}
-	}
-
 	var entries []jetstream.KeyValueEntry
 	for _, m := range matches {
 		valueEntry, err := e.getRevision(ctx, m.key, int64(m.seq))
@@ -450,12 +466,21 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
 				continue
 			}
-			logrus.Debugf("%s: get revision in list error: %s @ %d: %v", e.name, m.key, m.seq, err)
+			logrus.Debugf("list: error getting revision for key=%s, seq=%d: %v", m.key, m.seq, err)
 			return nil, err
 		}
 
 		entries = append(entries, valueEntry)
 	}
+
+	go func(expired []*keySeq) {
+		for _, ex := range expired {
+			err = e.Delete(ctx, ex.key, jetstream.LastRevision(ex.seq))
+			if err != nil {
+				logrus.Errorf("list: error deleting expired key %s: %v", ex.key, err)
+			}
+		}
+	}(expired)
 
 	return entries, nil
 }
@@ -543,7 +568,6 @@ func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time
 		defer e.seqCond.L.Unlock()
 
 		for e.lastSeq.Load() < seq {
-			// Check if we should stop waiting before calling Wait()
 			select {
 			case <-stop:
 				return
@@ -555,7 +579,6 @@ func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time
 		close(done)
 	}()
 
-	// Wait for either completion, timeout, or context cancellation
 	t := time.NewTimer(timeout)
 	defer t.Stop()
 
@@ -577,16 +600,8 @@ func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time
 // waitReady waits for the btree watcher to finish replaying history on startup.
 // This prevents reads from seeing incomplete/inconsistent state during cold start.
 func (e *KeyValue) waitReady(ctx context.Context) error {
-	// Fast path: check if already ready
-	if e.ready.Load() {
-		return nil
-	}
-
 	timeout := time.NewTimer(5 * time.Minute)
 	defer timeout.Stop()
-
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
 
 	for {
 		select {
@@ -594,11 +609,9 @@ func (e *KeyValue) waitReady(ctx context.Context) error {
 			return fmt.Errorf("timeout waiting for btree to be ready")
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if e.ready.Load() {
-				logrus.Infof("%s: stream replay complete, ready for operations", e.name)
-				return nil
-			}
+		case <-e.readyCh:
+			logrus.Infof("%s: stream replay complete, ready for operations", e.name)
+			return nil
 		}
 	}
 }
@@ -665,13 +678,10 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	}
 	targetSeq := s.CachedInfo().State.LastSeq
 
-	isInitialReplay := br == 0 && targetSeq > 0
+	isStartupReplay := br == 0 && targetSeq > 0
 
-	if isInitialReplay {
+	if isStartupReplay {
 		logrus.Infof("%s: btree watcher: starting initial replay from 0 to %d", e.name, targetSeq)
-	} else {
-		logrus.Debugf("%s: btree watcher: resuming at %d (targetSeq=%d)", e.name, br, targetSeq)
-		e.ready.Store(true)
 	}
 
 	now := time.Now()
@@ -739,8 +749,9 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 			e.seqCond.Broadcast()
 
 			// Check if startup replay is complete
-			if isInitialReplay && !e.ready.Load() && seq >= targetSeq {
+			if isStartupReplay && seq >= targetSeq && !e.ready.Load() {
 				e.ready.Store(true)
+				close(e.readyCh)
 				logrus.Infof("%s: btree replay complete at seq=%d (target was %d, took %s)",
 					e.name, seq, targetSeq, time.Since(now))
 			}

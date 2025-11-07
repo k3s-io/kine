@@ -85,22 +85,22 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 
 	rev := int64(entry.Revision())
 
-	var val natsData
-	err = val.Decode(entry)
+	var nd natsData
+	err = nd.Decode(entry)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	if val.Create && val.KV != nil {
-		val.KV.CreateRevision = rev
-		val.KV.ModRevision = rev
+	if nd.Create && nd.KV != nil {
+		nd.KV.CreateRevision = rev
+		nd.KV.ModRevision = rev
 	}
 
-	if (val.Delete && !allowDeletes) || b.isExpiredKey(&val) {
+	if (nd.Delete && !allowDeletes) || b.isExpiredKey(&nd) {
 		return 0, nil, jetstream.ErrKeyNotFound
 	}
 
-	return rev, &val, nil
+	return rev, &nd, nil
 }
 
 // Start starts the backend.
@@ -173,11 +173,8 @@ func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision i
 }
 
 // Get returns the store's current revision, the associated server.KeyValue or an error.
-// Like SQL backends, this is implemented as a List operation that returns the first result.
-// The rangeEnd parameter allows for range queries (prefix matching).
+// Mirrors etcd and other drivers by being a list call with a single return
 func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
-	// SQL backends implement Get as List with the first result returned
-	// This handles both exact key lookups and range queries uniformly
 	rev, kvs, err := b.List(ctx, key, rangeEnd, limit, revision, keysOnly)
 	if err != nil {
 		return rev, nil, err
@@ -194,14 +191,14 @@ func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision
 func (b *Backend) Create(ctx context.Context, key string, value []byte, lease int64) (int64, error) {
 	// Check if key exists already. If the entry exists even if marked as expired or deleted,
 	// the revision will be returned to apply an update.
-	rev, pnv, err := b.get(ctx, key, 0, true, true)
+	rev, pnd, err := b.get(ctx, key, 0, true, true)
 
 	// If an error other than key not found, return.
 	if err != nil && err != jetstream.ErrKeyNotFound {
 		return 0, err
 	}
 
-	nv := natsData{
+	nd := natsData{
 		Delete:       false,
 		Create:       true,
 		PrevRevision: 0,
@@ -214,24 +211,24 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 		},
 	}
 
-	if pnv != nil {
-		if !pnv.Delete {
+	if pnd != nil {
+		if !pnd.Delete {
 			return 0, server.ErrKeyExists
 		}
-		nv.PrevRevision = pnv.KV.ModRevision
+		nd.PrevRevision = pnd.KV.ModRevision
 	}
 
-	data, err := nv.Encode()
+	data, err := nd.Encode()
 	if err != nil {
 		return 0, err
 	}
 
 	var seq uint64
-	if pnv != nil {
+	if pnd != nil {
 		seq, err = b.kv.Update(ctx, key, data, uint64(rev))
 		if err != nil {
 			if jsWrongLastSeqErr.Is(err) {
-				b.l.Debugf("create conflict: key=%s, rev=%d, err=%s", key, rev, err)
+				b.l.Debugf("update conflict: key=%s, rev=%d, err=%s (bad last sequence)", key, rev, err)
 				return 0, server.ErrKeyExists
 			}
 			return 0, err
@@ -240,17 +237,11 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 		seq, err = b.kv.Create(ctx, key, data)
 		if err != nil {
 			if jsWrongLastSeqErr.Is(err) {
-				b.l.Debugf("create conflict: key=%s, rev=0, err=%s", key, err)
+				b.l.Warnf("create conflict: key=%s, rev=0, err=%s", key, err)
 				return 0, server.ErrKeyExists
 			}
 			return 0, err
 		}
-	}
-
-	// Wait for btree watcher to process this sequence for read-after-write consistency
-	if err := b.kv.waitForSequence(ctx, seq, waitForSeqTimeout); err != nil {
-		b.l.Warnf("create: btree watcher lag: key=%s, seq=%d, err=%v", key, seq, err)
-		// Continue anyway - data is in NATS, btree is lagging
 	}
 
 	return int64(seq), nil
@@ -258,7 +249,7 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 
 func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64, *server.KeyValue, bool, error) {
 	// Get the key, allow deletes.
-	rev, pnv, err := b.get(ctx, key, 0, true, true)
+	rev, pnd, err := b.get(ctx, key, 0, true, true)
 	if err != nil {
 		if err == jetstream.ErrKeyNotFound {
 			return rev, nil, true, nil
@@ -266,25 +257,25 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 		return rev, nil, false, err
 	}
 
-	if pnv == nil {
+	if pnd == nil {
 		return rev, nil, true, nil
 	}
 
-	if pnv.Delete {
-		return rev, pnv.KV, true, nil
+	if pnd.Delete {
+		return rev, pnd.KV, true, nil
 	}
 
-	if revision != 0 && pnv.KV.ModRevision != revision {
-		return rev, pnv.KV, false, nil
+	if revision != 0 && pnd.KV.ModRevision != revision {
+		return rev, pnd.KV, false, nil
 	}
 
-	nv := natsData{
+	nd := natsData{
 		Delete:       true,
 		PrevRevision: rev,
-		KV:           pnv.KV,
+		KV:           pnd.KV,
 	}
 
-	data, err := nv.Encode()
+	data, err := nd.Encode()
 	if err != nil {
 		return rev, nil, false, err
 	}
@@ -295,7 +286,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 		if jsWrongLastSeqErr.Is(err) {
 			b.l.Warnf("delete conflict: key=%s, rev=%d, err=%s", key, rev, err)
 
-			rev, pnd, err := b.get(ctx, key, 0, false, true)
+			rev, pnd, err = b.get(ctx, key, 0, false, true)
 
 			var kv *server.KeyValue
 			if pnd != nil {
@@ -304,13 +295,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 
 			return rev, kv, false, err
 		}
-		return rev, pnv.KV, false, nil
-	}
-
-	// Wait for btree watcher to process the tombstone
-	if err := b.kv.waitForSequence(ctx, drev, waitForSeqTimeout); err != nil {
-		b.l.Warnf("delete: btree watcher lag (tombstone): key=%s, seq=%d, err=%v", key, drev, err)
-		// Continue anyway - data is in NATS, just btree is lagging
+		return rev, pnd.KV, false, nil
 	}
 
 	err = b.kv.Delete(ctx, key, jetstream.LastRevision(drev))
@@ -319,47 +304,46 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 			b.l.Debugf("delete conflict: key=%s, rev=%d, err=%s", key, drev, err)
 			return 0, nil, false, nil
 		}
-		return rev, pnv.KV, false, nil
+		return rev, pnd.KV, false, nil
 	}
 
-	return int64(drev), pnv.KV, true, nil
+	return int64(drev), pnd.KV, true, nil
 }
 
 func (b *Backend) Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *server.KeyValue, bool, error) {
+	// Response and error flow modeled off of LogStructured Update function
+
 	// Get the latest revision of the key.
-	rev, pnv, err := b.get(ctx, key, 0, false, true)
-	// TODO: correct semantics for these various errors?
+	rev, pnd, err := b.get(ctx, key, 0, false, true)
 	if err != nil {
 		if err == jetstream.ErrKeyNotFound {
-			return rev, nil, false, nil
+			return 0, nil, false, nil
 		}
-		return rev, nil, false, err
+		return 0, nil, false, err
 	}
 
-	// Return nothing?
-	if pnv == nil {
-		b.l.Warnf("update: key=%s, rev=%d, pnv=nil", key, revision)
+	if pnd == nil {
 		return 0, nil, false, nil
 	}
 
 	// Incorrect revision, return the current value.
-	if pnv.KV.ModRevision != revision {
-		return rev, pnv.KV, false, nil
+	if pnd.KV.ModRevision != revision {
+		return rev, pnd.KV, false, nil
 	}
 
 	nv := natsData{
 		Delete:       false,
 		Create:       false,
-		PrevRevision: pnv.KV.ModRevision,
+		PrevRevision: pnd.KV.ModRevision,
 		KV: &server.KeyValue{
 			Key:            key,
-			CreateRevision: pnv.KV.CreateRevision,
+			CreateRevision: pnd.KV.CreateRevision,
 			Value:          value,
 			Lease:          lease,
 		},
 	}
 
-	if pnv.KV.CreateRevision == 0 {
+	if pnd.KV.CreateRevision == 0 {
 		nv.KV.CreateRevision = rev
 	}
 
@@ -384,12 +368,6 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 			return rev, kv, false, err
 		}
 		return 0, nil, false, err
-	}
-
-	// Wait for btree watcher to process this sequence for read-after-write consistency
-	if err := b.kv.waitForSequence(ctx, seq, waitForSeqTimeout); err != nil {
-		b.l.Warnf("update: btree watcher lag: key=%s, seq=%d, err=%v", key, seq, err)
-		// Continue anyway - data is in NATS, just btree is lagging
 	}
 
 	nv.KV.ModRevision = int64(seq)
@@ -443,14 +421,13 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 
 	go func() {
 		defer close(events)
-		lastRevision := startRevision
 
 		// Loop to re-establish the watch if it fails.
 		var w KeyWatcher
 	outer:
 		for {
 			var err error
-			w, err = b.kv.Watch(ctx, prefix, lastRevision)
+			w, err = b.kv.Watch(ctx, prefix, startRevision)
 			if err == nil {
 				break
 			} else if errors.Is(err, context.Canceled) || errors.Is(err, nats.ErrConnectionClosed) {
@@ -479,8 +456,6 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 				goto outer
 
 			case e := <-w.Updates():
-				lastRevision = int64(e.Revision())
-
 				if e.Operation() != jetstream.KeyValuePut {
 					continue
 				}
@@ -567,7 +542,7 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	if targetCompactRev > compactRev {
 		compactValue := server.EncodeVersion(compactVers+1, []byte(strconv.FormatInt(targetCompactRev, 10)))
 
-		b.l.Debugf("Compacting to version: %s", string(compactValue))
+		b.l.Debugf("compact: compacting to version: %s", string(compactValue))
 
 		_, _, _, err := b.Update(ctx, compactRevAPI, compactValue, int64(nd.KV.ModRevision), 0)
 		if err != nil {
@@ -576,7 +551,7 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 
 		b.kv.compactRev.Store(targetCompactRev)
 	} else {
-		b.l.Debugf("No compaction performed: targetCompactRev: %d, oldCompact: %d", targetCompactRev, compactRev)
+		b.l.Debugf("compact: no compaction performed: targetCompactRev: %d, oldCompact: %d", targetCompactRev, compactRev)
 	}
 
 	return currRev, nil
