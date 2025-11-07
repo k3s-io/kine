@@ -3,6 +3,7 @@ package nats
 import (
 	"context"
 	"io"
+	"os"
 	"testing"
 	"time"
 
@@ -52,6 +53,7 @@ func TestBackend_Create(t *testing.T) {
 	ns, nc, b := setupBackend(t)
 	defer ns.Shutdown()
 	defer nc.Drain()
+	defer os.RemoveAll(ns.StoreDir())
 
 	ctx := context.Background()
 
@@ -108,6 +110,7 @@ func TestBackend_Get(t *testing.T) {
 	ns, nc, b := setupBackend(t)
 	defer ns.Shutdown()
 	defer nc.Drain()
+	defer os.RemoveAll(ns.StoreDir())
 
 	ctx := context.Background()
 
@@ -138,7 +141,7 @@ func TestBackend_Get(t *testing.T) {
 
 	// Get at later revision, does not exist.
 	_, _, err = b.Get(ctx, "/a", "", 0, 2, false)
-	expEqualErr(t, nil, err)
+	expEqualErr(t, kserver.ErrFutureRev, err)
 
 	// Create it again and update it.
 	rev, err := b.Create(ctx, "/a", []byte("c"), 0)
@@ -163,6 +166,7 @@ func TestBackend_Update(t *testing.T) {
 	ns, nc, b := setupBackend(t)
 	defer ns.Shutdown()
 	defer nc.Drain()
+	defer os.RemoveAll(ns.StoreDir())
 
 	ctx := context.Background()
 
@@ -199,6 +203,7 @@ func TestBackend_Delete(t *testing.T) {
 	ns, nc, b := setupBackend(t)
 	defer ns.Shutdown()
 	defer nc.Drain()
+	defer os.RemoveAll(ns.StoreDir())
 
 	ctx := context.Background()
 
@@ -237,6 +242,7 @@ func TestBackend_List(t *testing.T) {
 	ns, nc, b := setupBackend(t)
 	defer ns.Shutdown()
 	defer nc.Drain()
+	defer os.RemoveAll(ns.StoreDir())
 
 	ctx := context.Background()
 
@@ -310,11 +316,11 @@ func TestBackend_Watch(t *testing.T) {
 	ns, nc, b := setupBackend(t)
 	defer ns.Shutdown()
 	defer nc.Drain()
+	defer os.RemoveAll(ns.StoreDir())
 
 	ctx := context.Background()
 
 	cctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	rev1, _ := b.Create(ctx, "/a", nil, 0)
 	rev2, _ := b.Create(ctx, "/a/1", nil, 0)
@@ -322,7 +328,7 @@ func TestBackend_Watch(t *testing.T) {
 	b.Delete(ctx, "/a", rev1)
 	b.Update(ctx, "/a/1", nil, rev2, 0)
 
-	wr := b.Watch(cctx, "/a", 0)
+	wr := b.Watch(cctx, "/", 0)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
@@ -332,4 +338,17 @@ func TestBackend_Watch(t *testing.T) {
 	}
 
 	expEqual(t, 5, len(events))
+
+	cctx, cancel = context.WithCancel(ctx)
+	wr = b.Watch(cctx, "/a/", 0)
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	events = make([]*kserver.Event, 0)
+
+	for es := range wr.Events {
+		events = append(events, es...)
+	}
+
+	expEqual(t, 2, len(events))
 }

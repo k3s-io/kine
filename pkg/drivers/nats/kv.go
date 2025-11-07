@@ -316,11 +316,14 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 	// Everything but the last token will be treated as a filter
 	// on the watcher. The last token will used as a deliver-time filter.
 
-	watchRange := true
-
 	filter := keys
+
+	// Must watch all keys in this case
+	if !strings.HasPrefix(keys, "/") {
+		filter = "/"
+	}
+
 	if !strings.HasSuffix(filter, "/") {
-		watchRange = false
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
 			filter = keys[:idx+1]
@@ -328,15 +331,17 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 	}
 
 	if filter != "" {
-		var p string
-		var err error
-		if watchRange {
-			p, err = e.kc.EncodeRange(filter)
-		} else {
-			p, err = e.kc.Encode(filter)
-		}
+		p, err := e.kc.EncodeRange(filter)
 		if err != nil {
 			return nil, err
+		}
+
+		// Special case, reduce watches on root key
+		if keys == compactRevAPI {
+			p, err = e.kc.Encode(compactRevAPI)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		filter = fmt.Sprintf("$KV.%s.%s", e.nkv.Bucket(), p)
@@ -352,7 +357,6 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 		if keys != "" {
 			dkey, err := e.kc.Decode(strings.TrimPrefix(key, "."))
 			if err != nil || (keys != "/" && !strings.HasPrefix(dkey, keys)) {
-				logrus.Errorf("watch: invalid key: %s, err=%v", key, err)
 				return
 			}
 		}
@@ -511,7 +515,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 	go func(expired []*keySeq) {
 		for _, ex := range expired {
 			err = e.Delete(ctx, ex.key, jetstream.LastRevision(ex.seq))
-			if err != nil {
+			if err != nil && err != context.Canceled {
 				logrus.Errorf("list: error deleting expired key %s: %v", ex.key, err)
 			}
 		}
