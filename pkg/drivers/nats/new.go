@@ -203,7 +203,17 @@ func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, comp
 
 	logrus.Infof("bucket initialized: %s", config.bucket)
 
-	kv := NewKeyValue(ctx, "local", bucket, js, compactMinRetain, int(config.revHistory))
+	name := "nats"
+	if ns != nil {
+		name = "embedded"
+	}
+
+	kv := NewKeyValue(ctx, name, bucket, js, compactMinRetain, int(config.revHistory))
+
+	if err := kv.waitReady(ctx); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to wait for btree to be ready: %w", err)
+	}
 
 	logrus.Infof("compactInterval: %v, compactMinRetain: %d", compactInterval, compactMinRetain)
 

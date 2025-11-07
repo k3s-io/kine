@@ -531,7 +531,7 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	// Calculate target compact revision: currentRev - minRetain
 	targetCompactRev := currRev - b.compactMinRetain
 
-	if revision > 0 && revision < targetCompactRev {
+	if revision > 0 {
 		targetCompactRev = revision
 	}
 
@@ -548,6 +548,10 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 		if err != nil {
 			return currRev, err
 		}
+
+		old := b.kv.compactRev.Load()
+		swapped := b.kv.compactRev.CompareAndSwap(old, targetCompactRev)
+		b.l.Debugf("compact: compact revision updated: old=%d, new=%d, swapped=%v", old, targetCompactRev, swapped)
 	} else {
 		b.l.Debugf("compact: no compaction performed: targetCompactRev: %d, oldCompact: %d", targetCompactRev, compactRev)
 	}

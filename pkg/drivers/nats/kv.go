@@ -639,7 +639,7 @@ func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time
 // waitReady waits for the btree watcher to finish replaying history on startup.
 // This prevents reads from seeing incomplete/inconsistent state during cold start.
 func (e *KeyValue) waitReady(ctx context.Context) error {
-	timeout := time.NewTimer(5 * time.Minute)
+	timeout := time.NewTimer(time.Minute)
 	defer timeout.Stop()
 
 	for {
@@ -682,6 +682,7 @@ func (e *KeyValue) getRevision(ctx context.Context, key string, revision int64) 
 }
 
 func (e *KeyValue) checkRevision(key string, revision int64) error {
+	logrus.Debugf("checkRevision: key=%s, revision=%d", key, revision)
 	if key != "" {
 		e.btm.RLock()
 		_, ok := e.bt.Get(key)
@@ -700,7 +701,9 @@ func (e *KeyValue) checkRevision(key string, revision int64) error {
 
 		compactRev := e.compactRev.Load()
 
-		if revision < compactRev {
+		logrus.Debugf("checkRevision: currRev=%d, compactRev=%d", currRev, compactRev)
+
+		if revision <= compactRev {
 			return server.ErrCompacted
 		}
 	}
@@ -709,6 +712,7 @@ func (e *KeyValue) checkRevision(key string, revision int64) error {
 }
 
 func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
+	logrus.Infof("%s: btree watcher: starting", e.name)
 	br := e.BucketRevision()
 
 	s, err := e.js.Stream(ctx, fmt.Sprintf("KV_%s", e.nkv.Bucket()))
@@ -717,10 +721,17 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	}
 	targetSeq := s.CachedInfo().State.LastSeq
 
-	isStartupReplay := br == 0 && targetSeq > 0
+	isStartupReplay := br == 0
+	logrus.Infof("%s: btree watcher: starting replay from %d to %d", e.name, br, targetSeq)
 
 	if isStartupReplay {
-		logrus.Infof("%s: btree watcher: starting initial replay from 0 to %d", e.name, targetSeq)
+		if targetSeq == 0 {
+			e.ready.Store(true)
+			close(e.readyCh)
+			isStartupReplay = false
+		} else {
+			logrus.Infof("%s: btree watcher: starting initial replay from 0 to %d", e.name, targetSeq)
+		}
 	}
 
 	now := time.Now()
