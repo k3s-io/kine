@@ -1,6 +1,9 @@
 package nats
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestKeyEncode(t *testing.T) {
 	tests := []struct {
@@ -10,12 +13,12 @@ func TestKeyEncode(t *testing.T) {
 	}{
 		{"", "", true},
 		{"/", "", true},
-		{"a", "2g", false},
+		{"a", fmt.Sprintf("%s.2g", noRootPrefix), false},
 		{"/a/a", "2g.2g", false},
-		{"a/a", "2g.2g", false},
-		{"a/a/a", "2g.2g.2g", false},
-		{"a/*/a", "2g.j.2g", false},
-		{"a/*/a/", "2g.j.2g", false},
+		{"a/a", fmt.Sprintf("%s.2g.2g", noRootPrefix), false},
+		{"/a/a/a", "2g.2g.2g", false},
+		{"a/*/a", fmt.Sprintf("%s.2g.j.2g", noRootPrefix), false},
+		{"/a/*/a/", "2g.j.2g", false},
 	}
 
 	codec := &keyCodec{}
@@ -70,10 +73,11 @@ func TestKeyEncodeRange(t *testing.T) {
 	}{
 		{"", "", true},
 		{"/", ">", false},
-		{"a", "2g.>", false},
+		{"a", fmt.Sprintf("%s.2g.>", noRootPrefix), false},
 		{"/a/a", "2g.2g.>", false},
-		{"a/a/a", "2g.2g.2g.>", false},
-		{"a/*/a", "2g.j.2g.>", false},
+		{"a/a/a", fmt.Sprintf("%s.2g.2g.2g.>", noRootPrefix), false},
+		{"/a/*/a", "2g.j.2g.>", false},
+		{"a/*/a", fmt.Sprintf("%s.2g.j.2g.>", noRootPrefix), false},
 	}
 
 	codec := &keyCodec{}

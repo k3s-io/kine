@@ -2,7 +2,7 @@
 
 start-test() {
     ### Disabled until NATS is validated to pass tests
-    # KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://" run-apiserver-tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster

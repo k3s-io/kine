@@ -56,11 +56,11 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 	var curValue []byte
 	if kv != nil {
 		modRev = kv.ModRevision
-		version, curValue = decodeVersion(kv.Value)
+		version, curValue = DecodeVersion(kv.Value)
 	}
 
 	if compareVersion == version {
-		value := encodeVersion(version+1, value)
+		value := EncodeVersion(version+1, value)
 		if version == 0 {
 			rev, err = l.backend.Create(ctx, compactRevAPI, value, 0)
 		} else {
@@ -74,7 +74,7 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 				return nil, err
 			}
 			if kv != nil {
-				version, curValue = decodeVersion(kv.Value)
+				version, curValue = DecodeVersion(kv.Value)
 			}
 		} else {
 			// on success, no response is required - just the revision header.
@@ -113,10 +113,10 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 	}, nil
 }
 
-// encodeVersion encodes a version before the client-requested value. We do this
+// EncodeVersion encodes a version before the client-requested value. We do this
 // because kine does not actually track an incrementing version for key
 // revisions.
-func encodeVersion(version int64, value []byte) []byte {
+func EncodeVersion(version int64, value []byte) []byte {
 	return fmt.Appendf(nil, "%d|%s", version, value)
 }
 
@@ -124,7 +124,7 @@ func encodeVersion(version int64, value []byte) []byte {
 // the stored value. Older releases of kine stored only the revision, discarding
 // the client-requested value as it was never read by the apiserver prior to
 // Kubernetes 1.34.
-func decodeVersion(value []byte) (int64, []byte) {
+func DecodeVersion(value []byte) (int64, []byte) {
 	if ver, val, ok := bytes.Cut(value, []byte("|")); ok {
 		version, _ := strconv.ParseInt(string(ver), 10, 64)
 		return version, val
