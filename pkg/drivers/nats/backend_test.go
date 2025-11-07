@@ -260,7 +260,7 @@ func TestBackend_List(t *testing.T) {
 	expSortedKeys(t, ents)
 
 	// List the keys with prefix.
-	rev, ents, err = b.List(ctx, "/a", "", 0, 0, false)
+	rev, ents, err = b.List(ctx, "/a", "/a", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, 7, rev)
 	expEqual(t, 3, len(ents))
@@ -276,7 +276,7 @@ func TestBackend_List(t *testing.T) {
 	// List the keys up to a revision.
 	rev, ents, err = b.List(ctx, "/", "", 0, 3, false)
 	noErr(t, err)
-	expEqual(t, 7, rev)
+	expEqual(t, 3, rev)
 	expEqual(t, 3, len(ents))
 	expSortedKeys(t, ents)
 	expEqualKeys(t, []string{"/a", "/a/b/c", "/b"}, ents)
@@ -285,17 +285,25 @@ func TestBackend_List(t *testing.T) {
 	rev, ents, err = b.List(ctx, "/", "", 4, 0, false)
 	noErr(t, err)
 	expEqual(t, 7, rev)
-	expEqual(t, 4, len(ents))
+	expEqual(t, 7, len(ents)) // expect full list
 	expSortedKeys(t, ents)
-	expEqualKeys(t, []string{"/a", "/a/b", "/a/b/c", "/b"}, ents)
+	expEqualKeys(t, []string{"/a", "/a/b", "/a/b/c", "/b", "/c", "/d/a", "/d/b"}, ents)
 
 	// List the keys with a limit after some start key.
 	rev, ents, err = b.List(ctx, "/", "b", 2, 0, false)
 	noErr(t, err)
 	expEqual(t, 7, rev)
-	expEqual(t, 2, len(ents))
+	expEqual(t, 4, len(ents))
 	expSortedKeys(t, ents)
-	expEqualKeys(t, []string{"/b", "/c"}, ents)
+	expEqualKeys(t, []string{"/b", "/c", "/d/a", "/d/b"}, ents)
+
+	// List the keys after some start key with slash prefix
+	rev, ents, err = b.List(ctx, "/", "/c", 0, 0, false)
+	noErr(t, err)
+	expEqual(t, 7, rev)
+	expEqual(t, 3, len(ents))
+	expSortedKeys(t, ents)
+	expEqualKeys(t, []string{"/c", "/d/a", "/d/b"}, ents)
 }
 
 func TestBackend_Watch(t *testing.T) {
