@@ -2,7 +2,6 @@ package nats
 
 import (
 	"context"
-	"errors"
 	"io"
 	"testing"
 	"time"
@@ -14,48 +13,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/sirupsen/logrus"
 )
-
-func noErr(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func expEqualErr(t *testing.T, want, got error) {
-	t.Helper()
-	if !errors.Is(want, got) {
-		t.Fatalf("expected %v, got %v", want, got)
-	}
-}
-
-func expEqual[T comparable](t *testing.T, want, got T) {
-	t.Helper()
-	if got != want {
-		t.Fatalf("expected %v, got %v", want, got)
-	}
-}
-
-func expSortedKeys(t *testing.T, ents []*kserver.KeyValue) {
-	t.Helper()
-	var prev string
-	for _, ent := range ents {
-		if prev != "" {
-			if prev > ent.Key {
-				t.Fatalf("keys not sorted: %s > %s", prev, ent.Key)
-			}
-		}
-		prev = ent.Key
-	}
-}
-
-func expEqualKeys(t *testing.T, want []string, got []*kserver.KeyValue) {
-	t.Helper()
-	expEqual(t, len(want), len(got))
-	for i, k := range want {
-		expEqual(t, k, got[i].Key)
-	}
-}
 
 func setupBackend(t *testing.T) (*server.Server, *nats.Conn, *Backend) {
 	ns := test.RunServer(&server.Options{
@@ -78,7 +35,7 @@ func setupBackend(t *testing.T) (*server.Server, *nats.Conn, *Backend) {
 	})
 	noErr(t, err)
 
-	ekv := NewKeyValue(ctx, bkt, js)
+	ekv := NewKeyValue(ctx, "local", bkt, js, 1000, 10)
 
 	l := logrus.New()
 	l.SetOutput(io.Discard)
@@ -86,7 +43,6 @@ func setupBackend(t *testing.T) (*server.Server, *nats.Conn, *Backend) {
 	b := Backend{
 		l:  l,
 		kv: ekv,
-		js: js,
 	}
 
 	return ns, nc, &b
@@ -156,7 +112,7 @@ func TestBackend_Get(t *testing.T) {
 	ctx := context.Background()
 
 	// Create with lease.
-	rev, err := b.Create(ctx, "/a", []byte("b"), 1)
+	_, err := b.Create(ctx, "/a", []byte("b"), 1)
 	noErr(t, err)
 
 	time.Sleep(2 * time.Millisecond)
@@ -173,11 +129,11 @@ func TestBackend_Get(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// Latest is gone.
-	_, ent, err = b.Get(ctx, "/a", "", 0, 0, false)
+	_, _, err = b.Get(ctx, "/a", "", 0, 0, false)
 	expEqualErr(t, nil, err)
 
 	// Get at a revision will fail also.
-	_, ent, err = b.Get(ctx, "/a", "", 0, 1, false)
+	_, _, err = b.Get(ctx, "/a", "", 0, 1, false)
 	expEqualErr(t, nil, err)
 
 	// Get at later revision, does not exist.
@@ -185,7 +141,7 @@ func TestBackend_Get(t *testing.T) {
 	expEqualErr(t, nil, err)
 
 	// Create it again and update it.
-	rev, err = b.Create(ctx, "/a", []byte("c"), 0)
+	rev, err := b.Create(ctx, "/a", []byte("c"), 0)
 	noErr(t, err)
 	expEqual(t, 3, rev)
 

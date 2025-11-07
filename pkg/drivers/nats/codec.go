@@ -10,9 +10,7 @@ import (
 	"github.com/shengdoushi/base58"
 )
 
-var (
-	keyAlphabet = base58.BitcoinAlphabet
-)
+var keyAlphabet = base58.BitcoinAlphabet
 
 // keyCodec turns keys like /this/is/a.test.key into Base58 encoded values
 // split on `.` This is because NATS keys are split on . rather than /.
@@ -48,7 +46,9 @@ func (*keyCodec) Encode(key string) (retKey string, e error) {
 		return "", jetstream.ErrInvalidKey
 	}
 
-	return strings.Join(parts, "."), nil
+	enc := strings.Join(parts, ".")
+
+	return enc, nil
 }
 
 func (*keyCodec) Decode(key string) (retKey string, e error) {
@@ -66,7 +66,12 @@ func (*keyCodec) Decode(key string) (retKey string, e error) {
 		return "", jetstream.ErrInvalidKey
 	}
 
-	return fmt.Sprintf("/%s", strings.Join(parts, "/")), nil
+	dk := strings.Join(parts, "/")
+	if dk != compactRevAPI {
+		dk = fmt.Sprintf("/%s", dk)
+	}
+
+	return dk, nil
 }
 
 // valueCodec is a codec that compresses values using s2.
