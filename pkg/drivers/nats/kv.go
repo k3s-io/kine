@@ -161,6 +161,7 @@ func NewKeyValue(ctx context.Context, name string, bucket jetstream.KeyValue, js
 			var err error
 			select {
 			case err = <-errch:
+				logrus.Errorf("btree watcher: error: %v", err)
 
 			case <-ctx.Done():
 				err = context.Cause(ctx)
@@ -280,7 +281,29 @@ func (e *KeyValue) Delete(ctx context.Context, key string, opts ...jetstream.KVD
 		return err
 	}
 
-	return e.nkv.Delete(ctx, ek, opts...)
+	err = e.nkv.Delete(ctx, ek, opts...)
+	if err != nil {
+		return err
+	}
+
+	kvs, err := e.nkv.History(ctx, ek, jetstream.MetaOnly())
+	if err != nil {
+		logrus.Errorf("delete: error getting history for key %s: %v", key, err)
+	}
+
+	if len(kvs) > 0 {
+		last := kvs[len(kvs)-1]
+		if last.Operation() == jetstream.KeyValueDelete {
+			if err := e.waitForSequence(ctx, last.Revision(), waitForSeqTimeout); err != nil {
+				logrus.Warnf("delete: btree watcher lag: key=%s, seq=%d, err=%v", key, last.Revision(), err)
+				// Continue anyway - data is in NATS, btree is lagging
+			}
+		} else {
+			logrus.Warnf("delete: key was not deleted, last operation was key=%s, op=%s, seq=%d", key, last.Operation(), last.Revision())
+		}
+	}
+
+	return nil
 }
 
 type KeyWatcher interface {
@@ -292,8 +315,12 @@ type KeyWatcher interface {
 func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyWatcher, error) {
 	// Everything but the last token will be treated as a filter
 	// on the watcher. The last token will used as a deliver-time filter.
+
+	watchRange := true
+
 	filter := keys
 	if !strings.HasSuffix(filter, "/") {
+		watchRange = false
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
 			filter = keys[:idx+1]
@@ -301,10 +328,17 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 	}
 
 	if filter != "" {
-		p, err := e.kc.EncodeRange(filter)
+		var p string
+		var err error
+		if watchRange {
+			p, err = e.kc.EncodeRange(filter)
+		} else {
+			p, err = e.kc.Encode(filter)
+		}
 		if err != nil {
 			return nil, err
 		}
+
 		filter = fmt.Sprintf("$KV.%s.%s", e.nkv.Bucket(), p)
 	}
 
@@ -318,6 +352,7 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 		if keys != "" {
 			dkey, err := e.kc.Decode(strings.TrimPrefix(key, "."))
 			if err != nil || (keys != "/" && !strings.HasPrefix(dkey, keys)) {
+				logrus.Errorf("watch: invalid key: %s, err=%v", key, err)
 				return
 			}
 		}

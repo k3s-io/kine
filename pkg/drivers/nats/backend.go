@@ -548,8 +548,6 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 		if err != nil {
 			return currRev, err
 		}
-
-		b.kv.compactRev.Store(targetCompactRev)
 	} else {
 		b.l.Debugf("compact: no compaction performed: targetCompactRev: %d, oldCompact: %d", targetCompactRev, compactRev)
 	}
@@ -567,7 +565,7 @@ func (b *Backend) compactor() {
 
 	b.l.Infof("Starting automatic compaction (interval: %v, minRetain: %d)", b.compactInterval, b.compactMinRetain)
 
-	w, err := b.kv.nkv.Watch(b.ctx, compactRevAPI)
+	w, err := b.kv.Watch(b.ctx, compactRevAPI, 0)
 	if err != nil {
 		b.l.Errorf("Failed to configure watch for compact revision: %v", err)
 	}
@@ -608,7 +606,8 @@ func (b *Backend) compactor() {
 			if kv := nd.KV; kv != nil {
 				_, rev := decodeCompactValue(kv.Value)
 				old := b.kv.compactRev.Load()
-				b.kv.compactRev.CompareAndSwap(old, rev)
+				swapped := b.kv.compactRev.CompareAndSwap(old, rev)
+				b.l.Debugf("compact revision updated: old=%d, new=%d, swapped=%v", old, rev, swapped)
 			}
 		}
 	}
