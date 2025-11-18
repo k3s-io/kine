@@ -8,6 +8,11 @@ import (
 	"github.com/klauspost/compress/s2"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/shengdoushi/base58"
+	"github.com/sirupsen/logrus"
+)
+
+const (
+	rootPrefix = "root."
 )
 
 var keyAlphabet = base58.BitcoinAlphabet
@@ -34,11 +39,17 @@ func (*keyCodec) Encode(key string) (retKey string, e error) {
 		return "", jetstream.ErrInvalidKey
 	}
 
+	atRoot := !strings.HasPrefix(key, "/")
+
 	// Trim leading and trailing slashes.
 	key = strings.Trim(key, "/")
 
 	var parts []string
 	for _, part := range strings.Split(key, "/") {
+		if part == "" {
+			part = "/"
+		}
+
 		parts = append(parts, base58.Encode([]byte(part), keyAlphabet))
 	}
 
@@ -48,18 +59,33 @@ func (*keyCodec) Encode(key string) (retKey string, e error) {
 
 	enc := strings.Join(parts, ".")
 
+	if atRoot {
+		enc = fmt.Sprintf("%s%s", rootPrefix, enc)
+	}
+
 	return enc, nil
 }
 
 func (*keyCodec) Decode(key string) (retKey string, e error) {
 	var parts []string
 
+	root := strings.HasPrefix(key, rootPrefix)
+	if root {
+		key = strings.TrimPrefix(key, rootPrefix)
+	}
+
 	for _, s := range strings.Split(key, ".") {
 		decodedPart, err := base58.Decode(s, keyAlphabet)
 		if err != nil {
 			return "", err
 		}
-		parts = append(parts, string(decodedPart[:]))
+
+		part := string(decodedPart)
+		if part == "/" {
+			part = ""
+		}
+
+		parts = append(parts, part)
 	}
 
 	if len(parts) == 0 {
@@ -67,9 +93,11 @@ func (*keyCodec) Decode(key string) (retKey string, e error) {
 	}
 
 	dk := strings.Join(parts, "/")
-	if dk != compactRevAPI {
+	if !root {
 		dk = fmt.Sprintf("/%s", dk)
 	}
+
+	logrus.Infof("decode: key=%s, root=%v, dk=%s", key, root, dk)
 
 	return dk, nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/server"
@@ -96,7 +97,7 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 		nd.KV.ModRevision = rev
 	}
 
-	if (nd.Delete && !allowDeletes) || b.isExpiredKey(&nd) {
+	if nd.Delete && !allowDeletes {
 		return 0, nil, jetstream.ErrKeyNotFound
 	}
 
@@ -108,6 +109,9 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 func (b *Backend) Start(ctx context.Context) error {
 	b.ctx = ctx
 
+	b.kv.Start(context.Background())
+	b.kv.ew.Start(ctx)
+
 	// Wait for btree watcher to finish initial replay before accepting operations
 	// This prevents reads from seeing inconsistent state during startup
 	b.l.Infof("Waiting for btree replay to complete...")
@@ -115,6 +119,9 @@ func (b *Backend) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize btree: %w", err)
 	}
 
+	b.l.Infof("Creating health key...")
+
+	/**
 	b.l.Infof("Creating health key...")
 
 	rev, err := b.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0)
@@ -125,6 +132,7 @@ func (b *Backend) Start(ctx context.Context) error {
 		} else {
 			b.l.Infof("Automatic compaction disabled (interval: %v)", b.compactInterval)
 		}
+		go b.compactWatcher()
 		return nil
 	}
 
@@ -139,10 +147,25 @@ func (b *Backend) Start(ctx context.Context) error {
 				b.l.Infof("Automatic compaction disabled (interval: %v)", b.compactInterval)
 			}
 		}
+		go b.compactWatcher()
 		return err
 	}
+	**/
 
-	return err
+	if b.compactInterval > 0 {
+		go b.compactor()
+	} else {
+		b.l.Infof("Automatic compaction disabled (interval: %v)", b.compactInterval)
+	}
+
+	go b.compactWatcher()
+
+	// Initialize operational keys
+	rev, _ := b.Create(ctx, "/registry/health", []byte(""), 0)
+	b.Update(ctx, "/registry/health", []byte(`{"health":"true"}`), rev, 0)
+	// b.Create(ctx, compactRevAPI, []byte("0|0"), 0)
+
+	return nil
 }
 
 // DbSize get the kineBucket size from JetStream.
@@ -175,10 +198,18 @@ func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision i
 // Get returns the store's current revision, the associated server.KeyValue or an error.
 // Mirrors etcd and other drivers by being a list call with a single return
 func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
+	if strings.HasSuffix(key, "/") && rangeEnd == "" {
+		key = key[:len(key)-1]
+	}
+
+	b.l.Infof("Get: key=%s, rangeEnd=%s, limit=%d, rev=%d, keysOnly=%v", key, rangeEnd, limit, revision, keysOnly)
+
 	rev, kvs, err := b.List(ctx, key, rangeEnd, limit, revision, keysOnly)
 	if err != nil {
 		return rev, nil, err
 	}
+
+	b.l.Infof("Get return: key=%s, rev=%d, count=%d", key, rev, len(kvs))
 
 	if len(kvs) == 0 {
 		return rev, nil, nil
@@ -189,6 +220,7 @@ func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision
 
 // Create attempts to create the key-value entry and returns the revision number.
 func (b *Backend) Create(ctx context.Context, key string, value []byte, lease int64) (int64, error) {
+	logrus.Infof("Create: key=%s, value=%d, lease=%d", key, len(value), lease)
 	// Check if key exists already. If the entry exists even if marked as expired or deleted,
 	// the revision will be returned to apply an update.
 	rev, pnd, err := b.get(ctx, key, 0, true, true)
@@ -213,7 +245,7 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 
 	if pnd != nil {
 		if !pnd.Delete {
-			return 0, server.ErrKeyExists
+			return rev, server.ErrKeyExists
 		}
 		nd.PrevRevision = pnd.KV.ModRevision
 	}
@@ -244,15 +276,20 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 		}
 	}
 
+	if lease > 0 {
+		b.kv.ew.Add(key, int64(seq), time.Now().Add(time.Second*time.Duration(lease)))
+	}
+
 	return int64(seq), nil
 }
 
 func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64, *server.KeyValue, bool, error) {
+	logrus.Infof("Delete: key=%s, revision=%d", key, revision)
 	// Get the key, allow deletes.
-	rev, pnd, err := b.get(ctx, key, 0, true, true)
+	rev, pnd, err := b.get(ctx, key, 0, false, true)
 	if err != nil {
 		if err == jetstream.ErrKeyNotFound {
-			return rev, nil, true, nil
+			return rev, nil, false, nil
 		}
 		return rev, nil, false, err
 	}
@@ -262,7 +299,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 	}
 
 	if pnd.Delete {
-		return rev, pnd.KV, true, nil
+		return rev, nil, false, nil
 	}
 
 	if revision != 0 && pnd.KV.ModRevision != revision {
@@ -280,6 +317,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 		return rev, nil, false, err
 	}
 
+	logrus.Infof("Delete: updating with tombstone: key=%s, data=%s", key, string(data))
 	// Update with a tombstone.
 	drev, err := b.kv.Update(ctx, key, data, uint64(rev))
 	if err != nil {
@@ -298,6 +336,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 		return rev, pnd.KV, false, nil
 	}
 
+	logrus.Infof("Delete: deleting with revision: key=%s, revision=%d", key, drev)
 	err = b.kv.Delete(ctx, key, jetstream.LastRevision(drev))
 	if err != nil {
 		if jsWrongLastSeqErr.Is(err) {
@@ -313,21 +352,28 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 func (b *Backend) Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *server.KeyValue, bool, error) {
 	// Response and error flow modeled off of LogStructured Update function
 
+	logrus.Debugf("Update: key=%s, revision=%d, lease=%d", key, revision, lease)
+
 	// Get the latest revision of the key.
 	rev, pnd, err := b.get(ctx, key, 0, false, true)
 	if err != nil {
+		logrus.Debugf("Update: key=%s, revision=%d, lease=%d, err=%v", key, revision, lease, err)
 		if err == jetstream.ErrKeyNotFound {
 			return 0, nil, false, nil
 		}
 		return 0, nil, false, err
 	}
 
+	logrus.Debugf("Update: key=%s, revision=%d, lease=%d, rev=%d, pnd=%v", key, revision, lease, rev, pnd)
+
 	if pnd == nil {
+		logrus.Debugf("Update: key=%s, revision=%d, lease=%d, pnd=nil", key, revision, lease)
 		return 0, nil, false, nil
 	}
 
 	// Incorrect revision, return the current value.
 	if pnd.KV.ModRevision != revision {
+		b.l.Warnf("update revision conflict: key=%s, rev=%d, expected=%d", key, revision, pnd.KV.ModRevision)
 		return rev, pnd.KV, false, nil
 	}
 
@@ -372,6 +418,10 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 
 	nv.KV.ModRevision = int64(seq)
 
+	if lease > 0 {
+		b.kv.ew.Add(key, int64(seq), time.Now().Add(time.Second*time.Duration(lease)))
+	}
+
 	return int64(seq), nv.KV, true, nil
 }
 
@@ -382,9 +432,12 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 // If limit is provided, the maximum set of matches is limited.
 // If revision is provided, this indicates the maximum revision to return.
 func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxRevision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
+	currentRev := b.kv.BucketRevision()
+	b.l.Infof("List: prefix=%s, startKey=%s, limit=%d, maxRevision=%d, keysOnly=%v, currentRev=%d", prefix, startKey, limit, maxRevision, keysOnly, currentRev)
+
 	matches, err := b.kv.List(ctx, prefix, startKey, limit, maxRevision, keysOnly)
 	if err != nil {
-		return 0, nil, err
+		return b.kv.BucketRevision(), nil, err
 	}
 
 	kvs := make([]*server.KeyValue, 0, len(matches))
@@ -411,7 +464,12 @@ func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxR
 func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64) server.WatchResult {
 	events := make(chan []*server.Event, 32)
 
-	if startRevision > 0 && startRevision < b.kv.compactRev.Load() {
+	compactRev := b.kv.compactRev.Load()
+	currentRev := b.kv.BucketRevision()
+
+	b.l.Infof("Watch: prefix=%s, compactRev=%d, currentRev=%d, startRevision=%d", prefix, compactRev, currentRev, startRevision)
+
+	if startRevision > 0 && startRevision <= b.kv.compactRev.Load() {
 		return server.WatchResult{
 			Events:          events,
 			CurrentRevision: b.kv.BucketRevision(),
@@ -469,6 +527,8 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 					continue
 				}
 
+				logrus.Infof("watch event: seq=%d, key=%s, create=%v, delete=%v, prevRevision=%v", e.Revision(), key, nd.Create, nd.Delete, nd.PrevRevision)
+
 				event := server.Event{
 					Create: nd.Create,
 					Delete: nd.Delete,
@@ -503,7 +563,23 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 
 // Compact is a no-op / not implemented. Revision history is managed by the jetstream bucket.
 func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
+	b.l.Debugf("compact: compacting to revision: %d", revision)
 	currRev := b.kv.BucketRevision()
+
+	/**
+	s, err := b.kv.js.Stream(ctx, fmt.Sprintf("KV_%s", b.kv.nkv.Bucket()))
+	if err != nil {
+		return 0, err
+	}
+
+	err = s.Purge(ctx,
+		jetstream.WithPurgeKeep(1),
+		jetstream.WithPurgeSequence(uint64(revision)),
+	)
+	if err != nil {
+		return 0, err
+	}
+		**/
 
 	k, err := b.kv.getRevision(ctx, compactRevAPI, 0)
 	if err != nil {
@@ -512,7 +588,7 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 			if _, err := b.Create(ctx, compactRevAPI, v, 0); err != nil {
 				return 0, err
 			}
-			_, err = b.kv.getRevision(ctx, compactRevAPI, 0)
+			k, err = b.kv.getRevision(ctx, compactRevAPI, 0)
 			if err != nil {
 				return 0, err
 			}
@@ -528,10 +604,12 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 
 	compactVers, compactRev := decodeCompactValue(nd.KV.Value)
 
+	b.l.Infof("Compact Current: compactVers=%d, compactRev=%d", compactVers, compactRev)
+
 	// Calculate target compact revision: currentRev - minRetain
 	targetCompactRev := currRev - b.compactMinRetain
 
-	if revision > 0 {
+	if revision > 1 {
 		targetCompactRev = revision
 	}
 
@@ -539,19 +617,17 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 		targetCompactRev = 0
 	}
 
-	if targetCompactRev > compactRev {
+	// Don't just compact after a compact
+	if targetCompactRev > compactRev+1 {
 		compactValue := server.EncodeVersion(compactVers+1, []byte(strconv.FormatInt(targetCompactRev, 10)))
 
-		b.l.Debugf("compact: compacting to version: %s", string(compactValue))
+		b.l.Debugf("compact: compacting to version: %s from: %d", string(compactValue), compactRev)
 
 		_, _, _, err := b.Update(ctx, compactRevAPI, compactValue, int64(nd.KV.ModRevision), 0)
 		if err != nil {
 			return currRev, err
 		}
-
-		old := b.kv.compactRev.Load()
-		swapped := b.kv.compactRev.CompareAndSwap(old, targetCompactRev)
-		b.l.Debugf("compact: compact revision updated: old=%d, new=%d, swapped=%v", old, targetCompactRev, swapped)
+		b.l.Debugf("compact: currentRev: %d, compactRev: %d, targetCompactRev: %d, compactVers: %d", currRev, compactRev, targetCompactRev, compactVers)
 	} else {
 		b.l.Debugf("compact: no compaction performed: targetCompactRev: %d, oldCompact: %d", targetCompactRev, compactRev)
 	}
@@ -569,17 +645,6 @@ func (b *Backend) compactor() {
 
 	b.l.Infof("Starting automatic compaction (interval: %v, minRetain: %d)", b.compactInterval, b.compactMinRetain)
 
-	w, err := b.kv.Watch(b.ctx, compactRevAPI, 0)
-	if err != nil {
-		b.l.Errorf("Failed to configure watch for compact revision: %v", err)
-	}
-	defer w.Stop()
-
-	_, err = b.Compact(b.ctx, b.kv.BucketRevision())
-	if err != nil {
-		b.l.Errorf("Automatic compaction failed: %v", err)
-	}
-
 	for {
 		select {
 		case <-b.ctx.Done():
@@ -590,6 +655,24 @@ func (b *Backend) compactor() {
 			if err != nil {
 				b.l.Errorf("Automatic compaction failed: %v", err)
 			}
+		}
+	}
+}
+
+func (b *Backend) compactWatcher() {
+	b.l.Infof("Starting compaction watcher")
+
+	w, err := b.kv.Watch(b.ctx, compactRevAPI, 0)
+	if err != nil {
+		b.l.Errorf("Failed to configure watch for compact revision: %v", err)
+	}
+	defer w.Stop()
+
+	for {
+		select {
+		case <-b.ctx.Done():
+			b.l.Infof("Stopping automatic compaction")
+			return
 		case e := <-w.Updates():
 			if e == nil {
 				b.l.Warnf("compact revision update empty")
@@ -610,8 +693,14 @@ func (b *Backend) compactor() {
 			if kv := nd.KV; kv != nil {
 				_, rev := decodeCompactValue(kv.Value)
 				old := b.kv.compactRev.Load()
-				swapped := b.kv.compactRev.CompareAndSwap(old, rev)
-				b.l.Debugf("compact revision updated: old=%d, new=%d, swapped=%v", old, rev, swapped)
+
+				// The stream sequence should be at least two
+				// sequences higher than the compact revision due to the PUT on the compact key,
+				// otherwise this is a compact on a compact.
+				if rev > 0 {
+					swapped := b.kv.compactRev.CompareAndSwap(old, rev)
+					b.l.Debugf("compact revision updated: old=%d, new=%d, swapped=%v", old, rev, swapped)
+				}
 			}
 		}
 	}

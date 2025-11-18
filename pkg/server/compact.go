@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 )
@@ -48,6 +49,8 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 		return nil, err
 	}
 
+	logrus.Debugf("compact: compareVersion=%d, value=%s, currRev=%d", compareVersion, string(value), rev)
+
 	// kine does not actually track key versions, only revisions. Since the apiserver
 	// compares the compact key version, we need to store the version alongside the
 	// value, and increment it if the transaction succeeds. The apiserver watches this
@@ -58,6 +61,8 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 		modRev = kv.ModRevision
 		version, curValue = DecodeVersion(kv.Value)
 	}
+
+	logrus.Debugf("compact: modRev=%d, version=%d, curValue=%s", modRev, version, string(curValue))
 
 	if compareVersion == version {
 		value := EncodeVersion(version+1, value)

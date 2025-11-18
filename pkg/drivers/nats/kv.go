@@ -119,11 +119,13 @@ func (e *kvEntry) Operation() jetstream.KeyValueOp { return e.operation }
 
 type KeyValue struct {
 	name       string
+	revHistory int
 	nkv        jetstream.KeyValue
 	js         jetstream.JetStream
 	kc         *keyCodec
 	vc         *valueCodec
 	bt         *btree.Map[string, []*seqOp]
+	ew         *ExpireWatcher
 	btm        sync.RWMutex
 	lastSeq    atomic.Uint64
 	compactRev atomic.Int64
@@ -134,28 +136,35 @@ type KeyValue struct {
 	cancel     context.CancelCauseFunc
 }
 
-func NewKeyValue(ctx context.Context, name string, bucket jetstream.KeyValue, js jetstream.JetStream, minRetain int64, hsize int) *KeyValue {
+func NewKeyValue(name string, bucket jetstream.KeyValue, js jetstream.JetStream, revHistory int, deleteFn DeleteFn) *KeyValue {
+	kv := &KeyValue{
+		name:       name,
+		revHistory: revHistory,
+		nkv:        bucket,
+		js:         js,
+		kc:         &keyCodec{},
+		vc:         &valueCodec{},
+		bt:         btree.NewMap[string, []*seqOp](0),
+		ew:         NewExpireWatcher(deleteFn),
+		seqCond:    sync.NewCond(&sync.Mutex{}),
+		readyCh:    make(chan struct{}),
+	}
+
+	return kv
+}
+
+func (e *KeyValue) Start(ctx context.Context) {
 	ctx, cancel := context.WithCancelCause(ctx)
 
-	kv := &KeyValue{
-		name:    name,
-		nkv:     bucket,
-		js:      js,
-		kc:      &keyCodec{},
-		vc:      &valueCodec{},
-		bt:      btree.NewMap[string, []*seqOp](0),
-		seqCond: sync.NewCond(&sync.Mutex{}),
-		readyCh: make(chan struct{}),
-		ctx:     ctx,
-		cancel:  cancel,
-	}
+	e.ctx = ctx
+	e.cancel = cancel
 
 	go func() {
 		for {
 			errch := make(chan error, 1)
 
 			go func() {
-				errch <- kv.btreeWatcher(ctx, hsize)
+				errch <- e.btreeWatcher(ctx, e.revHistory)
 			}()
 
 			var err error
@@ -167,7 +176,7 @@ func NewKeyValue(ctx context.Context, name string, bucket jetstream.KeyValue, js
 				err = context.Cause(ctx)
 			}
 
-			logrus.Debugf("%s: btree watcher: %v", name, err)
+			logrus.Debugf("%s: btree watcher: %v", e.name, err)
 
 			if errors.Is(err, errStopKeyValue) {
 				return
@@ -180,8 +189,6 @@ func NewKeyValue(ctx context.Context, name string, bucket jetstream.KeyValue, js
 			jitterSleep(time.Second)
 		}
 	}()
-
-	return kv
 }
 
 func (e *KeyValue) GetRevision(ctx context.Context, key string, revision int64, checkRevision bool) (jetstream.KeyValueEntry, error) {
@@ -197,17 +204,9 @@ func (e *KeyValue) GetRevision(ctx context.Context, key string, revision int64, 
 		}
 	}
 
-	op, err := e.getRevisionOp(key, revision, true, false)
+	op, err := e.getRevisionOp(key, revision, false)
 	if err != nil {
 		return nil, err
-	}
-
-	if !op.ex.IsZero() && op.ex.Before(time.Now()) {
-		err := e.Delete(ctx, key, jetstream.LastRevision(op.seq))
-		if err != nil {
-			logrus.Errorf("getRevision: error deleting expired key %s: %v", key, err)
-		}
-		return nil, jetstream.ErrKeyNotFound
 	}
 
 	if op == nil {
@@ -239,6 +238,8 @@ func (e *KeyValue) Create(ctx context.Context, key string, value []byte) (uint64
 		return rev, err
 	}
 
+	logrus.Debugf("create: key=%s, seq=%d", key, rev)
+
 	// Wait for btree watcher to process this sequence for read-after-write consistency
 	if err := e.waitForSequence(ctx, rev, waitForSeqTimeout); err != nil {
 		logrus.Warnf("create: btree watcher lag: key=%s, seq=%d, err=%v", key, rev, err)
@@ -249,6 +250,7 @@ func (e *KeyValue) Create(ctx context.Context, key string, value []byte) (uint64
 }
 
 func (e *KeyValue) Update(ctx context.Context, key string, value []byte, last uint64) (uint64, error) {
+	logrus.Debugf("update: key=%s, value=%d, last=%d", key, len(value), last)
 	ek, err := e.kc.Encode(key)
 	if err != nil {
 		return 0, err
@@ -261,10 +263,14 @@ func (e *KeyValue) Update(ctx context.Context, key string, value []byte, last ui
 		return 0, err
 	}
 
+	logrus.Debugf("update: key=%s, last=%d", key, last)
+
 	rev, err := e.nkv.Update(ctx, ek, buf.Bytes(), last)
 	if err != nil {
 		return rev, err
 	}
+
+	logrus.Debugf("update: key=%s, seq=%d", key, rev)
 
 	// Wait for btree watcher to process this sequence for read-after-write consistency
 	if err := e.waitForSequence(ctx, rev, waitForSeqTimeout); err != nil {
@@ -347,15 +353,23 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 		filter = fmt.Sprintf("$KV.%s.%s", e.nkv.Bucket(), p)
 	}
 
+	logrus.Infof("Watch: keys=%s, filter=%s", keys, filter)
+
 	updates := make(chan jetstream.KeyValueEntry, 100)
 	subjectPrefix := fmt.Sprintf("$KV.%s.", e.nkv.Bucket())
 
 	handler := func(msg jetstream.Msg) {
 		md, _ := msg.Metadata()
+
+		if md.Sequence.Stream < uint64(e.compactRev.Load()) {
+			return
+		}
+
 		key := strings.TrimPrefix(msg.Subject(), subjectPrefix)
 
 		if keys != "" {
 			dkey, err := e.kc.Decode(strings.TrimPrefix(key, "."))
+			logrus.Infof("watch: key=%s, dkey=%s, err=%v", key, dkey, err)
 			if err != nil || (keys != "/" && !strings.HasPrefix(dkey, keys)) {
 				return
 			}
@@ -385,6 +399,8 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 				operation: op,
 			},
 		}
+
+		logrus.Infof("watch: key=%s, op=%s, seq=%d", key, op, md.Sequence.Stream)
 	}
 
 	var dp jetstream.DeliverPolicy
@@ -397,6 +413,8 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 	}
 	cfg.DeliverPolicy = dp
 	cfg.FilterSubjects = append(cfg.FilterSubjects, filter)
+
+	logrus.Infof("Watch: filter=%s, startRev=%d", filter, startRev)
 
 	con, err := e.js.OrderedConsumer(ctx, fmt.Sprintf("KV_%s", e.nkv.Bucket()), cfg)
 	if err != nil {
@@ -442,12 +460,14 @@ func (e *KeyValue) BucketRevision() int64 {
 }
 
 func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) ([]jetstream.KeyValueEntry, error) {
-	seekKey, exact := seekKey(prefix, startKey)
-
 	err := e.checkRevision("", revision)
 	if err != nil {
 		return nil, err
 	}
+
+	seekKey, exact := seekKey(prefix, startKey)
+
+	logrus.Debugf("List: prefix=%s, startKey=%s, seekKey=%s, exact=%v, limit=%d, revision=%d, keysOnly=%v", prefix, startKey, seekKey, exact, limit, revision, keysOnly)
 
 	it := e.bt.Iter()
 	if seekKey != "" {
@@ -457,9 +477,6 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 	}
 
 	var matches []*keySeq
-	var expired []*keySeq
-
-	now := time.Now()
 
 	e.btm.RLock()
 	for {
@@ -484,12 +501,8 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 		v := it.Value()
 
 		// Get the latest update for the key.
-		if op := getSeqOp(v, revision, true, false); op != nil {
-			if !op.ex.IsZero() && op.ex.Before(now) {
-				expired = append(expired, &keySeq{key: k, seq: op.seq})
-			} else {
-				matches = append(matches, &keySeq{key: k, seq: op.seq})
-			}
+		if op := getSeqOp(v, revision, false); op != nil {
+			matches = append(matches, &keySeq{key: k, seq: op.seq})
 		}
 
 		if !it.Next() {
@@ -512,75 +525,26 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 		entries = append(entries, valueEntry)
 	}
 
-	go func(expired []*keySeq) {
-		for _, ex := range expired {
-			err = e.Delete(ctx, ex.key, jetstream.LastRevision(ex.seq))
-			if err != nil && err != context.Canceled {
-				logrus.Errorf("list: error deleting expired key %s: %v", ex.key, err)
-			}
+	logrus.Debugf("List results: prefix=%s, startKey=%s, seekKey=%s, exact=%v, count=%d", prefix, startKey, seekKey, exact, len(entries))
+
+	if prefix == compactRevAPI {
+		for _, e := range entries {
+			logrus.Debugf("List results: compactRevAPI, entry=%v", string(e.Value()))
 		}
-	}(expired)
+	}
 
 	return entries, nil
 }
 
 func (e *KeyValue) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, error) {
-	err := e.checkRevision("", revision)
+	logrus.Debugf("Count: prefix=%s, startKey=%s, revision=%d", prefix, startKey, revision)
+
+	matches, err := e.getListOps(prefix, startKey, revision)
 	if err != nil {
 		return 0, err
 	}
 
-	seekKey, exact := seekKey(prefix, startKey)
-
-	it := e.bt.Iter()
-	if seekKey != "" {
-		if ok := it.Seek(seekKey); !ok {
-			return 0, nil
-		}
-	}
-
-	var count int64
-	now := time.Now()
-
-	e.btm.RLock()
-	for {
-		k := it.Key()
-
-		if exact && k != seekKey {
-			break
-		}
-
-		if !strings.HasPrefix(k, prefix) {
-			break
-		}
-		v := it.Value()
-
-		// Get the latest update for the key.
-		if revision <= 0 {
-			so := v[len(v)-1]
-			if so.ex.IsZero() || so.ex.After(now) {
-				count++
-			}
-		} else {
-			// Find the latest update below the given revision.
-			for i := len(v) - 1; i >= 0; i-- {
-				so := v[i]
-				if so.seq <= uint64(revision) {
-					if so.ex.IsZero() || so.ex.After(now) {
-						count++
-						break
-					}
-				}
-			}
-		}
-
-		if !it.Next() {
-			break
-		}
-	}
-	e.btm.RUnlock()
-
-	return count, nil
+	return int64(len(matches)), nil
 }
 
 func (e *KeyValue) Stop() {
@@ -592,12 +556,12 @@ func (e *KeyValue) Stop() {
 // This ensures read-after-write consistency by blocking until the async watcher has
 // updated the btree with the written data.
 func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time.Duration) error {
+	logrus.Debugf("waitForSequence: waiting for seq=%d, current=%d", seq, e.lastSeq.Load())
+
 	// Fast path: check if already processed
 	if e.lastSeq.Load() >= seq {
 		return nil
 	}
-
-	logrus.Debugf("waitForSequence: waiting for seq=%d, current=%d", seq, e.lastSeq.Load())
 
 	done := make(chan struct{}) // Closed when condition is met
 	stop := make(chan struct{}) // Closed when we should abort waiting
@@ -683,6 +647,7 @@ func (e *KeyValue) getRevision(ctx context.Context, key string, revision int64) 
 
 func (e *KeyValue) checkRevision(key string, revision int64) error {
 	logrus.Debugf("checkRevision: key=%s, revision=%d", key, revision)
+
 	if key != "" {
 		e.btm.RLock()
 		_, ok := e.bt.Get(key)
@@ -703,7 +668,7 @@ func (e *KeyValue) checkRevision(key string, revision int64) error {
 
 		logrus.Debugf("checkRevision: currRev=%d, compactRev=%d", currRev, compactRev)
 
-		if revision <= compactRev {
+		if revision < compactRev {
 			return server.ErrCompacted
 		}
 	}
@@ -809,8 +774,61 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	}
 }
 
+func (e *KeyValue) getListOps(prefix, startKey string, revision int64) ([]*keySeq, error) {
+	err := e.checkRevision("", revision)
+	if err != nil {
+		return nil, err
+	}
+
+	seekKey, exact := seekKey(prefix, startKey)
+
+	it := e.bt.Iter()
+	if seekKey != "" {
+		if ok := it.Seek(seekKey); !ok {
+			return nil, nil
+		}
+	}
+
+	var matches []*keySeq
+
+	e.btm.RLock()
+	for {
+
+		// KINE pagination logic relies on checking if response is > limit
+		/**
+		if limit > 0 && len(matches) == int(limit) {
+			break
+		}
+		**/
+
+		k := it.Key()
+
+		if exact && k != seekKey {
+			break
+		}
+
+		if !strings.HasPrefix(k, prefix) {
+			break
+		}
+
+		v := it.Value()
+
+		// Get the latest update for the key.
+		if op := getSeqOp(v, revision, false); op != nil {
+			matches = append(matches, &keySeq{key: k, seq: op.seq})
+		}
+
+		if !it.Next() {
+			break
+		}
+	}
+	e.btm.RUnlock()
+
+	return matches, nil
+}
+
 // getRevisionOp returns the latest btree operation for the requested revision
-func (e *KeyValue) getRevisionOp(key string, revision int64, allowExpired, allowDeleted bool) (*seqOp, error) {
+func (e *KeyValue) getRevisionOp(key string, revision int64, allowDeleted bool) (*seqOp, error) {
 	e.btm.RLock()
 	val, ok := e.bt.Get(key)
 	if !ok {
@@ -819,7 +837,7 @@ func (e *KeyValue) getRevisionOp(key string, revision int64, allowExpired, allow
 	}
 	e.btm.RUnlock()
 
-	op := getSeqOp(val, revision, allowExpired, allowDeleted)
+	op := getSeqOp(val, revision, allowDeleted)
 
 	if op == nil {
 		return nil, jetstream.ErrKeyNotFound
@@ -829,17 +847,11 @@ func (e *KeyValue) getRevisionOp(key string, revision int64, allowExpired, allow
 }
 
 // getSeqOp returns the latest sequence operation for the given key and global revision
-func getSeqOp(val []*seqOp, revision int64, allowExpired, allowDeleted bool) *seqOp {
-	now := time.Now()
-
+func getSeqOp(val []*seqOp, revision int64, allowDeleted bool) *seqOp {
 	for i := len(val) - 1; i >= 0; i-- {
 		op := val[i]
 		if revision <= 0 || op.seq <= uint64(revision) {
 			if op.op != jetstream.KeyValuePut && !allowDeleted {
-				return nil
-			}
-
-			if !allowExpired && !op.ex.IsZero() && op.ex.Before(now) {
 				return nil
 			}
 
@@ -862,9 +874,12 @@ func seekKey(prefix, startKey string) (string, bool) {
 	startKey = strings.TrimPrefix(startKey, seekKey)
 	startKey = strings.TrimPrefix(startKey, "/")
 
+	var k string
 	if startKey != "" {
-		return fmt.Sprintf("%s/%s", seekKey, startKey), exact
+		k = fmt.Sprintf("%s/%s", seekKey, startKey)
+	} else {
+		k = prefix
 	}
 
-	return prefix, exact
+	return k, exact
 }

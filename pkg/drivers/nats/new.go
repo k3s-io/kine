@@ -208,21 +208,17 @@ func newBackend(ctx context.Context, connection string, tlsInfo tls.Config, comp
 		name = "embedded"
 	}
 
-	kv := NewKeyValue(ctx, name, bucket, js, compactMinRetain, int(config.revHistory))
-
-	if err := kv.waitReady(ctx); err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to wait for btree to be ready: %w", err)
-	}
-
-	logrus.Infof("compactInterval: %v, compactMinRetain: %d", compactInterval, compactMinRetain)
-
 	b := Backend{
 		l:                l,
-		kv:               kv,
 		compactInterval:  compactInterval,
 		compactMinRetain: compactMinRetain,
 	}
+
+	kv := NewKeyValue(name, bucket, js, int(config.revHistory), b.Delete)
+
+	b.kv = kv
+
+	logrus.Infof("compactInterval: %v, compactMinRetain: %d", compactInterval, compactMinRetain)
 
 	// TODO: No method on backend.Driver exists to indicate a shutdown.
 	sigch := make(chan os.Signal, 1)

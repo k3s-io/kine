@@ -44,8 +44,11 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 	for {
 		msg, err := ws.Recv()
 		if err != nil {
+			logrus.Errorf("WATCH REQ ERROR: %v", err)
 			return err
 		}
+
+		logrus.Infof("WATCH REQ: %+v", msg)
 
 		if cr := msg.GetCreateRequest(); cr != nil {
 			w.Start(ws.Context(), cr)
