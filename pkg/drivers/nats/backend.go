@@ -98,7 +98,7 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 	}
 
 	if nd.Delete && !allowDeletes {
-		return 0, nil, jetstream.ErrKeyNotFound
+		return 0, nil, nil
 	}
 
 	return rev, &nd, nil
@@ -197,7 +197,7 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 	rev, pnd, err := b.get(ctx, key, 0, true, true)
 
 	// If an error other than key not found, return.
-	if err != nil && err != jetstream.ErrKeyNotFound {
+	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return 0, err
 	}
 
@@ -258,7 +258,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 	// Get the key, allow tombstones.
 	rev, pnd, err := b.get(ctx, key, 0, false, true)
 	if err != nil {
-		if err == jetstream.ErrKeyNotFound {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return rev, nil, false, nil
 		}
 		return rev, nil, false, err
@@ -323,7 +323,7 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 	// Get the latest revision of the key.
 	rev, pnd, err := b.get(ctx, key, 0, false, true)
 	if err != nil {
-		if err == jetstream.ErrKeyNotFound {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return 0, nil, false, nil
 		}
 		return 0, nil, false, err
@@ -375,6 +375,7 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 
 			return rev, kv, false, err
 		}
+
 		return 0, nil, false, err
 	}
 
