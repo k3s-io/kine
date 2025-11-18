@@ -238,8 +238,6 @@ func (e *KeyValue) Create(ctx context.Context, key string, value []byte) (uint64
 		return rev, err
 	}
 
-	logrus.Debugf("create: key=%s, seq=%d", key, rev)
-
 	// Wait for btree watcher to process this sequence for read-after-write consistency
 	if err := e.waitForSequence(ctx, rev, waitForSeqTimeout); err != nil {
 		logrus.Warnf("create: btree watcher lag: key=%s, seq=%d, err=%v", key, rev, err)
@@ -250,7 +248,6 @@ func (e *KeyValue) Create(ctx context.Context, key string, value []byte) (uint64
 }
 
 func (e *KeyValue) Update(ctx context.Context, key string, value []byte, last uint64) (uint64, error) {
-	logrus.Debugf("update: key=%s, value=%d, last=%d", key, len(value), last)
 	ek, err := e.kc.Encode(key)
 	if err != nil {
 		return 0, err
@@ -263,14 +260,10 @@ func (e *KeyValue) Update(ctx context.Context, key string, value []byte, last ui
 		return 0, err
 	}
 
-	logrus.Debugf("update: key=%s, last=%d", key, last)
-
 	rev, err := e.nkv.Update(ctx, ek, buf.Bytes(), last)
 	if err != nil {
 		return rev, err
 	}
-
-	logrus.Debugf("update: key=%s, seq=%d", key, rev)
 
 	// Wait for btree watcher to process this sequence for read-after-write consistency
 	if err := e.waitForSequence(ctx, rev, waitForSeqTimeout); err != nil {
@@ -324,11 +317,6 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 
 	filter := keys
 
-	// Must watch all keys in this case
-	if !strings.HasPrefix(keys, "/") {
-		filter = "/"
-	}
-
 	if !strings.HasSuffix(filter, "/") {
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
@@ -342,18 +330,8 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 			return nil, err
 		}
 
-		// Special case, reduce watches on root key
-		if keys == compactRevAPI {
-			p, err = e.kc.Encode(compactRevAPI)
-			if err != nil {
-				return nil, err
-			}
-		}
-
 		filter = fmt.Sprintf("$KV.%s.%s", e.nkv.Bucket(), p)
 	}
-
-	logrus.Infof("Watch: keys=%s, filter=%s", keys, filter)
 
 	updates := make(chan jetstream.KeyValueEntry, 100)
 	subjectPrefix := fmt.Sprintf("$KV.%s.", e.nkv.Bucket())
@@ -369,7 +347,6 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 
 		if keys != "" {
 			dkey, err := e.kc.Decode(strings.TrimPrefix(key, "."))
-			logrus.Infof("watch: key=%s, dkey=%s, err=%v", key, dkey, err)
 			if err != nil || (keys != "/" && !strings.HasPrefix(dkey, keys)) {
 				return
 			}
@@ -399,8 +376,6 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 				operation: op,
 			},
 		}
-
-		logrus.Infof("watch: key=%s, op=%s, seq=%d", key, op, md.Sequence.Stream)
 	}
 
 	var dp jetstream.DeliverPolicy
@@ -413,8 +388,6 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 	}
 	cfg.DeliverPolicy = dp
 	cfg.FilterSubjects = append(cfg.FilterSubjects, filter)
-
-	logrus.Infof("Watch: filter=%s, startRev=%d", filter, startRev)
 
 	con, err := e.js.OrderedConsumer(ctx, fmt.Sprintf("KV_%s", e.nkv.Bucket()), cfg)
 	if err != nil {
@@ -467,8 +440,6 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 
 	seekKey, exact := seekKey(prefix, startKey)
 
-	logrus.Debugf("List: prefix=%s, startKey=%s, seekKey=%s, exact=%v, limit=%d, revision=%d, keysOnly=%v", prefix, startKey, seekKey, exact, limit, revision, keysOnly)
-
 	it := e.bt.Iter()
 	if seekKey != "" {
 		if ok := it.Seek(seekKey); !ok {
@@ -518,27 +489,16 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
 				continue
 			}
-			logrus.Debugf("list: error getting revision for key=%s, seq=%d: %v", m.key, m.seq, err)
 			return nil, err
 		}
 
 		entries = append(entries, valueEntry)
 	}
 
-	logrus.Debugf("List results: prefix=%s, startKey=%s, seekKey=%s, exact=%v, count=%d", prefix, startKey, seekKey, exact, len(entries))
-
-	if prefix == compactRevAPI {
-		for _, e := range entries {
-			logrus.Debugf("List results: compactRevAPI, entry=%v", string(e.Value()))
-		}
-	}
-
 	return entries, nil
 }
 
 func (e *KeyValue) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, error) {
-	logrus.Debugf("Count: prefix=%s, startKey=%s, revision=%d", prefix, startKey, revision)
-
 	matches, err := e.getListOps(prefix, startKey, revision)
 	if err != nil {
 		return 0, err
@@ -556,8 +516,6 @@ func (e *KeyValue) Stop() {
 // This ensures read-after-write consistency by blocking until the async watcher has
 // updated the btree with the written data.
 func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time.Duration) error {
-	logrus.Debugf("waitForSequence: waiting for seq=%d, current=%d", seq, e.lastSeq.Load())
-
 	// Fast path: check if already processed
 	if e.lastSeq.Load() >= seq {
 		return nil
@@ -587,7 +545,6 @@ func (e *KeyValue) waitForSequence(ctx context.Context, seq uint64, timeout time
 
 	select {
 	case <-done:
-		logrus.Debugf("waitForSequence: seq=%d reached", seq)
 		return nil
 	case <-t.C:
 		close(stop)           // Signal goroutine to exit
@@ -646,8 +603,6 @@ func (e *KeyValue) getRevision(ctx context.Context, key string, revision int64) 
 }
 
 func (e *KeyValue) checkRevision(key string, revision int64) error {
-	logrus.Debugf("checkRevision: key=%s, revision=%d", key, revision)
-
 	if key != "" {
 		e.btm.RLock()
 		_, ok := e.bt.Get(key)
@@ -665,8 +620,6 @@ func (e *KeyValue) checkRevision(key string, revision int64) error {
 		}
 
 		compactRev := e.compactRev.Load()
-
-		logrus.Debugf("checkRevision: currRev=%d, compactRev=%d", currRev, compactRev)
 
 		if revision < compactRev {
 			return server.ErrCompacted
@@ -687,7 +640,6 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	targetSeq := s.CachedInfo().State.LastSeq
 
 	isStartupReplay := br == 0
-	logrus.Infof("%s: btree watcher: starting replay from %d to %d", e.name, br, targetSeq)
 
 	if isStartupReplay {
 		if targetSeq == 0 {

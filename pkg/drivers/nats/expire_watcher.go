@@ -75,10 +75,8 @@ func (w *ExpireWatcher) Start(ctx context.Context) {
 		for {
 			next := w.heap.Peek()
 			if next == nil {
-				logrus.Infof("no next expired entry")
 				stopTimer()
 			} else {
-				logrus.Infof("next expired entry: %s, %d, %s", next.key, next.seq, next.expires)
 				wait := time.Until(next.expires)
 				if wait <= 0 {
 					w.processExpired()
@@ -109,7 +107,6 @@ func (w *ExpireWatcher) Start(ctx context.Context) {
 }
 
 func (w *ExpireWatcher) processExpired() {
-	logrus.Infof("processing expired entries")
 	now := time.Now()
 
 	for {
@@ -117,8 +114,6 @@ func (w *ExpireWatcher) processExpired() {
 		if entry == nil || entry.expires.After(now) {
 			return
 		}
-
-		logrus.Infof("processing expired entry: %s, %d, %s", entry.key, entry.seq, entry.expires)
 
 		if w.fn != nil {
 			w.fn(w.ctx, entry.key, entry.seq)
@@ -182,7 +177,6 @@ func (h *ExpireHeap) Pop() interface{} {
 }
 
 func (h *ExpireHeap) Add(entry *ExpireEntry) {
-	logrus.Infof("adding expire entry: %s, %d, %s", entry.key, entry.seq, entry.expires)
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 

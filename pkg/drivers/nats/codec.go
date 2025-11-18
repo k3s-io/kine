@@ -8,7 +8,6 @@ import (
 	"github.com/klauspost/compress/s2"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/shengdoushi/base58"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -24,6 +23,10 @@ type keyCodec struct{}
 func (e *keyCodec) EncodeRange(prefix string) (string, error) {
 	if prefix == "/" {
 		return ">", nil
+	}
+
+	if !strings.HasPrefix(prefix, "/") {
+		return fmt.Sprintf("%s>", rootPrefix), nil
 	}
 
 	ek, err := e.Encode(prefix)
@@ -96,8 +99,6 @@ func (*keyCodec) Decode(key string) (retKey string, e error) {
 	if !root {
 		dk = fmt.Sprintf("/%s", dk)
 	}
-
-	logrus.Infof("decode: key=%s, root=%v, dk=%s", key, root, dk)
 
 	return dk, nil
 }
