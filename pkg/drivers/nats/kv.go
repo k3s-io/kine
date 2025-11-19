@@ -321,6 +321,10 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
 			filter = keys[:idx+1]
+		} else {
+			// No '/' prefix in key and no '/' within key.
+			// We should subscribe on the meta subject
+			filter = noRootPrefix
 		}
 	}
 
@@ -630,7 +634,6 @@ func (e *KeyValue) checkRevision(key string, revision int64) error {
 }
 
 func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
-	logrus.Infof("%s: btree watcher: starting", e.name)
 	br := e.BucketRevision()
 
 	s, err := e.js.Stream(ctx, fmt.Sprintf("KV_%s", e.nkv.Bucket()))
@@ -647,7 +650,7 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 			close(e.readyCh)
 			isStartupReplay = false
 		} else {
-			logrus.Infof("%s: btree watcher: starting initial replay from 0 to %d", e.name, targetSeq)
+			logrus.Infof("%s: starting initial replay from 0 to %d", e.name, targetSeq)
 		}
 	}
 

@@ -111,6 +111,7 @@ func (w *ExpireWatcher) processExpired() {
 
 	for {
 		entry := w.heap.Next(now)
+
 		if entry == nil || entry.expires.After(now) {
 			return
 		}

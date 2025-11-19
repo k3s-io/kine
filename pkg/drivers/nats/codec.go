@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	rootPrefix = "root."
+	noRootPrefix = "meta"
 )
 
 var keyAlphabet = base58.BitcoinAlphabet
@@ -25,8 +25,8 @@ func (e *keyCodec) EncodeRange(prefix string) (string, error) {
 		return ">", nil
 	}
 
-	if !strings.HasPrefix(prefix, "/") {
-		return fmt.Sprintf("%s>", rootPrefix), nil
+	if prefix == noRootPrefix {
+		return fmt.Sprintf("%s.>", noRootPrefix), nil
 	}
 
 	ek, err := e.Encode(prefix)
@@ -34,20 +34,30 @@ func (e *keyCodec) EncodeRange(prefix string) (string, error) {
 		return "", err
 	}
 
-	return fmt.Sprintf("%s.>", ek), nil
+	enc := fmt.Sprintf("%s.>", ek)
+
+	return enc, nil
 }
 
-func (*keyCodec) Encode(key string) (retKey string, e error) {
-	if key == "" {
+func (*keyCodec) Encode(key string) (string, error) {
+	if key == "" || key == "/" {
 		return "", jetstream.ErrInvalidKey
 	}
 
-	atRoot := !strings.HasPrefix(key, "/")
+	hasRootPrefix := strings.HasPrefix(key, "/")
 
 	// Trim leading and trailing slashes.
 	key = strings.Trim(key, "/")
 
 	var parts []string
+
+	// Differentiate between key foo and /foo
+	// foo -> meta.base58(foo)
+	// /foo -> base58(foo)
+	if !hasRootPrefix {
+		parts = append(parts, noRootPrefix)
+	}
+
 	for _, part := range strings.Split(key, "/") {
 		if part == "" {
 			part = "/"
@@ -62,22 +72,21 @@ func (*keyCodec) Encode(key string) (retKey string, e error) {
 
 	enc := strings.Join(parts, ".")
 
-	if atRoot {
-		enc = fmt.Sprintf("%s%s", rootPrefix, enc)
-	}
-
 	return enc, nil
 }
 
 func (*keyCodec) Decode(key string) (retKey string, e error) {
 	var parts []string
 
-	root := strings.HasPrefix(key, rootPrefix)
-	if root {
-		key = strings.TrimPrefix(key, rootPrefix)
-	}
+	hasRootPrefix := !strings.HasPrefix(key, noRootPrefix)
 
 	for _, s := range strings.Split(key, ".") {
+		// Skip meta prefix. It represents the absence
+		// of a leading '/'
+		if s == noRootPrefix {
+			continue
+		}
+
 		decodedPart, err := base58.Decode(s, keyAlphabet)
 		if err != nil {
 			return "", err
@@ -96,7 +105,7 @@ func (*keyCodec) Decode(key string) (retKey string, e error) {
 	}
 
 	dk := strings.Join(parts, "/")
-	if !root {
+	if hasRootPrefix {
 		dk = fmt.Sprintf("/%s", dk)
 	}
 

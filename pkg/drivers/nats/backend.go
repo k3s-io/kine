@@ -67,21 +67,12 @@ type Backend struct {
 	ctx              context.Context
 }
 
-// isExpiredKey checks if the key is expired based on the create time and lease.
-func (b *Backend) isExpiredKey(value *natsData) bool {
-	if value.KV.Lease == 0 {
-		return false
-	}
-
-	return time.Now().After(value.CreateTime.Add(time.Second * time.Duration(value.KV.Lease)))
-}
-
 // get returns the key-value entry for the given key and revision, if specified.
 // This takes into account entries that have been marked as deleted or expired.
 func (b *Backend) get(ctx context.Context, key string, revision int64, allowDeletes, checkRevision bool) (int64, *natsData, error) {
 	entry, err := b.kv.GetRevision(ctx, key, revision, checkRevision)
 	if err != nil {
-		return 0, nil, err
+		return b.kv.BucketRevision(), nil, err
 	}
 
 	rev := int64(entry.Revision())
@@ -89,7 +80,7 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 	var nd natsData
 	err = nd.Decode(entry)
 	if err != nil {
-		return 0, nil, err
+		return b.kv.BucketRevision(), nil, err
 	}
 
 	if nd.Create && nd.KV != nil {
@@ -98,7 +89,7 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 	}
 
 	if nd.Delete && !allowDeletes {
-		return 0, nil, nil
+		return b.kv.BucketRevision(), nil, nil
 	}
 
 	return rev, &nd, nil
@@ -109,8 +100,8 @@ func (b *Backend) get(ctx context.Context, key string, revision int64, allowDele
 func (b *Backend) Start(ctx context.Context) error {
 	b.ctx = ctx
 
-	b.kv.Start(context.Background())
-	b.kv.ew.Start(context.Background())
+	b.kv.Start(b.ctx)
+	b.kv.ew.Start(b.ctx)
 
 	// Wait for btree watcher to finish initial replay before accepting operations
 	// This prevents reads from seeing inconsistent state during startup
@@ -158,7 +149,7 @@ func (b *Backend) CurrentRevision(ctx context.Context) (int64, error) {
 func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
 	count, err := b.kv.Count(ctx, prefix, startKey, revision)
 	if err != nil {
-		return 0, 0, err
+		return b.kv.BucketRevision(), 0, err
 	}
 
 	var rev int64
@@ -198,7 +189,7 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 
 	// If an error other than key not found, return.
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return 0, err
+		return b.kv.BucketRevision(), err
 	}
 
 	nd := natsData{
@@ -223,7 +214,7 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 
 	data, err := nd.Encode()
 	if err != nil {
-		return 0, err
+		return b.kv.BucketRevision(), err
 	}
 
 	var seq uint64
@@ -232,18 +223,18 @@ func (b *Backend) Create(ctx context.Context, key string, value []byte, lease in
 		if err != nil {
 			if jsWrongLastSeqErr.Is(err) {
 				b.l.Debugf("update conflict: key=%s, rev=%d, err=%s (bad last sequence)", key, rev, err)
-				return 0, server.ErrKeyExists
+				return b.kv.BucketRevision(), server.ErrKeyExists
 			}
-			return 0, err
+			return b.kv.BucketRevision(), err
 		}
 	} else {
 		seq, err = b.kv.Create(ctx, key, data)
 		if err != nil {
 			if jsWrongLastSeqErr.Is(err) {
 				b.l.Debugf("create conflict: key=%s, rev=0, err=%s", key, err)
-				return 0, server.ErrKeyExists
+				return b.kv.BucketRevision(), server.ErrKeyExists
 			}
-			return 0, err
+			return b.kv.BucketRevision(), err
 		}
 	}
 
@@ -295,6 +286,10 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 
 			rev, pnd, err = b.get(ctx, key, 0, false, true)
 
+			if errors.Is(err, jetstream.ErrKeyNotFound) {
+				return rev, nil, false, nil
+			}
+
 			var kv *server.KeyValue
 			if pnd != nil {
 				kv = pnd.KV
@@ -309,7 +304,7 @@ func (b *Backend) Delete(ctx context.Context, key string, revision int64) (int64
 	if err != nil {
 		if jsWrongLastSeqErr.Is(err) {
 			b.l.Debugf("delete conflict: key=%s, rev=%d, err=%s", key, drev, err)
-			return 0, nil, false, nil
+			return b.kv.BucketRevision(), nil, false, nil
 		}
 		return rev, pnd.KV, false, nil
 	}
@@ -324,13 +319,13 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 	rev, pnd, err := b.get(ctx, key, 0, false, true)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return 0, nil, false, nil
+			return b.kv.BucketRevision(), nil, false, nil
 		}
-		return 0, nil, false, err
+		return b.kv.BucketRevision(), nil, false, err
 	}
 
 	if pnd == nil {
-		return 0, nil, false, nil
+		return b.kv.BucketRevision(), nil, false, nil
 	}
 
 	// Incorrect revision, return the current value.
@@ -357,7 +352,7 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 
 	data, err := nv.Encode()
 	if err != nil {
-		return 0, nil, false, err
+		return b.kv.BucketRevision(), nil, false, err
 	}
 
 	seq, err := b.kv.Update(ctx, key, data, uint64(revision))
@@ -368,6 +363,10 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 
 			rev, pnd, err := b.get(ctx, key, 0, false, true)
 
+			if errors.Is(err, jetstream.ErrKeyNotFound) {
+				return b.kv.BucketRevision(), nil, false, nil
+			}
+
 			var kv *server.KeyValue
 			if pnd != nil {
 				kv = pnd.KV
@@ -376,7 +375,7 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 			return rev, kv, false, err
 		}
 
-		return 0, nil, false, err
+		return b.kv.BucketRevision(), nil, false, err
 	}
 
 	nv.KV.ModRevision = int64(seq)
@@ -405,7 +404,7 @@ func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxR
 		var nd natsData
 		err = nd.Decode(e)
 		if err != nil {
-			return 0, nil, err
+			return b.kv.BucketRevision(), nil, err
 		}
 
 		kvs = append(kvs, nd.KV)
@@ -539,20 +538,20 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			v := server.EncodeVersion(1, []byte(strconv.FormatInt(0, 10)))
 			if _, err := b.Create(ctx, compactRevAPI, v, 0); err != nil {
-				return 0, err
+				return b.kv.BucketRevision(), err
 			}
 			k, err = b.kv.getRevision(ctx, compactRevAPI, 0)
 			if err != nil {
-				return 0, err
+				return b.kv.BucketRevision(), err
 			}
 		} else {
-			return 0, err
+			return b.kv.BucketRevision(), err
 		}
 	}
 
 	_, nd, err := b.get(ctx, compactRevAPI, int64(k.Revision()), false, true)
 	if err != nil {
-		return 0, err
+		return b.kv.BucketRevision(), err
 	}
 
 	compactVers, compactRev := decodeCompactValue(nd.KV.Value)
