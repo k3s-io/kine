@@ -1,11 +1,8 @@
-//go:build cgo
-
 package sqlite
 
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"sync"
 
@@ -15,7 +12,6 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -42,11 +38,6 @@ var (
 		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
 )
-
-func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
-	return false, backend, err
-}
 
 func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
 	dataSourceName := cfg.DataSourceName
@@ -82,21 +73,8 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 					kd.id <= ?
 			)`
 	dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
-	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return server.ErrKeyExists
-		}
-		return err
-	}
-	dialect.ErrCode = func(err error) string {
-		if err == nil {
-			return ""
-		}
-		if err, ok := err.(sqlite3.Error); ok {
-			return fmt.Sprint(err.ExtendedCode)
-		}
-		return err.Error()
-	}
+	dialect.TranslateErr = translateErr
+	dialect.ErrCode = errorCode
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
