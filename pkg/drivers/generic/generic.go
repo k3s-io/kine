@@ -40,7 +40,27 @@ var (
 		SELECT MAX(crkv.prev_revision) AS prev_revision
 		FROM kine AS crkv
 		WHERE crkv.name = 'compact_rev_key'`
-	listFmt = `
+	getFmt = `
+		SELECT *
+		FROM (
+			SELECT (%s), (%s), %s
+			FROM kine AS kv
+			JOIN (
+				SELECT MAX(mkv.id) AS id
+				FROM kine AS mkv
+				WHERE
+					mkv.name = ?
+				GROUP BY mkv.name) AS maxkv
+				ON maxkv.id = kv.id
+			WHERE
+				kv.deleted = 0 OR
+				?
+		) AS lkv
+		ORDER BY lkv.thename ASC
+		`
+	getSQL    = fmt.Sprintf(getFmt, revSQL, compactRevSQL, columns)
+	getValSQL = fmt.Sprintf(getFmt, revSQL, compactRevSQL, withVal)
+	listFmt   = `
 		SELECT *
 		FROM (
 			SELECT (%s), (%s), %s
@@ -81,6 +101,8 @@ type Generic struct {
 	LockWrites              bool
 	LastInsertID            bool
 	DB                      *sql.DB
+	ListCurrentSQL          string
+	ListCurrentValSQL       string
 	GetCurrentSQL           string
 	GetCurrentValSQL        string
 	ListRevisionStartSQL    string
@@ -217,8 +239,10 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 	return &Generic{
 		DB: db,
 
-		GetCurrentSQL:           q(fmt.Sprintf(listSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
-		GetCurrentValSQL:        q(fmt.Sprintf(listValSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
+		ListCurrentSQL:          q(fmt.Sprintf(listSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
+		ListCurrentValSQL:       q(fmt.Sprintf(listValSQL, "AND mkv.name >= ?"), paramCharacter, numbered),
+		GetCurrentSQL:           q(getSQL, paramCharacter, numbered),
+		GetCurrentValSQL:        q(getValSQL, paramCharacter, numbered),
 		ListRevisionStartSQL:    q(fmt.Sprintf(listSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
 		ListRevisionStartValSQL: q(fmt.Sprintf(listValSQL, "AND mkv.id <= ?"), paramCharacter, numbered),
 		GetRevisionAfterSQL:     q(fmt.Sprintf(listSQL, "AND mkv.name >= ? AND mkv.id <= ?"), paramCharacter, numbered),
@@ -345,10 +369,22 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 
 func (d *Generic) ListCurrent(ctx context.Context, prefix, startKey string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
 	var sql string
+	if startKey == "" {
+		if keysOnly {
+			sql = d.GetCurrentSQL
+		} else {
+			sql = d.GetCurrentValSQL
+		}
+		if limit > 0 {
+			sql = fmt.Sprintf("%s LIMIT %d", sql, limit)
+		}
+		return d.query(ctx, sql, prefix, includeDeleted)
+	}
+
 	if keysOnly {
-		sql = d.GetCurrentSQL
+		sql = d.ListCurrentSQL
 	} else {
-		sql = d.GetCurrentValSQL
+		sql = d.ListCurrentValSQL
 	}
 	if limit > 0 {
 		sql = fmt.Sprintf("%s LIMIT %d", sql, limit)

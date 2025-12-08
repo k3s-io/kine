@@ -76,6 +76,26 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	}
 	columns := "kv.id AS theid, kv.name, kv.created, kv.deleted, kv.create_revision, kv.prev_revision, kv.lease"
 	withVal := columns + ", kv.value"
+	getFmt := `
+		SELECT
+			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
+			(SELECT MAX(crkv.prev_revision) AS prev_revision FROM kine AS crkv WHERE crkv.name = 'compact_rev_key'),
+			maxkv.*
+		FROM (
+			SELECT DISTINCT ON (name)
+				%s
+			FROM
+				kine AS kv
+			WHERE
+				kv.name = ?
+			ORDER BY kv.name, theid DESC
+		) AS maxkv
+		WHERE
+			maxkv.deleted = 0 OR ?
+		ORDER BY maxkv.name, maxkv.theid DESC
+	`
+	getSQL := fmt.Sprintf(getFmt, columns)
+	getValSQL := fmt.Sprintf(getFmt, withVal)
 	listFmt := `
 		SELECT
 			(SELECT MAX(rkv.id) AS id FROM kine AS rkv),
@@ -131,8 +151,10 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.id <= $2
 		) AS ks
 		WHERE kv.id = ks.id`
-	dialect.GetCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name >= ?"))
-	dialect.GetCurrentValSQL = q(fmt.Sprintf(listValSQL, "AND kv.name >= ?"))
+	dialect.GetCurrentSQL = q(getSQL)
+	dialect.GetCurrentValSQL = q(getValSQL)
+	dialect.ListCurrentSQL = q(fmt.Sprintf(listSQL, "AND kv.name >= ?"))
+	dialect.ListCurrentValSQL = q(fmt.Sprintf(listValSQL, "AND kv.name >= ?"))
 	dialect.ListRevisionStartSQL = q(fmt.Sprintf(listSQL, "AND kv.id <= ?"))
 	dialect.ListRevisionStartValSQL = q(fmt.Sprintf(listValSQL, "AND kv.id <= ?"))
 	dialect.GetRevisionAfterSQL = q(fmt.Sprintf(listSQL, "AND kv.name >= ? AND kv.id <= ?"))
