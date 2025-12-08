@@ -74,7 +74,7 @@ func (l *LogStructured) Get(ctx context.Context, key, rangeEnd string, limit, re
 }
 
 func (l *LogStructured) get(ctx context.Context, key, rangeEnd string, limit, revision int64, includeDeletes, keysOnly bool) (int64, *server.Event, error) {
-	rev, events, err := l.log.List(ctx, key, rangeEnd, limit, revision, includeDeletes, keysOnly)
+	rev, events, err := l.log.List(ctx, strings.ReplaceAll(key, `_`, `\_`), rangeEnd, limit, revision, includeDeletes, keysOnly)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -188,7 +188,7 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 		startKey = ""
 	}
 
-	rev, events, err := l.log.List(ctx, prefix, startKey, limit, revision, false, keysOnly)
+	rev, events, err := l.log.List(ctx, strings.ReplaceAll(prefix, `_`, `\_`), startKey, limit, revision, false, keysOnly)
 	if err != nil {
 		return rev, nil, err
 	}
