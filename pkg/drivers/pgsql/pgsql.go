@@ -87,7 +87,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 			FROM
 				kine AS kv
 			WHERE
-				kv.name LIKE ? ESCAPE '\'
+				kv.name LIKE ? ESCAPE '^'
 				%%s
 			ORDER BY kv.name, theid DESC
 		) AS maxkv
@@ -107,7 +107,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kv.id AS theid, kv.deleted
 			FROM kine AS kv
 			WHERE
-				kv.name LIKE ? ESCAPE '\'
+				kv.name LIKE ? ESCAPE '^'
 				%s
 			ORDER BY kv.name, theid DESC
 			) AS c
