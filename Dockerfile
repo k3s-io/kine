@@ -116,7 +116,7 @@ ENV ARCH=${TARGETARCH}
 RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
     ARCH=arm; \
     fi
-COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-$ARCH.nocgo /bin/kine
+COPY --from=multi-arch-build-nocgo /go/src/github.com/k3s-io/kine/bin/kine-$ARCH-nocgo /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
