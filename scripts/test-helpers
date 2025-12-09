@@ -202,7 +202,8 @@ wait-for-apiserver() {
 export -f wait-for-apiserver
 
 # ---
-run-apiserver-tests() {
+
+build-apiserver-tests() {
   TAG_KUBERNETES=$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' k8s.io/apiserver)
   KINEPATH=$PWD
   GOPATH=$(go env GOPATH)
@@ -224,8 +225,18 @@ run-apiserver-tests() {
   sed -i 's|waitTimeout = 100 * waitDelay|waitTimeout = 500 * waitDelay|' pkg/storage/etcd3/compact_test.go
   go mod edit --replace github.com/k3s-io/kine=$KINEPATH
   go mod tidy
-  go test -failfast -count 1 -parallel 1 $GO_TEST_EXTRAFLAGS ./pkg/storage/etcd3/...
+  go test -c -o $KINEPATH/bin/ -tags nats ./pkg/storage/etcd3/...
   cd $KINEPATH
+}
+export -f build-apiserver-tests
+
+# ---
+
+run-apiserver-tests() {
+  test -e ./bin/etcd3.test || build-apiserver-tests
+  for TEST in ./bin/*.test; do
+    $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m
+  done
 }
 export -f run-apiserver-tests
 

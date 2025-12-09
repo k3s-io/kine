@@ -10,9 +10,7 @@ RUN rm -rf /go/src /go/pkg
 RUN if [ "${ARCH}" == "amd64" ]; then \
     curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/refs/tags/v1.64.8/install.sh | sh -s -- v1.64.8;  \
     fi
-
-ENV SRC_DIR=/go/src/github.com/k3s-io/kine
-WORKDIR ${SRC_DIR}/
+WORKDIR /go/src/github.com/k3s-io/kine
 
 # Validate needs everything in the project, so we separate it out for better caching
 FROM infra AS validate
@@ -40,13 +38,11 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     --mount=type=cache,id=gobuild,target=/root/.cache/go-build \
     ./scripts/build
 
-
 FROM scratch AS binary
-ENV SRC_DIR=/go/src/github.com/k3s-io/kine
-COPY --from=build ${SRC_DIR}/bin /bin
+COPY --from=build /go/src/github.com/k3s-io/kine/bin /bin
 
 FROM alpine:3.23 AS package
-COPY bin/kine /bin/kine
+COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
@@ -68,8 +64,7 @@ RUN xx-apk add musl-dev gcc
 # https://github.com/golang/tools/releases/latest
 RUN xx-go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
 RUN rm -rf /go/src /go/pkg
-ENV SRC_DIR=/go/src/github.com/k3s-io/kine
-WORKDIR ${SRC_DIR}/
+WORKDIR /go/src/github.com/k3s-io/kine
 COPY ./scripts/buildx ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
 COPY ./pkg ./pkg
@@ -81,8 +76,7 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 
 
 FROM scratch AS multi-arch-binary
-ENV SRC_DIR=/go/src/github.com/k3s-io/kine
-COPY --from=multi-arch-build ${SRC_DIR}/bin /
+COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin /
 
 FROM alpine:3.23 AS multi-arch-package
 ARG TARGETARCH
