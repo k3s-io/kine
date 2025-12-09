@@ -69,6 +69,30 @@ COPY ./.golangci.json ./.golangci.json
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     ./scripts/buildx
 
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.22 AS multi-arch-build-nocgo
+COPY --from=xx / /
+ARG TAG
+ARG DIRTY
+ARG TARGETOS
+ARG TARGETARCH
+ENV TAG=${TAG} DIRTY=${DIRTY} CGO_ENABLED=0
+RUN apk -U add bash coreutils git vim less curl wget ca-certificates
+RUN xx-apk add musl-dev
+# go imports version gopls/v0.15.3
+# https://github.com/golang/tools/releases/latest
+RUN xx-go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
+RUN rm -rf /go/src /go/pkg
+ENV SRC_DIR=/go/src/github.com/k3s-io/kine
+WORKDIR ${SRC_DIR}/
+COPY ./scripts/buildx ./scripts/version ./scripts/
+COPY ./go.mod ./go.sum ./main.go ./
+COPY ./pkg ./pkg
+COPY ./.git ./.git
+COPY ./.golangci.json ./.golangci.json
+
+RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+    ./scripts/buildx
+
 
 FROM scratch AS multi-arch-binary
 COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin /
@@ -80,6 +104,19 @@ RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
     ARCH=arm; \
     fi
 COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-$ARCH /bin/kine
+RUN mkdir /db && chown nobody /db
+VOLUME /db
+EXPOSE 2379/tcp
+USER nobody
+ENTRYPOINT ["/bin/kine"]
+
+FROM alpine:3.22 AS multi-arch-package-nocgo
+ARG TARGETARCH
+ENV ARCH=${TARGETARCH}
+RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
+    ARCH=arm; \
+    fi
+COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-$ARCH.nocgo /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
