@@ -23,10 +23,17 @@ build:
 		$(DEFAULT_BUILD_ARGS) --build-arg="DRONE_TAG=$(DRONE_TAG)" \
 		-f Dockerfile --target=binary --output=. .
 
-.PHONY: multi-arch-build
 PLATFORMS = linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
+.PHONY: multi-arch-build
 multi-arch-build:
 	docker buildx build --build-arg="REPO=$(REPO)" --build-arg="TAG=$(TAG)" --build-arg="DIRTY=$(DIRTY)" --platform=$(PLATFORMS) --target=multi-arch-binary --output=type=local,dest=bin .
+	mv bin/linux*/kine* bin/
+	rmdir bin/linux*
+	mkdir -p dist/artifacts
+	cp bin/kine* dist/artifacts/
+
+multi-arch-build-nocgo:
+	docker buildx build --build-arg="REPO=$(REPO)" --build-arg="TAG=$(TAG)" --build-arg="DIRTY=$(DIRTY)" --platform=$(PLATFORMS) --target=multi-arch-build-nocgo --output=type=local,dest=bin .
 	mv bin/linux*/kine* bin/
 	rmdir bin/linux*
 	mkdir -p dist/artifacts

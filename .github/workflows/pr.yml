@@ -52,6 +52,19 @@ jobs:
         target: binary
         outputs: type=local,dest=.
         build-args: |
+          CGO_ENABLED=1
+          ARCH=${{ matrix.arch }}
+
+    - name: Build Dockerfile - binary-nocgo
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        provenance: mode=min
+        target: binary
+        outputs: type=local,dest=.
+        build-args: |
+          CGO_ENABLED=0
           ARCH=${{ matrix.arch }}
 
     - name: Build Dockerfile - package
