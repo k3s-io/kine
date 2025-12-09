@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"os"
 	"sync"
 
 	"github.com/k3s-io/kine/pkg/drivers"
@@ -40,15 +39,7 @@ var (
 )
 
 func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
-	dataSourceName := cfg.DataSourceName
-	if dataSourceName == "" {
-		if err := os.MkdirAll("./db", 0700); err != nil {
-			return nil, nil, err
-		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
-	}
-
-	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.Open(ctx, wg, driverName, cfg.DataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
