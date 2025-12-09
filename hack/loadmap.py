@@ -163,7 +163,7 @@ def list_configmaps():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--rounds', '-r', type=int, required=False, default=4000)
+    parser.add_argument('--rounds', '-r', type=int, required=False, default=1000)
     parser.add_argument('--log-level', '-l', type=str, required=False, default='INFO')
     args = parser.parse_args()
 
