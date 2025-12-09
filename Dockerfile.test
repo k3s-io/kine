@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine3.22
+FROM golang:1.24-alpine3.22 AS golang
 
 ARG ARCH=amd64
 
@@ -6,11 +6,15 @@ RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificate
 RUN apk -U add docker-cli file findutils py3-pip && \
     pip install --break-system-packages kubernetes termplotlib==v0.3.4
 
-ENV KINE_SOURCE /go/src/github.com/k3s-io/kine/
-ENV HOME ${KINE_SOURCE}
+ENV KINE_SOURCE=/go/src/github.com/k3s-io/kine/
+ENV HOME=${KINE_SOURCE}
 WORKDIR ${KINE_SOURCE}
 
 COPY . ${KINE_SOURCE}
 
-ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["./scripts/test"]
+FROM golang AS apiserver-tests
+RUN bash -c "source ./scripts/test-helpers; build-apiserver-tests"
+
+FROM golang
+COPY --from=apiserver-tests ${KINE_SOURCE}/bin ${KINE_SOURCE}/bin
+CMD ["/bin/bash"]
