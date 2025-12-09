@@ -49,7 +49,7 @@ var (
 				SELECT MAX(mkv.id) AS id
 				FROM kine AS mkv
 				WHERE
-					mkv.name LIKE ? ESCAPE '\'
+					mkv.name LIKE ? ESCAPE '^'
 					%%s
 				GROUP BY mkv.name) AS maxkv
 				ON maxkv.id = kv.id
@@ -240,7 +240,7 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 			SELECT (%s), (%s), %s
 			FROM kine AS kv
 			WHERE
-				kv.name LIKE ? ESCAPE '\' AND
+				kv.name LIKE ? ESCAPE '^' AND
 				kv.id > ?
 			ORDER BY kv.id ASC`, revSQL, compactRevSQL, withOldVal), paramCharacter, numbered),
 
