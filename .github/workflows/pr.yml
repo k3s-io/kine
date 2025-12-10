@@ -85,11 +85,13 @@ jobs:
         context: .
         file: ./Dockerfile
         provenance: false
-        target: package-nocgo
-        tags: rancher/kine:latest-nocgo
+        target: package
+        tags: rancher/kine:latest
         outputs: type=docker,dest=${{ runner.temp }}/kine-nocgo.tar
         build-args: |
           ARCH=${{ matrix.arch }}
+          CGO_ENABLED=0
+          BIN_SUFFIX=-nocgo
 
     - name: Build Dockerfile.test
       uses: docker/build-push-action@v6

@@ -29,8 +29,8 @@ LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
 
 echo Building Multiplatform Kine ${VERSION}
 
-if [ "$CGO_ENABLED" = "1" ]; then 
-    CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" xx-go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine"${OPT_OS}${ARCH}"
-else
+if [ "$CGO_ENABLED" = "0" ]; then 
     CGO_ENABLED=0 xx-go build -ldflags "$LINKFLAGS" -tags nats -o bin/kine"${OPT_OS}${ARCH}"-nocgo
+else
+    CGO_CFLAGS="-DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_USE_ALLOCA=1" xx-go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine"${OPT_OS}${ARCH}"
 fi
