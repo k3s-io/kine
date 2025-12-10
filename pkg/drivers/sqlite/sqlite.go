@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"net/url"
+	"os"
 	"sync"
 
 	"github.com/k3s-io/kine/pkg/drivers"
@@ -38,8 +40,30 @@ var (
 	}
 )
 
+func getDataSourceName(dsn string) (string, error) {
+	dsnUrl, _ := url.Parse(dsn)
+	if len(dsnUrl.RawPath) == 0 {
+		if err := os.MkdirAll("./db", 0700); err != nil {
+			return dsn, err
+		}
+		dsnUrl.Path = "./db/state.db"
+	}
+	query := dsnUrl.Query()
+	query.Set("cache", "shared")
+	query.Add("_pragma", "journal_mode(wal)")
+	query.Add("_pragma", "busy_timeout(30000)")
+	query.Add("_pragma", "synchronous(normal)")
+	query.Set("_txlock", "immediate") 
+	dsnUrl.RawQuery = query.Encode()
+	return dsnUrl.String(), nil
+}
+
 func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
-	dialect, err := generic.Open(ctx, wg, driverName, cfg.DataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dataSourceName, err := getDataSourceName(cfg.DataSourceName)
+	if err != nil {
+		return nil, nil, err
+	}
+	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
