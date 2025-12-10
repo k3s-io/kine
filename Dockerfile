@@ -3,13 +3,8 @@ FROM golang:1.24-alpine3.22 AS infra
 ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
-# go imports version gopls/v0.15.3
-# https://github.com/golang/tools/releases/latest
-RUN go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
-RUN rm -rf /go/src /go/pkg
-RUN if [ "${ARCH}" == "amd64" ]; then \
-    curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/refs/tags/v1.64.8/install.sh | sh -s -- v1.64.8;  \
-    fi
+RUN GOPROXY=direct go install golang.org/x/tools/cmd/goimports@gopls/v0.20.0
+RUN curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/refs/tags/v2.7.2/install.sh | sh -s -- v2.7.2
 WORKDIR /go/src/github.com/k3s-io/kine
 
 # Validate needs everything in the project, so we separate it out for better caching
@@ -32,7 +27,7 @@ COPY ./scripts/build ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
 COPY ./pkg ./pkg
 COPY ./.git ./.git
-COPY ./.golangci.json ./.golangci.json
+COPY ./.golangci.yml ./.golangci.yml
 
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     --mount=type=cache,id=gobuild,target=/root/.cache/go-build \
