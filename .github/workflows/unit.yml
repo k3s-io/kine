@@ -1,4 +1,4 @@
-name: Unit Test
+name: Unit Tests
 on:
   push:
     branches: [main, master]
@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  unit-test:
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
