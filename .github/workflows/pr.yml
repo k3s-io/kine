@@ -55,7 +55,7 @@ jobs:
           CGO_ENABLED=1
           ARCH=${{ matrix.arch }}
 
-    - name: Build Dockerfile - binary-nocgo
+    - name: Build Dockerfile - binary nocgo
       uses: docker/build-push-action@v6
       with:
         context: .
