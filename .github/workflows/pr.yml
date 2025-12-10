@@ -112,7 +112,7 @@ jobs:
         if-no-files-found: error
         retention-days: 1
 
-  docker:
+  tests-without-sqlite:
     name: Testing without sqlite test
     needs: build
     timeout-minutes: 60
@@ -138,7 +138,7 @@ jobs:
       run: |
         docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest rancher/kine-test:latest scripts/test ${{ matrix.test }}
     
-  docker:
+  tests-with-sqlite:
     name: Testing with sqlite test only
     needs: build
     timeout-minutes: 60
