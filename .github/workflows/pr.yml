@@ -79,6 +79,18 @@ jobs:
         build-args: |
           ARCH=${{ matrix.arch }}
 
+    - name: Build Dockerfile - package nocgo
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        provenance: false
+        target: package-nocgo
+        tags: rancher/kine:latest-nocgo
+        outputs: type=docker,dest=${{ runner.temp }}/kine-nocgo.tar
+        build-args: |
+          ARCH=${{ matrix.arch }}
+
     - name: Build Dockerfile.test
       uses: docker/build-push-action@v6
       with:
@@ -118,8 +130,13 @@ jobs:
     - name: Load Images
       run: |
         docker load --input ${{ runner.temp }}/kine.tar
+        docker load --input ${{ runner.temp }}/kine-nocgo.tar
         docker load --input ${{ runner.temp }}/kine-test.tar
 
     - name: Run Test
       run: |
         docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest rancher/kine-test:latest scripts/test ${{ matrix.test }}
+
+    - name: Run Test nocgo
+      run: |
+        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest-nocgo rancher/kine-test:latest scripts/test ${{ matrix.test }}

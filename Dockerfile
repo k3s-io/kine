@@ -36,6 +36,14 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 FROM scratch AS binary
 COPY --from=build /go/src/github.com/k3s-io/kine/bin /bin
 
+FROM alpine:3.23 AS package-nocgo
+COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine-nocgo /bin/kine
+RUN mkdir /db && chown nobody /db
+VOLUME /db
+EXPOSE 2379/tcp
+USER nobody
+ENTRYPOINT ["/bin/kine"]
+
 FROM alpine:3.23 AS package
 COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine /bin/kine
 RUN mkdir /db && chown nobody /db
