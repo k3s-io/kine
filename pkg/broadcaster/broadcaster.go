@@ -3,17 +3,19 @@ package broadcaster
 import (
 	"context"
 	"sync"
+
+	"github.com/k3s-io/kine/pkg/server"
 )
 
-type ConnectFunc func() (chan interface{}, error)
+type ConnectFunc func() (chan server.Events, error)
 
 type Broadcaster struct {
 	sync.Mutex
 	running bool
-	subs    map[chan interface{}]struct{}
+	subs    map[chan server.Events]struct{}
 }
 
-func (b *Broadcaster) Subscribe(ctx context.Context, connect ConnectFunc) (<-chan interface{}, error) {
+func (b *Broadcaster) Subscribe(ctx context.Context, connect ConnectFunc) (<-chan server.Events, error) {
 	b.Lock()
 	defer b.Unlock()
 
@@ -23,9 +25,9 @@ func (b *Broadcaster) Subscribe(ctx context.Context, connect ConnectFunc) (<-cha
 		}
 	}
 
-	sub := make(chan interface{}, 100)
+	sub := make(chan server.Events, 100)
 	if b.subs == nil {
-		b.subs = map[chan interface{}]struct{}{}
+		b.subs = map[chan server.Events]struct{}{}
 	}
 	b.subs[sub] = struct{}{}
 	go func() {
@@ -36,7 +38,7 @@ func (b *Broadcaster) Subscribe(ctx context.Context, connect ConnectFunc) (<-cha
 	return sub, nil
 }
 
-func (b *Broadcaster) unsub(sub chan interface{}, lock bool) {
+func (b *Broadcaster) unsub(sub chan server.Events, lock bool) {
 	if lock {
 		b.Lock()
 	}
@@ -60,7 +62,7 @@ func (b *Broadcaster) start(connect ConnectFunc) error {
 	return nil
 }
 
-func (b *Broadcaster) stream(input chan interface{}) {
+func (b *Broadcaster) stream(input chan server.Events) {
 	for item := range input {
 		b.Lock()
 		for sub := range b.subs {

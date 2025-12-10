@@ -96,7 +96,7 @@ func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (t *Tx) query(ctx context.Context, sql string, args ...interface{}) (result *sql.Rows, err error) {
+func (t *Tx) query(ctx context.Context, sql string, args ...any) (result *sql.Rows, err error) {
 	logrus.Tracef("TX QUERY %v : %s", args, util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
@@ -105,7 +105,7 @@ func (t *Tx) query(ctx context.Context, sql string, args ...interface{}) (result
 	return t.x.QueryContext(ctx, sql, args...)
 }
 
-func (t *Tx) queryRow(ctx context.Context, sql string, args ...interface{}) (result *sql.Row) {
+func (t *Tx) queryRow(ctx context.Context, sql string, args ...any) (result *sql.Row) {
 	logrus.Tracef("TX QUERY ROW %v : %s", args, util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
@@ -114,7 +114,7 @@ func (t *Tx) queryRow(ctx context.Context, sql string, args ...interface{}) (res
 	return t.x.QueryRowContext(ctx, sql, args...)
 }
 
-func (t *Tx) execute(ctx context.Context, sql string, args ...interface{}) (result sql.Result, err error) {
+func (t *Tx) execute(ctx context.Context, sql string, args ...any) (result sql.Result, err error) {
 	logrus.Tracef("TX EXEC %v : %s", args, util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {

@@ -45,6 +45,7 @@ func SetupSignalContext() context.Context {
 		<-shutdownHandler
 		cancel()
 		<-shutdownHandler
+		//revive:disable-next-line:deep-exit
 		os.Exit(1) // second signal. Exit directly.
 	}()
 

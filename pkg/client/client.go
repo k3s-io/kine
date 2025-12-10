@@ -110,7 +110,7 @@ func (c *client) Create(ctx context.Context, key string, value []byte) error {
 		return err
 	}
 	if !resp.Succeeded {
-		return fmt.Errorf("key exists")
+		return errors.New("key exists")
 	}
 	return nil
 }

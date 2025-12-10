@@ -264,7 +264,7 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 	}, err
 }
 
-func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (result *sql.Rows, err error) {
+func (d *Generic) query(ctx context.Context, sql string, args ...any) (result *sql.Rows, err error) {
 	logrus.Tracef("QUERY %v : %s", args, util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
@@ -273,7 +273,7 @@ func (d *Generic) query(ctx context.Context, sql string, args ...interface{}) (r
 	return d.DB.QueryContext(ctx, sql, args...)
 }
 
-func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{}) (result *sql.Row) {
+func (d *Generic) queryRow(ctx context.Context, sql string, args ...any) (result *sql.Row) {
 	logrus.Tracef("QUERY ROW %v : %s", args, util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
@@ -282,7 +282,7 @@ func (d *Generic) queryRow(ctx context.Context, sql string, args ...interface{})
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
-func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) (result sql.Result, err error) {
+func (d *Generic) execute(ctx context.Context, sql string, args ...any) (result sql.Result, err error) {
 	if d.LockWrites {
 		d.Lock()
 		defer d.Unlock()
@@ -300,7 +300,7 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...interface{}) 
 		}
 		return result, err
 	}
-	return
+	return result, err
 }
 
 func (d *Generic) GetCompactRevision(ctx context.Context) (int64, error) {

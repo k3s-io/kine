@@ -5,18 +5,24 @@ import (
 	"time"
 )
 
-type FuncToExecute func(context.Context) (bool, error)
+type ConditionWithContextFunc func(context.Context) (done bool, err error)
 
-func PollWithContext(ctx context.Context, interval time.Duration, f FuncToExecute) {
+func PollWithContext(ctx context.Context, interval time.Duration, condition ConditionWithContextFunc) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case <-ticker.C:
-			f(ctx)
+			done, err := condition(ctx)
+			if err != nil {
+				return err
+			}
+			if done {
+				return nil
+			}
 		}
 	}
 }

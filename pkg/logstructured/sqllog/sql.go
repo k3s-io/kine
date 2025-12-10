@@ -302,7 +302,7 @@ func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
 	return s.d.GetCompactRevision(ctx)
 }
 
-func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64) (int64, []*server.Event, error) {
+func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64) (int64, server.Events, error) {
 	if strings.HasSuffix(prefix, "/") {
 		prefix += "%"
 	}
@@ -333,7 +333,7 @@ func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64
 	return rev, result, err
 }
 
-func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (int64, []*server.Event, error) {
+func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (int64, server.Events, error) {
 	var (
 		rows *sql.Rows
 		err  error
@@ -386,9 +386,9 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 // rowsToEvents converts database rows to KV store events.
 // if val is false, rows must not include the current value
 // if prev is false, rows must additionally not include the previous value
-func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, []*server.Event, error) {
+func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, server.Events, error) {
 	var (
-		result  []*server.Event
+		result  server.Events
 		rev     int64
 		compact int64
 	)
@@ -405,8 +405,8 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, []*server.Event
 	return rev, compact, result, nil
 }
 
-func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan []*server.Event {
-	res := make(chan []*server.Event, 100)
+func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan server.Events {
+	res := make(chan server.Events, 100)
 	values, err := s.broadcaster.Subscribe(ctx, s.startWatch)
 	if err != nil {
 		return nil
@@ -427,9 +427,8 @@ func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan []*server.Even
 	return res
 }
 
-func filter(events interface{}, checkPrefix bool, prefix string) ([]*server.Event, bool) {
-	eventList := events.([]*server.Event)
-	filteredEventList := make([]*server.Event, 0, len(eventList))
+func filter(eventList server.Events, checkPrefix bool, prefix string) (server.Events, bool) {
+	filteredEventList := make(server.Events, 0, len(eventList))
 
 	for _, event := range eventList {
 		if (checkPrefix && strings.HasPrefix(event.KV.Key, prefix)) || event.KV.Key == prefix {
@@ -440,13 +439,13 @@ func filter(events interface{}, checkPrefix bool, prefix string) ([]*server.Even
 	return filteredEventList, len(filteredEventList) > 0
 }
 
-func (s *SQLLog) startWatch() (chan interface{}, error) {
+func (s *SQLLog) startWatch() (chan server.Events, error) {
 	pollStart, err := s.d.CurrentRevision(s.ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	c := make(chan interface{})
+	c := make(chan server.Events)
 
 	if s.compactIntervalJitter < 0 || s.compactIntervalJitter > 100 {
 		panic("jitterPercent must be between 0 and 100")
@@ -466,7 +465,7 @@ func (s *SQLLog) startWatch() (chan interface{}, error) {
 	return c, nil
 }
 
-func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
+func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 	var (
 		skip         int64
 		skipTime     time.Time
@@ -516,7 +515,7 @@ func (s *SQLLog) poll(result chan interface{}, pollStart int64) {
 
 		rev := pollRevision
 		var (
-			sequential []*server.Event
+			sequential server.Events
 			saveLast   bool
 		)
 
