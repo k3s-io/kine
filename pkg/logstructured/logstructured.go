@@ -21,10 +21,10 @@ type Log interface {
 	Start(ctx context.Context) error
 	CompactRevision(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
-	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeletes, keysOnly bool) (int64, []*server.Event, error)
+	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeletes, keysOnly bool) (int64, server.Events, error)
 	Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error)
-	After(ctx context.Context, prefix string, revision, limit int64) (int64, []*server.Event, error)
-	Watch(ctx context.Context, prefix string) <-chan []*server.Event
+	After(ctx context.Context, prefix string, revision, limit int64) (int64, server.Events, error)
+	Watch(ctx context.Context, prefix string) <-chan server.Events
 	Append(ctx context.Context, event *server.Event) (int64, error)
 	DbSize(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
@@ -126,7 +126,7 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 	}
 
 	revRet, errRet = l.log.Append(ctx, createEvent)
-	return
+	return revRet, errRet
 }
 
 func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, deletedRet bool, errRet error) {

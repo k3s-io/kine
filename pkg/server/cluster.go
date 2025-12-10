@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -13,15 +13,15 @@ import (
 var _ etcdserverpb.ClusterServer = (*KVServerBridge)(nil)
 
 func (s *KVServerBridge) MemberAdd(context.Context, *etcdserverpb.MemberAddRequest) (*etcdserverpb.MemberAddResponse, error) {
-	return nil, fmt.Errorf("member add is not supported")
+	return nil, errors.New("member add is not supported")
 }
 
 func (s *KVServerBridge) MemberRemove(context.Context, *etcdserverpb.MemberRemoveRequest) (*etcdserverpb.MemberRemoveResponse, error) {
-	return nil, fmt.Errorf("member remove is not supported")
+	return nil, errors.New("member remove is not supported")
 }
 
 func (s *KVServerBridge) MemberUpdate(context.Context, *etcdserverpb.MemberUpdateRequest) (*etcdserverpb.MemberUpdateResponse, error) {
-	return nil, fmt.Errorf("member update is not supported")
+	return nil, errors.New("member update is not supported")
 }
 
 func (s *KVServerBridge) MemberList(ctx context.Context, r *etcdserverpb.MemberListRequest) (*etcdserverpb.MemberListResponse, error) {
@@ -39,7 +39,7 @@ func (s *KVServerBridge) MemberList(ctx context.Context, r *etcdserverpb.MemberL
 }
 
 func (s *KVServerBridge) MemberPromote(context.Context, *etcdserverpb.MemberPromoteRequest) (*etcdserverpb.MemberPromoteResponse, error) {
-	return nil, fmt.Errorf("member promote is not supported")
+	return nil, errors.New("member promote is not supported")
 }
 
 // authorityURL returns the URL of the authority (host) that the client connected to.

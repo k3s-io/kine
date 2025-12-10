@@ -211,7 +211,7 @@ func TestBackend_Update(t *testing.T) {
 	ctx := context.Background()
 
 	// Create with lease.
-	b.Create(ctx, "/a", []byte("b"), 1)
+	_, _ = b.Create(ctx, "/a", []byte("b"), 1)
 	rev, ent, ok, err := b.Update(ctx, "/a", []byte("c"), 1, 0)
 	noErr(t, err)
 	expEqual(t, 2, rev)
@@ -247,7 +247,7 @@ func TestBackend_Delete(t *testing.T) {
 	ctx := context.Background()
 
 	// Create with lease.
-	b.Create(ctx, "/a", []byte("b"), 1)
+	_, _ = b.Create(ctx, "/a", []byte("b"), 1)
 
 	// Note, deleting first performs an update to tombstone
 	// the key, followed by a KV delete.
@@ -262,7 +262,7 @@ func TestBackend_Delete(t *testing.T) {
 	expEqual(t, 1, ent.CreateRevision)
 
 	// Create again.
-	b.Create(ctx, "/a", []byte("b"), 0)
+	_, _ = b.Create(ctx, "/a", []byte("b"), 0)
 
 	// Fail to delete since the revision is not the same.
 	rev, _, ok, err = b.Delete(ctx, "/a", 1)
@@ -285,13 +285,13 @@ func TestBackend_List(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a key.
-	b.Create(ctx, "/a/b/c", nil, 0)
-	b.Create(ctx, "/a", nil, 0)
-	b.Create(ctx, "/b", nil, 0)
-	b.Create(ctx, "/a/b", nil, 0)
-	b.Create(ctx, "/c", nil, 0)
-	b.Create(ctx, "/d/a", nil, 0)
-	b.Create(ctx, "/d/b", nil, 0)
+	_, _ = b.Create(ctx, "/a/b/c", nil, 0)
+	_, _ = b.Create(ctx, "/a", nil, 0)
+	_, _ = b.Create(ctx, "/b", nil, 0)
+	_, _ = b.Create(ctx, "/a/b", nil, 0)
+	_, _ = b.Create(ctx, "/c", nil, 0)
+	_, _ = b.Create(ctx, "/d/a", nil, 0)
+	_, _ = b.Create(ctx, "/d/b", nil, 0)
 
 	// Wait for the btree to be updated.
 	time.Sleep(time.Millisecond)
@@ -355,8 +355,8 @@ func TestBackend_Watch(t *testing.T) {
 	rev1, _ := b.Create(ctx, "/a", nil, 0)
 	rev2, _ := b.Create(ctx, "/a/1", nil, 0)
 	rev1, _, _, _ = b.Update(ctx, "/a", nil, rev1, 0)
-	b.Delete(ctx, "/a", rev1)
-	b.Update(ctx, "/a/1", nil, rev2, 0)
+	_, _, _, _ = b.Delete(ctx, "/a", rev1)
+	_, _, _, _ = b.Update(ctx, "/a/1", nil, rev2, 0)
 
 	wr := b.Watch(cctx, "/a", 0)
 	time.Sleep(20 * time.Millisecond)

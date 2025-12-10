@@ -75,6 +75,8 @@ type KeyValue struct {
 	Lease          int64
 }
 
+type Events []*Event
+
 type Event struct {
 	Delete bool
 	Create bool

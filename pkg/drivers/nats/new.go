@@ -53,7 +53,6 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 func NewLegacy(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
 	backend, err := newBackend(ctx, wg, cfg.DataSourceName, cfg.BackendTLSConfig, true)
 	return true, backend, err
-
 }
 
 func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsInfo tls.Config, legacy bool) (server.Backend, error) {
@@ -182,7 +181,7 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 		go func() {
 			defer wg.Done()
 			<-ctx.Done()
-			backend.Close()
+			_ = backend.Close()
 			ns.Shutdown()
 			logrus.Infof("embedded NATS server shutdown")
 		}()

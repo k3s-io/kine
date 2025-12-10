@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -11,7 +11,7 @@ import (
 
 func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) (*RangeResponse, error) {
 	if len(r.RangeEnd) == 0 {
-		return nil, fmt.Errorf("invalid range end length of 0")
+		return nil, errors.New("invalid range end length of 0")
 	}
 
 	prefix := string(append(r.RangeEnd[:len(r.RangeEnd)-1], r.RangeEnd[len(r.RangeEnd)-1]-1))

@@ -1,7 +1,7 @@
 package nats
 
 import (
-	"fmt"
+	"errors"
 	"net/url"
 	"strconv"
 	"strings"
@@ -82,7 +82,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 			if r >= 1 && r <= 5 {
 				config.replicas = int(r)
 			} else {
-				return nil, fmt.Errorf("invalid replicas, must be >= 1 and <= 5")
+				return nil, errors.New("invalid replicas, must be >= 1 and <= 5")
 			}
 		}
 	}
@@ -91,7 +91,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		if dur, err := time.ParseDuration(d); err == nil {
 			config.slowThreshold = dur
 		} else {
-			return nil, fmt.Errorf("invalid slowMethod duration: %w", err)
+			return nil, errors.New("invalid slowMethod duration " + d)
 		}
 	}
 
@@ -100,7 +100,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 			if revs >= 2 && revs <= 64 {
 				config.revHistory = uint8(revs)
 			} else {
-				return nil, fmt.Errorf("invalid revHistory, must be >= 2 and <= 64")
+				return nil, errors.New("invalid revHistory, must be >= 2 and <= 64")
 			}
 		}
 	}
@@ -121,7 +121,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 	// Reference a full context file. Note this will override any other options.
 	if f := queryMap.Get("contextFile"); f != "" {
 		if u.Host != "" {
-			return config, fmt.Errorf("when using context endpoint no host should be provided")
+			return config, errors.New("when using context endpoint no host should be provided")
 		}
 
 		logrus.Debugf("loading nats context file: %s", f)
@@ -155,7 +155,7 @@ func parseConnection(dsn string, tlsInfo tls.Config) (*Config, error) {
 		}
 
 		if u.Scheme != "nats" {
-			return nil, fmt.Errorf("invalid connection string=%s", c)
+			return nil, errors.New("invalid connection string=" + c)
 		}
 
 		connBuilder.WriteString("nats://")

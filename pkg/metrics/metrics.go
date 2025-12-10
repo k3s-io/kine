@@ -44,7 +44,7 @@ var (
 	SlowSQLWarningThreshold = 5 * time.Second
 )
 
-func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args ...interface{}) {
+func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args any) {
 	SQLTotal.WithLabelValues(errCode).Inc()
 	duration := time.Since(start)
 	SQLTime.WithLabelValues(errCode).Observe(duration.Seconds())
