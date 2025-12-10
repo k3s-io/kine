@@ -6,8 +6,31 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: stable
+
+    - name: Lint
+      uses: golangci/golangci-lint-action@v9
+      with:
+        version: v2.7
+
+    - name: Validate
+      run: ./scripts/validate
+      env:
+        SKIP_LINT: "true"
+
   build:
     name: Build
+    needs: validate
     strategy:
       fail-fast: true
       matrix:
@@ -19,16 +42,6 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-
-    - name: Build Dockerfile - validate
-      env:
-        ARCH: ${{ matrix.arch }}
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        file: ./Dockerfile
-        provenance: mode=min
-        target: validate
 
     - name: Build Dockerfile - binary
       uses: docker/build-push-action@v6

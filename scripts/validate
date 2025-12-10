@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export GIT_PAGER=cat
+
 if [ -n "$SKIP_VALIDATE" ]; then
     echo Skipping validation
     exit 0
@@ -12,13 +14,13 @@ echo Running validation
 
 PACKAGES="$(go list ./...)"
 
-if command -v golangci-lint; then
+if [ -z "$SKIP_LINT" ] && command -v golangci-lint; then
     echo Running: golangci-lint
     golangci-lint run --timeout=5m
 fi
 
 echo Running: go fmt
-test -z "$(go fmt ${PACKAGES} | tee /dev/stderr)"
+test -z "$(go fmt $PACKAGES | tee /dev/stderr)"
 
 go generate
 
