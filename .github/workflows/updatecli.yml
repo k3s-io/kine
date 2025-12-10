@@ -1,4 +1,4 @@
-name: "Updatecli: Dependency Management"
+name: "UpdateCLI: Dependency Management"
 
 on:
   schedule:
@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   updatecli:
+    name: UpdateCLI
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     steps:
@@ -25,7 +26,7 @@ jobs:
         with:
           go-version: 'stable'
 
-      - name: Install Updatecli
+      - name: Install UpdateCLI
         uses: updatecli/updatecli-action@v2
 
       - name: Delete leftover UpdateCLI branches
@@ -47,7 +48,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Apply Updatecli
+      - name: Apply UpdateCLI
         # Never use '--debug' option, because it might leak the access tokens.
         run: "updatecli apply --clean --config ./updatecli/updatecli.d/ --values ./updatecli/values.yaml"
         env:
