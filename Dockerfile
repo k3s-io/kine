@@ -41,7 +41,7 @@ FROM alpine:3.23 AS package
 ARG CGO_ENABLED=1
 ARG BIN_SUFFIX
 ENV BIN_SUFFIX=${BIN_SUFFIX} CGO_ENABLED=${CGO_ENABLED}
-COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine$BIN_SUFFIX /bin/kine
+COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine${BIN_SUFFIX} /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
@@ -84,7 +84,7 @@ ENV ARCH=${TARGETARCH} BIN_SUFFIX="${BIN_SUFFIX}"
 RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
     ARCH=arm; \
     fi
-COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-$ARCH$BIN_SUFFIX /bin/kine
+COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-${ARCH}${BIN_SUFFIX} /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
