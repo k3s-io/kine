@@ -45,3 +45,32 @@ package:
 
 .PHONY: ci
 ci: validate build package
+
+.PHONY: test
+TEST_TAG := $(TAG)
+ifeq ($(CGO_ENABLED),0)
+	TEST_TAG := $(TAG)-nocgo
+endif
+TESTS ?= sqlite \
+		 mysql \
+		 postgres \
+		 cockroachdb \
+		 schema-migration \
+		 nats \
+		 nats-embedded \
+		 nats-socket
+test:
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg="CGO_ENABLED=$(CGO_ENABLED)" \
+		--tag "$(REPO)/kine-test:$(TEST_TAG)" \
+		--build-arg="ARCH=$(ARCH)" \
+		-f Dockerfile.test .
+	for test in $(TESTS); do \
+		echo "Running test: $$test"; \
+		docker run \
+			--name run-test-$$test \
+			--rm -v /var/run/docker.sock:/var/run/docker.sock \
+			-e TAG=$(TEST_TAG) \
+			$(REPO)/kine-test:$(TEST_TAG) \
+			scripts/test $$test; \
+	done
