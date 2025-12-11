@@ -64,7 +64,7 @@ COPY ./scripts/buildx ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
 COPY ./pkg ./pkg
 COPY ./.git ./.git
-COPY ./.golangci.json ./.golangci.json
+COPY ./.golangci.yml ./.golangci.yml
 
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     ./scripts/buildx
