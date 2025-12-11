@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -44,18 +45,18 @@ var (
 // New return an implementation of server.Backend using NATS + JetStream.
 // See the `examples/nats.md` file for examples of connection strings.
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, err := newBackend(ctx, wg, cfg.Endpoint, cfg.BackendTLSConfig, false)
+	backend, err := newBackend(ctx, wg, cfg.Endpoint, cfg.BackendTLSConfig, cfg.CompactInterval, cfg.CompactMinRetain, false)
 	return true, backend, err
 }
 
 // NewLegacy return an implementation of server.Backend using NATS + JetStream
 // with legacy jetstream:// behavior, ignoring the embedded server.
 func NewLegacy(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, err := newBackend(ctx, wg, cfg.DataSourceName, cfg.BackendTLSConfig, true)
+	backend, err := newBackend(ctx, wg, cfg.DataSourceName, cfg.BackendTLSConfig, cfg.CompactInterval, cfg.CompactMinRetain, true)
 	return true, backend, err
 }
 
-func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsInfo tls.Config, legacy bool) (server.Backend, error) {
+func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsInfo tls.Config, compactInterval time.Duration, compactMinRetain int64, legacy bool) (server.Backend, error) {
 	config, err := parseConnection(connection, tlsInfo)
 	if err != nil {
 		return nil, err
@@ -69,7 +70,6 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 
 	// Run an embedded server if available and not disabled.
 	var ns natsserver.Server
-	cancel := func() {}
 
 	if !legacy && natsserver.Embedded && !config.noEmbed {
 		logrus.Infof("using an embedded NATS server")
@@ -92,25 +92,42 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 
 		// Start the server.
 		go ns.Start()
+
+		wg.Add(1)
+		go func() {
+			<-ctx.Done()
+			ns.Shutdown()
+			logrus.Infof("embedded NATS server shutdown")
+			wg.Done()
+		}()
+
 		logrus.Infof("started embedded NATS server")
 		time.Sleep(100 * time.Millisecond)
 
 		// Wait for the server to be ready.
 		var retries int
+		timeout := time.NewTimer(time.Minute)
+
+	retry:
 		for {
-			if ns.Ready() {
-				logrus.Infof("embedded NATS server is ready for client connections")
-				break
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-timeout.C:
+				return nil, errors.New("timeout waiting for embedded NATS server to be ready")
+			default:
+				if ns.Ready() {
+					logrus.Infof("embedded NATS server is ready for client connections")
+					break retry
+				}
+				retries++
+				logrus.Infof("waiting for embedded NATS server to be ready: %d", retries)
+				time.Sleep(100 * time.Millisecond)
 			}
-			retries++
-			logrus.Infof("waiting for embedded NATS server to be ready: %d", retries)
-			time.Sleep(100 * time.Millisecond)
 		}
 
 		// Use the local server's client URL.
 		config.clientURL = ns.ClientURL()
-
-		ctx, cancel = context.WithCancel(ctx)
 	}
 
 	if !config.dontListen {
@@ -121,7 +138,9 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 
 	nopts = append(nopts,
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			logrus.Errorf("NATS disconnected: %v", err)
+			if err != nil {
+				logrus.Errorf("NATS disconnected: %v", err)
+			}
 		}),
 		nats.DiscoveredServersHandler(func(nc *nats.Conn) {
 			logrus.Infof("NATS discovered servers: %v", nc.Servers())
@@ -134,73 +153,24 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 		}),
 	)
 
-	nc, err := nats.Connect(config.clientURL, nopts...)
+	// Reference the global logger, since it appears log levels are
+	// applied globally.
+	l := logrus.StandardLogger()
+	var nc *nats.Conn
+
+	nc, err = nats.Connect(config.clientURL, nopts...)
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("failed to connect to NATS server: %w", err)
 	}
 
 	js, err := jetstream.New(nc)
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
 	}
 
-	bucket, err := getOrCreateBucket(ctx, js, config)
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to get or create bucket: %w", err)
-	}
-
-	// Previous versions of KINE disabled direct gets on the bucket, however
-	// that caused issues with `get` operations possibly timing out. This
-	// check ensures that direct gets are enabled or enables them implicitly.
-	if err := ensureDirectGets(ctx, js, config); err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to enable direct gets: %w", err)
-	}
-
-	logrus.Infof("bucket initialized: %s", config.bucket)
-
-	ekv := NewKeyValue(ctx, bucket, js)
-
-	// Reference the global logger, since it appears log levels are
-	// applied globally.
-	l := logrus.StandardLogger()
-
-	backend := Backend{
-		nc:     nc,
-		l:      l,
-		kv:     ekv,
-		js:     js,
-		cancel: cancel,
-	}
-
-	if ns != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-ctx.Done()
-			_ = backend.Close()
-			ns.Shutdown()
-			logrus.Infof("embedded NATS server shutdown")
-		}()
-	}
-
-	return &BackendLogger{
-		logger:    l,
-		backend:   &backend,
-		threshold: config.slowThreshold,
-	}, nil
-}
-
-func getOrCreateBucket(ctx context.Context, js jetstream.JetStream, config *Config) (jetstream.KeyValue, error) {
-	bucket, err := js.KeyValue(ctx, config.bucket)
-	if err == nil {
-		return bucket, nil
-	}
-
-	// If it does not exist, attempt to create it.
+	// Create the bucket if it doesn't exist. Note, this is a no-op if the bucket
+	// already exists with the same configuration.
+	var bucket jetstream.KeyValue
 	for {
 		bucket, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
 			Bucket:      config.bucket,
@@ -209,20 +179,12 @@ func getOrCreateBucket(ctx context.Context, js jetstream.JetStream, config *Conf
 			Replicas:    config.replicas,
 		})
 		if err == nil {
-			return bucket, nil
+			break
 		}
-
-		// Check for timeout errors and retry.
-		if errors.Is(err, context.DeadlineExceeded) {
+		if err == context.DeadlineExceeded {
 			logrus.Warnf("timed out waiting for bucket %s to be created. retrying", config.bucket)
 			continue
 		}
-
-		// Concurrent creation can cause this error.
-		if jetstream.ErrStreamNameAlreadyInUse.APIError().Is(err) {
-			return js.KeyValue(ctx, config.bucket)
-		}
-
 		// Check for temporary JetStream errors when the cluster is unhealthy and retry.
 		if jsClusterNotAvailErr.Is(err) || jsNoSuitablePeersErr.Is(err) {
 			logrus.Warn(err.Error())
@@ -230,9 +192,40 @@ func getOrCreateBucket(ctx context.Context, js jetstream.JetStream, config *Conf
 			continue
 		}
 
-		// Some unexpected error.
 		return nil, fmt.Errorf("failed to initialize KV bucket: %w", err)
 	}
+
+	// Previous versions of KINE disabled direct gets on the bucket, however
+	// that caused issues with `get` operations possibly timing out. This
+	// check ensures that direct gets are enabled or enables them implicitly.
+	if err := ensureDirectGets(ctx, js, config); err != nil {
+		return nil, fmt.Errorf("failed to enable direct gets: %w", err)
+	}
+
+	logrus.Infof("bucket initialized: %s", config.bucket)
+
+	name := "nats"
+	if ns != nil {
+		name = "embedded"
+	}
+
+	b := Backend{
+		l:                l,
+		compactInterval:  compactInterval,
+		compactMinRetain: compactMinRetain,
+	}
+
+	kv := NewKeyValue(name, wg, bucket, js, int(config.revHistory), b.Delete)
+
+	b.kv = kv
+
+	logrus.Infof("compactInterval: %v, compactMinRetain: %d", compactInterval, compactMinRetain)
+
+	return &BackendLogger{
+		logger:    l,
+		backend:   &b,
+		threshold: config.slowThreshold,
+	}, nil
 }
 
 func ensureDirectGets(ctx context.Context, js jetstream.JetStream, config *Config) error {
@@ -269,4 +262,8 @@ func ensureDirectGets(ctx context.Context, js jetstream.JetStream, config *Confi
 func init() {
 	drivers.Register("nats", New)
 	drivers.Register("jetstream", NewLegacy)
+}
+
+func jitterSleep(d time.Duration) {
+	time.Sleep(d + time.Duration(rand.Intn(100))*time.Millisecond)
 }
