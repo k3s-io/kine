@@ -265,7 +265,7 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 }
 
 func (d *Generic) query(ctx context.Context, sql string, args ...any) (result *sql.Rows, err error) {
-	logrus.Tracef("QUERY %v : %s", args, util.Stripped(sql))
+	logrus.Tracef("QUERY %v : %s", util.Summarize(args), util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
 		metrics.ObserveSQL(startTime, d.ErrCode(err), util.Stripped(sql), args)
@@ -274,7 +274,7 @@ func (d *Generic) query(ctx context.Context, sql string, args ...any) (result *s
 }
 
 func (d *Generic) queryRow(ctx context.Context, sql string, args ...any) (result *sql.Row) {
-	logrus.Tracef("QUERY ROW %v : %s", args, util.Stripped(sql))
+	logrus.Tracef("QUERY ROW %v : %s", util.Summarize(args), util.Stripped(sql))
 	startTime := time.Now()
 	defer func() {
 		metrics.ObserveSQL(startTime, d.ErrCode(result.Err()), util.Stripped(sql), args)
@@ -290,7 +290,7 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...any) (result 
 
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
 	for i := uint(0); i < 20; i++ {
-		logrus.Tracef("EXEC (try: %d) %v : %s", i, args, util.Stripped(sql))
+		logrus.Tracef("EXEC (try: %d) %v : %s", i, util.Summarize(args), util.Stripped(sql))
 		startTime := time.Now()
 		result, err = d.DB.ExecContext(ctx, sql, args...)
 		metrics.ObserveSQL(startTime, d.ErrCode(err), util.Stripped(sql), args)
