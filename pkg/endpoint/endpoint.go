@@ -2,6 +2,7 @@ package endpoint
 
 import (
 	"context"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -28,6 +29,9 @@ import (
 const (
 	KineSocket          = "unix://kine.sock"
 	GracefulStopTimeout = 2 * time.Second
+
+	grpcOverheadBytes = 512 * 1024
+	maxSendBytes      = math.MaxInt32
 )
 
 type Config struct {
@@ -239,6 +243,9 @@ func grpcServer(config Config) (*grpc.Server, error) {
 			Time:    embed.DefaultGRPCKeepAliveInterval,
 			Timeout: embed.DefaultGRPCKeepAliveTimeout,
 		}),
+		grpc.MaxConcurrentStreams(embed.DefaultMaxConcurrentStreams),
+		grpc.MaxRecvMsgSize(int(embed.DefaultMaxRequestBytes) + grpcOverheadBytes),
+		grpc.MaxSendMsgSize(maxSendBytes),
 	}
 
 	if logrus.IsLevelEnabled(logrus.TraceLevel) {
