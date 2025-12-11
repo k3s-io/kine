@@ -41,21 +41,21 @@ var (
 )
 
 func getDataSourceName(dsn string) (string, error) {
-	dsnUrl, _ := url.Parse(dsn)
-	if len(dsnUrl.RawPath) == 0 {
+	dsnURL, _ := url.Parse(dsn)
+	if len(dsnURL.RawPath) == 0 {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return dsn, err
 		}
-		dsnUrl.Path = "./db/state.db"
+		dsnURL.Path = "./db/state.db"
 	}
-	query := dsnUrl.Query()
+	query := dsnURL.Query()
 	query.Set("cache", "shared")
 	query.Add("_pragma", "journal_mode(wal)")
 	query.Add("_pragma", "busy_timeout(30000)")
 	query.Add("_pragma", "synchronous(normal)")
-	query.Set("_txlock", "immediate") 
-	dsnUrl.RawQuery = query.Encode()
-	return dsnUrl.String(), nil
+	query.Set("_txlock", "immediate")
+	dsnURL.RawQuery = query.Encode()
+	return dsnURL.String(), nil
 }
 
 func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
