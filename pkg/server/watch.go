@@ -154,17 +154,18 @@ func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest)
 						inner = false
 					}
 				}
+				// get max revision from collected events
+				if len(events) > 0 {
+					revision = events[len(events)-1].KV.ModRevision
+				}
 			case revision = <-progressCh:
 				// have been requested to send progress with no events
 			}
 
-			// get max revision from collected events
-			if len(events) > 0 {
-				revision = events[len(events)-1].KV.ModRevision
-			}
-
-			// send response. note that there are no events if this is a progress response.
-			if len(events) == 0 || revision >= startRevision {
+			// send response. note that there are no events if this is a progress response -
+			// but revision 0 is also sent on the progress channel to check if this
+			// reader has synced or not, so we must not send with revision 0.
+			if revision != 0 && (len(events) == 0 || revision >= startRevision) {
 				wr := &etcdserverpb.WatchResponse{
 					Header:  txnHeader(revision),
 					WatchId: id,
