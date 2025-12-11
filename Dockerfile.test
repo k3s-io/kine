@@ -1,6 +1,7 @@
 FROM golang:1.24-alpine3.22 AS golang
 
 ARG ARCH=amd64
+ARG CGO_ENABLED=1
 
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
 RUN apk -U add docker-cli file findutils py3-pip && \
@@ -13,7 +14,7 @@ WORKDIR ${KINE_SOURCE}
 COPY . ${KINE_SOURCE}
 
 FROM golang AS apiserver-tests
-RUN bash -c "source ./scripts/test-helpers; build-apiserver-tests"
+RUN bash -c "source ./scripts/test-helpers; CGO_ENABLED=${CGO_ENABLED} build-apiserver-tests"
 
 FROM golang
 COPY --from=apiserver-tests ${KINE_SOURCE}/bin ${KINE_SOURCE}/bin
