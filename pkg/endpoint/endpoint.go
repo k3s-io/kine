@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/metrics"
@@ -17,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/server/v3/embed"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -239,6 +241,13 @@ func grpcServer(config Config) (*grpc.Server, error) {
 		}),
 	}
 
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		gopts = append(gopts,
+			grpc.UnaryInterceptor(unaryStatsInterceptor),
+			grpc.StreamInterceptor(streamStatsInterceptor),
+		)
+	}
+
 	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
 		creds, err := credentials.NewServerTLSFromFile(config.ServerTLSConfig.CertFile, config.ServerTLSConfig.KeyFile)
 		if err != nil {
@@ -248,4 +257,38 @@ func grpcServer(config Config) (*grpc.Server, error) {
 	}
 
 	return grpc.NewServer(gopts...), nil
+}
+
+func unaryStatsInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+	start := time.Now()
+	defer func() {
+		logrus.Tracef("UNARY STATS method=%s, time=%s", info.FullMethod, time.Since(start).Truncate(time.Microsecond))
+	}()
+	return handler(ctx, req)
+}
+
+func streamStatsInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return handler(srv, &loggingServerStream{ServerStream: ss})
+}
+
+type loggingServerStream struct {
+	grpc.ServerStream
+}
+
+func (l *loggingServerStream) SendMsg(m any) error {
+	start := time.Now()
+	defer func() {
+		if wr, ok := m.(*etcdserverpb.WatchResponse); ok {
+			logrus.Tracef("STREAM STATS WATCH SEND DONE id=%d, revision=%d, events=%d, size=%d, time=%s", wr.WatchId, wr.Header.Revision, len(wr.Events), wr.Size(), time.Since(start).Truncate(time.Microsecond))
+			return
+		}
+		if p, ok := m.(proto.Message); ok {
+			logrus.Tracef("STREAM STATS SENDMSG name=%s, size=%d, time=%s", proto.MessageName(p), proto.Size(p), time.Since(start).Truncate(time.Microsecond))
+		}
+	}()
+	return l.ServerStream.SendMsg(m)
+}
+
+func (l *loggingServerStream) RecvMsg(m any) error {
+	return l.ServerStream.RecvMsg(m)
 }
