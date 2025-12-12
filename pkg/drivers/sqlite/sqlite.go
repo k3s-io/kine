@@ -1,11 +1,9 @@
-//go:build cgo
-
 package sqlite
 
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"net/url"
 	"os"
 	"sync"
 
@@ -15,7 +13,6 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -43,20 +40,34 @@ var (
 	}
 )
 
-func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
-	return false, backend, err
+func getDataSourceName(dsn string) (string, error) {
+	dsnURL, _ := url.Parse(dsn)
+	if len(dsnURL.RawPath) == 0 {
+		if err := os.MkdirAll("./db", 0700); err != nil {
+			return dsn, err
+		}
+		dsnURL.Path = "./db/state.db"
+	}
+	query := dsnURL.Query()
+	query.Set("cache", "shared")
+	if query.Has("_busy_timeout") {
+		query.Add("_pragma", "busy_timeout("+query.Get("_busy_timeout")+")")
+		query.Del("_busy_timeout")
+	} else {
+		query.Add("_pragma", "busy_timeout(30000)")
+	}
+	query.Add("_pragma", "journal_mode(wal)")
+	query.Add("_pragma", "synchronous(normal)")
+	query.Set("_txlock", "immediate")
+	dsnURL.RawQuery = query.Encode()
+	return dsnURL.String(), nil
 }
 
 func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
-	dataSourceName := cfg.DataSourceName
-	if dataSourceName == "" {
-		if err := os.MkdirAll("./db", 0700); err != nil {
-			return nil, nil, err
-		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
+	dataSourceName, err := getDataSourceName(cfg.DataSourceName)
+	if err != nil {
+		return nil, nil, err
 	}
-
 	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
@@ -82,21 +93,8 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 					kd.id <= ?
 			)`
 	dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
-	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return server.ErrKeyExists
-		}
-		return err
-	}
-	dialect.ErrCode = func(err error) string {
-		if err == nil {
-			return ""
-		}
-		if err, ok := err.(sqlite3.Error); ok {
-			return fmt.Sprint(err.ExtendedCode)
-		}
-		return err.Error()
-	}
+	dialect.TranslateErr = translateErr
+	dialect.ErrCode = errorCode
 
 	if err := setup(dialect.DB); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
