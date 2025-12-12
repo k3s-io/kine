@@ -50,8 +50,13 @@ func getDataSourceName(dsn string) (string, error) {
 	}
 	query := dsnURL.Query()
 	query.Set("cache", "shared")
+	if query.Has("_busy_timeout") {
+		query.Add("_pragma", "busy_timeout("+query.Get("_busy_timeout")+")")
+		query.Del("_busy_timeout")
+	} else {
+		query.Add("_pragma", "busy_timeout(30000)")
+	}
 	query.Add("_pragma", "journal_mode(wal)")
-	query.Add("_pragma", "busy_timeout(30000)")
 	query.Add("_pragma", "synchronous(normal)")
 	query.Set("_txlock", "immediate")
 	dsnURL.RawQuery = query.Encode()
