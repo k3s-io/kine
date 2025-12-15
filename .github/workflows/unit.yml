@@ -2,9 +2,14 @@ name: Unit Tests
 on:
   push:
     branches: [main, master]
-
+    paths-ignore:
+      - "**.md"
+      - ".github/workflows/actionlint.yaml"
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - "**.md"
+      - ".github/workflows/actionlint.yaml"
 
 permissions:
   contents: read
@@ -22,13 +27,12 @@ jobs:
       with:
         go-version: stable
 
-    # note: `--skip TestBackend` can be removed once NATS tests are fixed
     - name: Go Unit Tests
-      run: go test -cover -tags=test --skip TestBackend ./...
+      run: go test -cover -tags=test ./...
       env:
         CGO_ENABLED: "1"
 
     - name: Go Unit Tests nocgo
-      run: go test -cover -tags=test --skip TestBackend ./...
+      run: go test -cover -tags=test ./...
       env:
         CGO_ENABLED: "0"
