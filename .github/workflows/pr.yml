@@ -3,6 +3,7 @@ on:
   pull_request:
     paths-ignore:
       - "**.md"
+      - ".github/workflows/actionlint.yaml"
   workflow_dispatch: {}
 
 jobs:
