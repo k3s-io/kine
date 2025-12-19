@@ -256,10 +256,11 @@ func grpcServer(config Config) (*grpc.Server, error) {
 	}
 
 	if config.ServerTLSConfig.CertFile != "" && config.ServerTLSConfig.KeyFile != "" {
-		creds, err := credentials.NewServerTLSFromFile(config.ServerTLSConfig.CertFile, config.ServerTLSConfig.KeyFile)
+		tlsConfig, err := config.ServerTLSConfig.ServerConfig()
 		if err != nil {
 			return nil, err
 		}
+		creds := credentials.NewTLS(tlsConfig)
 		gopts = append(gopts, grpc.Creds(creds))
 	}
 

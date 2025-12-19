@@ -88,6 +88,12 @@ func New() *cli.App {
 			Destination: &config.ServerTLSConfig.KeyFile,
 			EnvVars:     []string{"KINE_SERVER_KEY_FILE"},
 		},
+		&cli.StringFlag{
+			Name:        "trusted-ca-file",
+			Usage:       "CA certificate for verifying client certificates",
+			Destination: &config.ServerTLSConfig.TrustedCAFile,
+			EnvVars:     []string{"KINE_TRUSTED_CA_FILE"},
+		},
 		&cli.IntFlag{
 			Name:        "datastore-max-idle-connections",
 			Usage:       "Maximum number of idle connections retained by datastore. If value = 0, the system default will be used. If value < 0, idle connections will not be reused.",
@@ -222,6 +228,7 @@ func run(c *cli.Context) (rerr error) {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.TraceLevel)
 	}
+
 	ctx := signals.SetupSignalContext()
 
 	if !metricsIgnoreTLSConfig {
