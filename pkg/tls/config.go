@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	CAFile     string
-	CertFile   string
-	KeyFile    string
-	SkipVerify bool
+	CAFile        string
+	CertFile      string
+	KeyFile       string
+	SkipVerify    bool
+	TrustedCAFile string
 }
 
 func (c Config) ClientConfig() (*tls.Config, error) {
@@ -25,6 +26,24 @@ func (c Config) ClientConfig() (*tls.Config, error) {
 		InsecureSkipVerify: c.SkipVerify,
 	}
 	tlsConfig, err := info.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	return tlsConfig, nil
+}
+
+func (c Config) ServerConfig() (*tls.Config, error) {
+	if c.CertFile == "" && c.KeyFile == "" {
+		return nil, nil
+	}
+
+	info := &transport.TLSInfo{
+		CertFile:      c.CertFile,
+		KeyFile:       c.KeyFile,
+		TrustedCAFile: c.TrustedCAFile,
+	}
+	tlsConfig, err := info.ServerConfig()
 	if err != nil {
 		return nil, err
 	}
