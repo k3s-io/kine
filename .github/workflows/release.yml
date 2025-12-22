@@ -24,6 +24,13 @@ jobs:
 
       - name: Build binaries
         run: make multi-arch-build
+        env:
+          CGO_ENABLED: 1
+      
+      - name: Build binaries nocgo
+        run: make multi-arch-build
+        env:
+          CGO_ENABLED: 0
 
       - name: Compute checksum for each binary
         run: |
@@ -83,6 +90,23 @@ jobs:
             rancher/kine:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/kine:latest
             ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
+      
+      - name: Build and push nocgo (k3s-io)
+        if: github.repository_owner == 'k3s-io'
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          context: .
+          target: multi-arch-package
+          push: true
+          build-args: |
+            CGO_ENABLED=0
+            BIN_SUFFIX=-nocgo
+          tags: |
+            rancher/kine:latest-nocgo
+            rancher/kine:${{ github.ref_name }}-nocgo
+            ghcr.io/${{ github.repository_owner }}/kine:latest-nocgo
+            ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}-nocgo
 
       - name: Build and push (forks)
         if: github.repository_owner != 'k3s-io'
@@ -97,3 +121,20 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/kine:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/kine:latest
             ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
+
+      - name: Build and push nocgo (forks)
+        if: github.repository_owner != 'k3s-io'
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          context: .
+          target: multi-arch-package
+          push: true
+          build-args: |
+            CGO_ENABLED=0
+            BIN_SUFFIX=-nocgo
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/kine:latest-nocgo
+            ${{ secrets.DOCKER_USERNAME }}/kine:${{ github.ref_name }}-nocgo
+            ghcr.io/${{ github.repository_owner }}/kine:latest-nocgo
+            ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}-nocgo
