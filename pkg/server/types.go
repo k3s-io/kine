@@ -30,6 +30,7 @@ type Backend interface {
 	DbSize(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
+	Health(ctx context.Context) error
 }
 
 type Dialect interface {
@@ -52,6 +53,7 @@ type Dialect interface {
 	GetSize(ctx context.Context) (int64, error)
 	FillRetryDelay(ctx context.Context)
 	TranslateStartKey(startKey string) string
+	Health(ctx context.Context) error
 }
 
 type Transaction interface {

@@ -202,6 +202,20 @@ func New() *cli.App {
 			Name:    "debug",
 			EnvVars: []string{"KINE_DEBUG"},
 		},
+		&cli.DurationFlag{
+			Name:        "healthcheck-timeout",
+			Usage:       "Timeout for healthcheck. Default is 5s.",
+			Destination: &config.HealthcheckTimeout,
+			Value:       5 * time.Second,
+			EnvVars:     []string{"KINE_HEALTHCHECK_TIMEOUT"},
+		},
+		&cli.DurationFlag{
+			Name:        "healthcheck-interval",
+			Usage:       "Interval for healthcheck. Default is 15s.",
+			Destination: &config.HealthcheckInterval,
+			Value:       15 * time.Second,
+			EnvVars:     []string{"KINE_HEALTHCHECK_INTERVAL"},
+		},
 	}
 	app.Action = run
 	return app
