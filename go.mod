@@ -12,7 +12,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.33
 	github.com/nats-io/jsm.go v0.3.0
 	github.com/nats-io/nats-server/v2 v2.12.2
-	github.com/nats-io/nats.go v1.47.0
+	github.com/nats-io/nats.go v1.48.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/shengdoushi/base58 v1.0.0
