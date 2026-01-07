@@ -73,6 +73,20 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 FROM scratch AS multi-arch-binary
 COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin /
 
+FROM alpine:3.23 AS probe
+
+ARG PROBE_VERSION=v0.4.43
+ARG TARGETARCH
+ENV ARCH=${TARGETARCH}
+RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
+    ARCH=arm; \
+    fi
+
+WORKDIR /bin
+RUN wget "https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${PROBE_VERSION}/grpc_health_probe-linux-${ARCH}" && \
+    mv grpc_health_probe-* grpc-health-probe && \
+    chmod +x grpc-health-probe
+
 FROM alpine:3.23 AS multi-arch-package
 ARG TARGETARCH
 ENV ARCH=${TARGETARCH}
@@ -80,6 +94,7 @@ RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
     ARCH=arm; \
     fi
 COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-$ARCH /bin/kine
+COPY --from=probe /bin/grpc-health-probe /bin/grpc-health-probe
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
