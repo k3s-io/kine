@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/k3s-io/kine/pkg/drivers"
@@ -39,22 +40,35 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
-		`PRAGMA wal_checkpoint(TRUNCATE)`,
 	}
 )
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
+	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg, false)
 	return false, backend, err
 }
 
-func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
+func NewWithLitestream(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, _, err := NewVariant(ctx, wg, "litestream", cfg, true)
+	return false, backend, err
+}
+
+func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config, litestream bool) (server.Backend, *generic.Generic, error) {
 	dataSourceName := cfg.DataSourceName
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, nil, err
 		}
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
+	}
+
+	noCompactCheckpoint := strings.Contains(dataSourceName, "_kine_disable_compact_wal_checkpoint")
+	noAutoCheckpoint := strings.Contains(dataSourceName, "_kine_disable_wal_autocheckpoint")
+
+	if driverName == "litestream" {
+		logrus.Infof("Litestream compatibility options enabled (all WAL checkpointing disabled)")
+		noCompactCheckpoint = true
+		noAutoCheckpoint = true
 	}
 
 	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
@@ -81,7 +95,11 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 					kd.deleted != 0 AND
 					kd.id <= ?
 			)`
-	dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
+	if noCompactCheckpoint {
+		logrus.Infof("WAL checkpoint on compact is disabled")
+	} else {
+		dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
+	}
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
 			return server.ErrKeyExists
@@ -98,7 +116,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return err.Error()
 	}
 
-	if err := setup(dialect.DB); err != nil {
+	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
 
@@ -106,8 +124,17 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
 }
 
-func setup(db *sql.DB) error {
+func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint bool) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+
+	schema := append([]string{}, schema...)
+	if !noCheckpointing {
+		schema = append(schema, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	}
+	if noAutoCheckpoint {
+		logrus.Infof("WAL auto-checkpoint is disabled")
+		schema = append(schema, `PRAGMA wal_autocheckpoint = 0`)
+	}
 
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
@@ -122,6 +149,13 @@ func setup(db *sql.DB) error {
 }
 
 func init() {
+	sql.Register("litestream", &sqlite3.SQLiteDriver{
+		ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
+			return conn.SetFileControlInt("main", sqlite3.SQLITE_FCNTL_PERSIST_WAL, 1)
+		},
+	})
+
 	drivers.Register("sqlite", New)
+	drivers.Register("litestream", NewWithLitestream)
 	drivers.SetDefault("sqlite")
 }
