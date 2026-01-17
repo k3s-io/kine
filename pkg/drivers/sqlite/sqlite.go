@@ -43,12 +43,25 @@ var (
 	}
 )
 
+func init() {
+	sql.Register("litestream", &sqlite3.SQLiteDriver{
+		ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
+			return conn.SetFileControlInt("main", sqlite3.SQLITE_FCNTL_PERSIST_WAL, 1)
+		},
+	})
+}
+
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
+	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg, false)
 	return false, backend, err
 }
 
-func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
+func NewWithLitestream(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, _, err := NewVariant(ctx, wg, "litestream", cfg, true)
+	return false, backend, err
+}
+
+func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config, litestream bool) (server.Backend, *generic.Generic, error) {
 	dataSourceName := cfg.DataSourceName
 	if dataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
@@ -56,7 +69,15 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		}
 		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
 	}
-	noCheckpointing := strings.Contains(dataSourceName, "_kine_no_checkpointing")
+
+	noCheckpointing := strings.Contains(dataSourceName, "_kine_disable_wal_checkpoint")
+	noAutoCheckpoint := strings.Contains(dataSourceName, "_kine_disable_wal_autocheckpoint")
+
+	if driverName == "litestream" {
+		logrus.Infof("Litestream compatibility options enabled")
+		noCheckpointing = true
+		noAutoCheckpoint = true
+	}
 
 	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
@@ -83,7 +104,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 					kd.id <= ?
 			)`
 	if noCheckpointing {
-		logrus.Infof("Checkpointing disabled")
+		logrus.Infof("Automatic WAL checkpoint on compact is disabled")
 	} else {
 		dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
 	}
@@ -103,7 +124,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return err.Error()
 	}
 
-	if err := setup(dialect.DB, noCheckpointing); err != nil {
+	if err := setup(dialect.DB, noCheckpointing, noAutoCheckpoint); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
 	}
 
@@ -111,12 +132,15 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
 }
 
-func setup(db *sql.DB, noCheckpointing bool) error {
+func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint bool) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
 	schema := append([]string{}, schema...)
 	if !noCheckpointing {
 		schema = append(schema, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	}
+	if noAutoCheckpoint {
+		schema = append(schema, `PRAGMA wal_autocheckpoint = 0`)
 	}
 
 	for _, stmt := range schema {
@@ -133,5 +157,6 @@ func setup(db *sql.DB, noCheckpointing bool) error {
 
 func init() {
 	drivers.Register("sqlite", New)
+	drivers.Register("litestream", NewWithLitestream)
 	drivers.SetDefault("sqlite")
 }
