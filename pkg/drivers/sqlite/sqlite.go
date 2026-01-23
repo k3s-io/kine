@@ -1,11 +1,8 @@
-//go:build cgo
-
 package sqlite
 
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -16,7 +13,6 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/mattn/go-sqlite3"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -43,23 +39,37 @@ var (
 	}
 )
 
-func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg, false)
-	return false, backend, err
-}
-
-func NewWithLitestream(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "litestream", cfg, true)
-	return false, backend, err
+func getDataSourceName(dsn string) (string, error) {
+	pos := strings.IndexRune(dsn, '?')
+	path := "./db/state.db"
+	if pos < 1 && len(dsn[:pos+1]) > 1 {
+		path = dsn
+	}
+	if pos < 1 && strings.HasPrefix(path, "./db") {
+		if err := os.MkdirAll("./db", 0700); err != nil {
+			return dsn, err
+		}
+	}
+	if pos < 1 {
+		if pos < 0 {
+			return path + "?" + defaultDSNParams(""), nil
+		}
+		return path + "?" + defaultDSNParams(strings.TrimPrefix(dsn[pos:], "?")), nil
+	}
+	if pos > 1 {
+		return dsn[:pos] + "?" + defaultDSNParams(strings.TrimPrefix(dsn[pos:], "?")), nil
+	}
+	return dsn, nil
 }
 
 func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config, litestream bool) (server.Backend, *generic.Generic, error) {
-	dataSourceName := cfg.DataSourceName
-	if dataSourceName == "" {
-		if err := os.MkdirAll("./db", 0700); err != nil {
-			return nil, nil, err
-		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
+	dataSourceName, err := getDataSourceName(cfg.DataSourceName)
+	if err != nil {
+		return nil, nil, err
+	}
+	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	noCompactCheckpoint := strings.Contains(dataSourceName, "_kine_disable_compact_wal_checkpoint")
@@ -69,11 +79,6 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		logrus.Infof("Litestream compatibility options enabled (all WAL checkpointing disabled)")
 		noCompactCheckpoint = true
 		noAutoCheckpoint = true
-	}
-
-	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
-	if err != nil {
-		return nil, nil, err
 	}
 
 	dialect.LastInsertID = true
@@ -98,23 +103,10 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	if noCompactCheckpoint {
 		logrus.Infof("WAL checkpoint on compact is disabled")
 	} else {
-		dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
+		dialect.PostCompactSQL = postCompactSQL()
 	}
-	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return server.ErrKeyExists
-		}
-		return err
-	}
-	dialect.ErrCode = func(err error) string {
-		if err == nil {
-			return ""
-		}
-		if err, ok := err.(sqlite3.Error); ok {
-			return fmt.Sprint(err.ExtendedCode)
-		}
-		return err.Error()
-	}
+	dialect.TranslateErr = translateError
+	dialect.ErrCode = errorCode
 
 	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint); err != nil {
 		return nil, nil, errors.Wrap(err, "setup db")
@@ -133,7 +125,7 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint bool) error {
 	}
 	if noAutoCheckpoint {
 		logrus.Infof("WAL auto-checkpoint is disabled")
-		schema = append(schema, `PRAGMA wal_autocheckpoint = 0`)
+		schema = append(schema, `PRAGMA wal_autocheckpoint(0)`)
 	}
 
 	for _, stmt := range schema {
@@ -149,12 +141,6 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint bool) error {
 }
 
 func init() {
-	sql.Register("litestream", &sqlite3.SQLiteDriver{
-		ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
-			return conn.SetFileControlInt("main", sqlite3.SQLITE_FCNTL_PERSIST_WAL, 1)
-		},
-	})
-
 	drivers.Register("sqlite", New)
 	drivers.Register("litestream", NewWithLitestream)
 	drivers.SetDefault("sqlite")
