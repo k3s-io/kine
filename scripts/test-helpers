@@ -207,6 +207,11 @@ build-apiserver-tests() {
   TAG_KUBERNETES=$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' k8s.io/apiserver)
   KINEPATH=$PWD
   GOPATH=$(go env GOPATH)
+  if [ "$CGO_ENABLED" = "0" ]; then 
+    CGO_ENABLED=0
+  else
+    CGO_ENABLED=1
+  fi
   mkdir -p $GOPATH/src/github.com/kubernetes
   cd $GOPATH/src/github.com/kubernetes
   if [[ -d apiserver ]]; then

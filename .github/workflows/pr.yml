@@ -53,6 +53,19 @@ jobs:
         target: binary
         outputs: type=local,dest=.
         build-args: |
+          CGO_ENABLED=1
+          ARCH=${{ matrix.arch }}
+
+    - name: Build Dockerfile - binary nocgo
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        provenance: mode=min
+        target: binary
+        outputs: type=local,dest=.
+        build-args: |
+          CGO_ENABLED=0
           ARCH=${{ matrix.arch }}
 
     - name: Build Dockerfile - package
@@ -67,6 +80,20 @@ jobs:
         build-args: |
           ARCH=${{ matrix.arch }}
 
+    - name: Build Dockerfile - package nocgo
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        provenance: false
+        target: package
+        tags: rancher/kine:latest-nocgo
+        outputs: type=docker,dest=${{ runner.temp }}/kine-nocgo.tar
+        build-args: |
+          ARCH=${{ matrix.arch }}
+          CGO_ENABLED=0
+          BIN_SUFFIX=-nocgo
+
     - name: Build Dockerfile.test
       uses: docker/build-push-action@v6
       with:
@@ -77,6 +104,18 @@ jobs:
         outputs: type=docker,dest=${{ runner.temp }}/kine-test.tar
         build-args: |
           ARCH=${{ matrix.arch }}
+    
+    - name: Build Dockerfile.test nocgo
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile.test
+        provenance: false
+        tags: rancher/kine-test:latest-nocgo
+        outputs: type=docker,dest=${{ runner.temp }}/kine-test-nocgo.tar
+        build-args: |
+          ARCH=${{ matrix.arch }}
+          CGO_ENABLED=0
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v6
@@ -111,3 +150,30 @@ jobs:
     - name: Run Test
       run: |
         docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest rancher/kine-test:latest scripts/test ${{ matrix.test }}
+    
+  docker-nocgo:
+    name: Docker nocgo
+    needs: build
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        test: [sqlite, litestream]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+    - name: Download Artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: images-${{ matrix.arch }}
+        path: ${{ runner.temp }}
+
+    - name: Load Images
+      run: |
+        docker load --input ${{ runner.temp }}/kine-nocgo.tar
+        docker load --input ${{ runner.temp }}/kine-test-nocgo.tar
+        
+    - name: Run Test nocgo
+      run: |
+        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest-nocgo rancher/kine-test:latest-nocgo scripts/test ${{ matrix.test }}
+

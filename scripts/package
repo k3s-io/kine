@@ -5,13 +5,19 @@ cd $(dirname $0)/..
 
 . ./scripts/version
 
+BIN_SUFFIX=""
 mkdir -p dist/artifacts
-cp bin/kine dist/artifacts/kine${SUFFIX}
-file dist/artifacts/kine${SUFFIX}
+if [ "$CGO_ENABLED" == "0" ]; then
+    BIN_SUFFIX="-nocgo"
+else
+    CGO_ENABLED=1
+fi
+cp bin/kine${BIN_SUFFIX} dist/artifacts/kine${SUFFIX}${BIN_SUFFIX}
+file dist/artifacts/kine${SUFFIX}${BIN_SUFFIX}
 
-TAG=${TAG:-${VERSION_TAG}${SUFFIX}}
+TAG=${TAG:-${VERSION_TAG}${SUFFIX}}${BIN_SUFFIX}
 IMAGE_NAME=${IMAGE_NAME:-kine}
 IMAGE=${REPO}/${IMAGE_NAME}:${TAG}
 
-docker build --tag ${IMAGE} --target package -f Dockerfile .
+docker build --tag ${IMAGE} --build-arg="CGO_ENABLED=${CGO_ENABLED}" --build-arg="BIN_SUFFIX=${BIN_SUFFIX}" --target package -f Dockerfile .
 echo Built ${IMAGE}
