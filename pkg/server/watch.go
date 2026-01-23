@@ -76,7 +76,14 @@ type watcher struct {
 
 func (w *watcher) Start(ctx context.Context, r *etcdserverpb.WatchCreateRequest) {
 	if r.WatchId != clientv3.AutoWatchID {
-		logrus.Warnf("WATCH START server=%d, id=%d ignoring request with client-provided id", w.id, r.WatchId)
+		logrus.Warnf("WATCH START server=%d, id=%d rejecting request with client-provided id", w.id, r.WatchId)
+		w.CancelEarly(ctx, ErrInvalidWatch)
+		return
+	}
+
+	if r.StartRevision < 0 {
+		logrus.Warnf("WATCH START server=%d rejecting request with negative StartRevision=%d", w.id, r.StartRevision)
+		w.CancelEarly(ctx, ErrCompacted)
 		return
 	}
 
@@ -229,6 +236,26 @@ func (w *watcher) removeWatch(watchID int64) bool {
 		return true
 	}
 	return false
+}
+
+func (w *watcher) CancelEarly(ctx context.Context, err error) {
+	rev, err := w.backend.CurrentRevision(ctx)
+	if err != nil {
+		logrus.Warnf("Failed to get current revision for early watch cancel: %v", err)
+		return
+	}
+
+	err = w.server.Send(&etcdserverpb.WatchResponse{
+		Header:       txnHeader(rev),
+		WatchId:      clientv3.InvalidWatchID,
+		Canceled:     true,
+		Created:      true,
+		CancelReason: err.Error(),
+	})
+
+	if err != nil && !clientv3.IsConnCanceled(err) {
+		logrus.Errorf("WATCH Failed to send early cancel response for server=%d: %v", w.id, err)
+	}
 }
 
 func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
