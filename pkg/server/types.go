@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrNotSupported = status.New(codes.InvalidArgument, "etcdserver: unsupported operations in txn request").Err()
+	ErrInvalidWatch = status.New(codes.InvalidArgument, "etcdserver: unsupported options in watch request").Err()
 
 	ErrKeyExists     = rpctypes.ErrGRPCDuplicateKey
 	ErrCompacted     = rpctypes.ErrGRPCCompacted
