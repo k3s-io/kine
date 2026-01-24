@@ -19,7 +19,7 @@ import (
 
 const (
 	driverName      = "sqlite"
-	postCompactMode = "PASSIVE"
+	postCompactMode = "FULL"
 )
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
