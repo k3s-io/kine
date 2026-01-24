@@ -506,3 +506,7 @@ func (d *Generic) TranslateStartKey(startKey string) string {
 	}
 	return startKey
 }
+
+func (d *Generic) Health(ctx context.Context) error {
+	return d.DB.PingContext(ctx)
+}

@@ -52,6 +52,8 @@ type Config struct {
 	CompactBatchSize      int64
 	PollBatchSize         int64
 	LogFormat             string
+	HealthcheckTimeout    time.Duration
+	HealthcheckInterval   time.Duration
 }
 
 type ETCDConfig struct {
@@ -132,6 +134,8 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 	// set up GRPC server and register services
 	b := server.New(backend, endpointScheme(config), config.NotifyInterval, config.EmulatedETCDVersion)
 	b.Register(grpcServer)
+
+	go b.Healthcheck(ctx, config.HealthcheckInterval, config.HealthcheckTimeout)
 
 	// Create raw listener and wrap in cmux for protocol switching
 	listener, err := createListener(bctx, config)
