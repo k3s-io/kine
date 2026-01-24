@@ -13,21 +13,15 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-func NewWithLitestream(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "litestream", cfg, true)
-	return false, backend, err
-}
-
+const (
+	driverName      = "sqlite3"
+	postCompactMode = "FULL"
+)
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg, false)
+	backend, _, err := NewVariant(ctx, wg, driverName, cfg)
 	return false, backend, err
 }
-
-func postCompactSQL() string {
-	return `PRAGMA wal_checkpoint(FULL)`
-}
-
 func translateError(err error) error {
 	if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
 		return server.ErrKeyExists

@@ -17,13 +17,14 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite", cfg, false)
-	return false, backend, err
-}
+const (
+	driverName      = "sqlite"
+	postCompactMode = "PASSIVE"
+)
 
-func postCompactSQL() string {
-	return `PRAGMA wal_checkpoint(PASSIVE)`
+func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
+	backend, _, err := NewVariant(ctx, wg, driverName, cfg)
+	return false, backend, err
 }
 
 func translateError(err error) error {
@@ -89,11 +90,6 @@ func defaultDSNParams(queryString string) string {
 	return queryString
 }
 
-func NewWithLitestream(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "litestream", cfg, true)
-	return false, backend, err
-}
-
 type litestreamDriver struct {
 	sqlite.Driver
 }
@@ -107,7 +103,7 @@ func (d *litestreamDriver) Open(name string) (driver.Conn, error) {
 	if ok {
 		_, err = ctrl.FileControlPersistWAL("main", 1)
 	}
-	return conn, err
+	return ctrl.(driver.Conn), err
 }
 
 func init() {
