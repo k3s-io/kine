@@ -78,9 +78,6 @@ func (l *LogStructured) get(ctx context.Context, key, rangeEnd string, limit, re
 	if err != nil {
 		return 0, nil, err
 	}
-	if revision != 0 {
-		rev = revision
-	}
 	if len(events) == 0 {
 		return rev, nil, nil
 	}
@@ -202,8 +199,6 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 			return currentRev, nil, err
 		}
 		return l.List(ctx, prefix, startKey, limit, currentRev, keysOnly)
-	} else if revision != 0 {
-		rev = revision
 	}
 
 	kvs := make([]*server.KeyValue, 0, len(events))

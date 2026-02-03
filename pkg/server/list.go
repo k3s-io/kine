@@ -19,7 +19,10 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		prefix = prefix + "/"
 	}
 	start := string(r.Key)
-	revision := r.Revision
+	revision := int64(0)
+	if r.Revision > 0 {
+		revision = r.Revision
+	}
 
 	if r.CountOnly {
 		rev, count, err := l.backend.Count(ctx, prefix, start, revision)
