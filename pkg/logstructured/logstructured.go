@@ -28,6 +28,7 @@ type Log interface {
 	Append(ctx context.Context, event *server.Event) (int64, error)
 	DbSize(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
+	Health(ctx context.Context) error
 }
 
 type ttlEventKV struct {
@@ -484,4 +485,8 @@ func (l *LogStructured) CurrentRevision(ctx context.Context) (int64, error) {
 
 func (l *LogStructured) Compact(ctx context.Context, revision int64) (int64, error) {
 	return l.log.Compact(ctx, revision)
+}
+
+func (l *LogStructured) Health(ctx context.Context) error {
+	return l.log.Health(ctx)
 }

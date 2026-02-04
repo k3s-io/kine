@@ -692,3 +692,7 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 	}
 	return s.CurrentRevision(ctx)
 }
+
+func (s *SQLLog) Health(ctx context.Context) error {
+	return s.d.Health(ctx)
+}

@@ -644,3 +644,9 @@ func decodeCompactValue(value []byte) (int64, int64) {
 	rev, _ := strconv.ParseInt(string(revB), 10, 64)
 	return vers, rev
 }
+
+func (b *Backend) Health(ctx context.Context) error {
+	_, err := b.kv.nkv.Status(ctx)
+
+	return err
+}
