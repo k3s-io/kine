@@ -1,0 +1,67 @@
+#!/bin/bash
+
+start-test() {
+    local ip port user pass namespace database image kine_endpoint kine_url
+
+    ip=$(cat "$TEST_DIR"/databases/*/metadata/ip)
+    port=$(cat "$TEST_DIR"/databases/*/metadata/port)
+    pass=$(cat "$TEST_DIR"/databases/*/metadata/password)
+    namespace=$(cat "$TEST_DIR"/databases/*/metadata/namespace)
+    database=$(cat "$TEST_DIR"/databases/*/metadata/database)
+    image=$(cat "$TEST_DIR"/databases/*/metadata/image)
+
+    if [[ -f "$TEST_DIR"/databases/*/metadata/user ]]; then
+        user=$(cat "$TEST_DIR"/databases/*/metadata/user)
+    else
+        user="root"
+    fi
+
+    kine_endpoint="http://$ip:$port"
+
+    DB_CONNECTION_TEST="
+        docker run --rm
+          --name connection-test
+          curlimages/curl:8.6.0
+          --fail --silent --show-error
+          -X POST
+          -u \"$user:$pass\"
+          -H \"Accept: application/json\"
+          -H \"surreal-ns: $namespace\"
+          -H \"surreal-db: $database\"
+          -d \"RETURN 1;\"
+          \"$kine_endpoint/sql\"
+    " timeout --foreground 1m bash -c "wait-for-db-connection"
+
+    SURREAL_NS="$namespace" \
+    SURREAL_DB="$database" \
+    SURREAL_USER="$user" \
+    SURREAL_PASS="$pass" \
+    KINE_IMAGE=$IMAGE \
+    KINE_ENDPOINT="$kine_endpoint" \
+      run-apiserver-tests
+
+    SURREAL_NS="$namespace" \
+    SURREAL_DB="$database" \
+    SURREAL_USER="$user" \
+    SURREAL_PASS="$pass" \
+    KINE_IMAGE=$IMAGE \
+    KINE_ENDPOINT="$kine_endpoint" \
+      provision-kine
+
+    kine_url=$(cat "$TEST_DIR"/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT="$kine_url" provision-cluster
+}
+export -f start-test
+
+VERSION_LIST="\
+    surrealdb 2.6"
+
+while read -r ENGINE VERSION; do
+    LABEL="$ENGINE-$VERSION" \
+      DB_NAMESPACE_ENV=SURREAL_NS \
+      DB_DATABASE_ENV=SURREAL_DB \
+      DB_USERNAME_ENV=SURREAL_USER \
+      DB_PASSWORD_ENV=SURREAL_PASS \
+      DB_IMAGE="docker.io/surrealdb/surrealdb:$VERSION" \
+      run-test
+done <<< "$VERSION_LIST"
