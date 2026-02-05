@@ -8,7 +8,7 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.8.0
-	github.com/klauspost/compress v1.18.2
+	github.com/klauspost/compress v1.18.3
 	github.com/mattn/go-sqlite3 v1.14.33
 	github.com/nats-io/jsm.go v0.3.0
 	github.com/nats-io/nats-server/v2 v2.12.2
@@ -18,6 +18,7 @@ require (
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/surrealdb/surrealdb.go v1.0.0
+	github.com/sirupsen/logrus v1.9.4
 	github.com/tidwall/btree v1.8.1
 	github.com/urfave/cli/v2 v2.27.7
 	go.etcd.io/etcd/api/v3 v3.6.7
