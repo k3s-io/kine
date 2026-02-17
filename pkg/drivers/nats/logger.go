@@ -122,3 +122,7 @@ func (b *BackendLogger) CurrentRevision(ctx context.Context) (int64, error) {
 func (b *BackendLogger) Compact(ctx context.Context, revision int64) (int64, error) {
 	return b.backend.Compact(ctx, revision)
 }
+
+func (b *BackendLogger) WaitForSyncTo(revision int64) {
+	b.backend.WaitForSyncTo(revision)
+}

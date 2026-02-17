@@ -571,6 +571,10 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	return currRev, nil
 }
 
+func (b *Backend) WaitForSyncTo(revision int64) {
+	// no-op
+}
+
 // compactor runs periodic automatic compaction in the background.
 // This advances the compact revision point,
 // causing queries for old revisions to return ErrCompacted.

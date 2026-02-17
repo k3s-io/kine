@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,11 +20,15 @@ import (
 const minCompactBatchSize = 100
 
 type SQLLog struct {
+	sync.RWMutex
+
 	d                     server.Dialect
 	broadcaster           broadcaster.Broadcaster
 	ctx                   context.Context
 	notify                chan int64
 	currentRev            atomic.Int64
+	polledRev             atomic.Int64
+	polled                *sync.Cond
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -43,6 +48,7 @@ func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter 
 		compactBatchSize:      compactBatchSize,
 		pollBatchSize:         pollBatchSize,
 	}
+	l.polled = sync.NewCond(l.RLocker())
 	return l
 }
 
@@ -491,6 +497,12 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		}
 		waitForMore = true
 
+		//  update polled revision to reflect what rows have already been seen
+		s.Lock()
+		s.polledRev.Store(pollRevision)
+		s.polled.Broadcast()
+		s.Unlock()
+
 		rows, err := s.d.After(s.ctx, "%", pollRevision, s.pollBatchSize)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
@@ -691,4 +703,12 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 		s.compactIter(compactRev, targetCompactRev)
 	}
 	return s.CurrentRevision(ctx)
+}
+
+func (s *SQLLog) WaitForSyncTo(revision int64) {
+	s.polled.L.Lock()
+	for s.polledRev.Load() < revision {
+		s.polled.Wait()
+	}
+	s.polled.L.Unlock()
 }

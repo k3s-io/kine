@@ -6,6 +6,7 @@ import (
 )
 
 type ConditionWithContextFunc func(context.Context) (done bool, err error)
+type ContextFunc func(context.Context)
 
 func PollWithContext(ctx context.Context, interval time.Duration, condition ConditionWithContextFunc) error {
 	ticker := time.NewTicker(interval)
@@ -23,6 +24,24 @@ func PollWithContext(ctx context.Context, interval time.Duration, condition Cond
 			if done {
 				return nil
 			}
+		}
+	}
+}
+
+func UntilWithContext(ctx context.Context, interval time.Duration, f ContextFunc) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		f(ctx)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
 		}
 	}
 }

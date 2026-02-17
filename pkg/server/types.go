@@ -31,6 +31,7 @@ type Backend interface {
 	DbSize(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
+	WaitForSyncTo(revision int64)
 }
 
 type Dialect interface {
