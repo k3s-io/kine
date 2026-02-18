@@ -2,12 +2,12 @@
 
 start-test() {
     local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
-    local port=$(cat $TEST_DIR/databases/*/metadata/port)
+    local port=26257
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
-    local test_image=docker.io/library/postgres:13.2
+    local test_image=docker.io/library/postgres:17
 
     DB_CONNECTION_TEST="
-        docker run --rm
+        docker run --rm -i
         --name connection-test
         $test_image
         psql

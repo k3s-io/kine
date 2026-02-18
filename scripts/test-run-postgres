@@ -6,7 +6,7 @@ start-test() {
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
     local image=$(cat $TEST_DIR/databases/*/metadata/image)
     DB_CONNECTION_TEST="
-        docker run --rm
+        docker run --rm -i
         --name connection-test
         -e PGPASSWORD=$pass
         $image
