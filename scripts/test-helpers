@@ -156,7 +156,7 @@ wait-for-db-connection() {
         echo 'DB_CONNECTION_TEST is not defined' >&2
         return 1
     fi
-    while ! $DB_CONNECTION_TEST 2>/dev/null; do
+    while ! $DB_CONNECTION_TEST; do
         echo 'Waiting for database to become available...' >&2
         sleep 5
     done
@@ -211,8 +211,9 @@ build-apiserver-tests() {
   cd $GOPATH/src/github.com/kubernetes
   if [[ -d apiserver ]]; then
     cd apiserver
-    git fetch kubernetes refs/tags/$TAG_KUBERNETES
-    git checkout --force refs/tags/$TAG_KUBERNETES
+    git fetch kubernetes $TAG_KUBERNETES:refs/tags/$TAG_KUBERNETES
+    git reset --hard $TAG_KUBERNETES
+    git clean -xffd
   else
     git clone -o kubernetes --single-branch --depth 1 --branch $TAG_KUBERNETES https://github.com/kubernetes/apiserver
     cd apiserver
@@ -275,7 +276,7 @@ provision-server() {
         --disable=coredns,servicelb,traefik,local-storage,metrics-server \
         --disable-network-policy
 
-    local ip=$(docker container inspect --format '{{ .NetworkSettings.IPAddress }}' $name | tee $TEST_DIR/servers/$count/metadata/ip)
+    local ip=$(docker container inspect --format '{{ range $k,$v := .NetworkSettings.Networks}}{{printf "%s" $v.IPAddress}}{{end }}' $name | tee $TEST_DIR/servers/$count/metadata/ip)
     local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/servers/$count/metadata/port)
     local url=$(echo "https://$ip:$port" | tee $TEST_DIR/servers/$count/metadata/url)
 
@@ -306,7 +307,7 @@ provision-kine() {
         --watch-progress-notify-interval=5s \
         --endpoint=$KINE_ENDPOINT
 
-    local ip=$(docker container inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)
+    local ip=$(docker container inspect --format '{{range $k,$v := .NetworkSettings.Networks}}{{printf "%s" $v.IPAddress}}{{end}}' $name | tee $TEST_DIR/kine/$count/metadata/ip)
     local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/kine/$count/metadata/port)
     local url=$(echo "http://$ip:$port" | tee $TEST_DIR/kine/$count/metadata/url)
 
@@ -343,7 +344,7 @@ provision-database() {
         --env-file $TEST_DIR/databases/$count/metadata/env \
         ${DB_IMAGE} ${DB_ARGS}
 
-    local ip=$(docker container inspect --format '{{.NetworkSettings.IPAddress}}' $name | tee $TEST_DIR/databases/$count/metadata/ip)
+    local ip=$(docker container inspect --format '{{range $k,$v := .NetworkSettings.Networks}}{{printf "%s" $v.IPAddress}}{{end}}' $name | tee $TEST_DIR/databases/$count/metadata/ip)
     local port=$(docker container inspect --format '{{range $k, $v := .NetworkSettings.Ports}}{{printf "%s\n" $k}}{{end}}' $name | head -n 1 | cut -d/ -f1 | tee $TEST_DIR/databases/$count/metadata/port)
 
     echo "Started $name @ $ip:$port"

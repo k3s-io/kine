@@ -5,7 +5,12 @@ start-test() {
     local port=$(cat $TEST_DIR/databases/*/metadata/port)
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
     local image=$(cat $TEST_DIR/databases/*/metadata/image)
-    DB_CONNECTION_TEST="docker container run --rm --name connection-test --entrypoint /usr/local/bin/nats docker.io/natsio/nats-box:0.14.1 server check connection --server=nats://$ip:$port" \
+    DB_CONNECTION_TEST="
+        docker run --rm -i
+        --name connection-test
+        --entrypoint /usr/local/bin/nats
+        docker.io/natsio/nats-box:0.14.1
+        server check connection --server=nats://$ip:$port" \
     timeout --foreground 1m bash -c "wait-for-db-connection"
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://$ip:$port?noEmbed" GO_TEST_EXTRAFLAGS="-tags nats" run-apiserver-tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="nats://$ip:$port?noEmbed" provision-kine

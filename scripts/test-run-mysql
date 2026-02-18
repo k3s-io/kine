@@ -12,7 +12,7 @@ start-test() {
        db_type="mysql"
     fi
     DB_CONNECTION_TEST="
-        docker run --rm
+        docker run --rm -i
         --name connection-test
         $image
         $db_type
