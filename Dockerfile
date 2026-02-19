@@ -1,5 +1,5 @@
 
-FROM golang:1.25-alpine3.23 AS infra
+FROM golang:1.26-alpine3.23 AS infra
 ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
@@ -46,7 +46,7 @@ ENTRYPOINT ["/bin/kine"]
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.22 AS multi-arch-build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine3.22 AS multi-arch-build
 COPY --from=xx / /
 ARG TAG
 ARG DIRTY
