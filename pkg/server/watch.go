@@ -229,7 +229,6 @@ func toEvent(event *Event) *mvccpb.Event {
 	} else {
 		e.Type = mvccpb.PUT
 	}
-
 	return e
 }
 

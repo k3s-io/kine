@@ -674,6 +674,10 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event, val, 
 	if event.Create {
 		event.KV.CreateRevision = event.KV.ModRevision
 		event.PrevKV = nil
+	} else {
+		event.PrevKV.CreateRevision = event.KV.CreateRevision
+		event.PrevKV.Lease = event.KV.Lease
+		event.PrevKV.Key = event.KV.Key
 	}
 
 	*compact = c.Int64
