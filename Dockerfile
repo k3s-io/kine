@@ -21,7 +21,8 @@ FROM infra AS build
 ARG TAG
 ARG DIRTY
 ARG ARCH=amd64
-ENV TAG=${TAG} DIRTY=${DIRTY} ARCH=${ARCH}
+ARG CGO_ENABLED=1
+ENV TAG=${TAG} DIRTY=${DIRTY} ARCH=${ARCH} CGO_ENABLED=${CGO_ENABLED}
 
 COPY ./scripts/build ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
@@ -37,7 +38,10 @@ FROM scratch AS binary
 COPY --from=build /go/src/github.com/k3s-io/kine/bin /bin
 
 FROM alpine:3.23 AS package
-COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine /bin/kine
+ARG CGO_ENABLED=1
+ARG BIN_SUFFIX
+ENV BIN_SUFFIX=${BIN_SUFFIX} CGO_ENABLED=${CGO_ENABLED}
+COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine${BIN_SUFFIX} /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
@@ -52,7 +56,8 @@ ARG TAG
 ARG DIRTY
 ARG TARGETOS
 ARG TARGETARCH
-ENV TAG=${TAG} DIRTY=${DIRTY} CGO_ENABLED=1
+ARG CGO_ENABLED=1
+ENV TAG=${TAG} DIRTY=${DIRTY} CGO_ENABLED=${CGO_ENABLED}
 RUN apk -U add bash coreutils git vim less curl wget ca-certificates clang lld
 RUN xx-apk add musl-dev gcc
 # go imports version gopls/v0.15.3
@@ -69,17 +74,17 @@ COPY ./.golangci.yml ./.golangci.yml
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     ./scripts/buildx
 
-
 FROM scratch AS multi-arch-binary
 COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin /
 
 FROM alpine:3.23 AS multi-arch-package
 ARG TARGETARCH
-ENV ARCH=${TARGETARCH}
+ARG BIN_SUFFIX
+ENV ARCH=${TARGETARCH} BIN_SUFFIX="${BIN_SUFFIX}"
 RUN if [ "${TARGETARCH}" == "arm/v7" ]; then \
     ARCH=arm; \
     fi
-COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine-$ARCH /bin/kine
+COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin/kine${BIN_SUFFIX}-${ARCH} /bin/kine
 RUN mkdir /db && chown nobody /db
 VOLUME /db
 EXPOSE 2379/tcp
