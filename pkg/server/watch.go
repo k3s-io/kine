@@ -47,8 +47,8 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 
 	logrus.Tracef("WATCH SERVER CREATE server=%d", w.id)
 
-	go util.UntilWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced)
-	go util.UntilWithContext(ws.Context(), progressResponsePeriod, w.ProgressAll)
+	go util.UntilWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced, false)
+	go util.UntilWithContext(ws.Context(), progressResponsePeriod, w.ProgressAll, false)
 
 	for {
 		msg, err := ws.Recv()
