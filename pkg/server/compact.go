@@ -130,5 +130,5 @@ func DecodeVersion(value []byte) (int64, []byte) {
 		return version, val
 	}
 	version, _ := strconv.ParseInt(string(value), 10, 64)
-	return version, nil
+	return version, []byte("0")
 }
