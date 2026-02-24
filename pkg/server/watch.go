@@ -247,7 +247,7 @@ func (w *watcher) removeWatch(watchID int64) bool {
 	return false
 }
 
-func (w *watcher) CancelEarly(ctx context.Context, err error) {
+func (w *watcher) CancelEarly(ctx context.Context, earlyErr error) {
 	rev, err := w.backend.CurrentRevision(ctx)
 	if err != nil {
 		logrus.Warnf("Failed to get current revision for early watch cancel: %v", err)
@@ -259,7 +259,7 @@ func (w *watcher) CancelEarly(ctx context.Context, err error) {
 		WatchId:      clientv3.InvalidWatchID,
 		Canceled:     true,
 		Created:      true,
-		CancelReason: err.Error(),
+		CancelReason: earlyErr.Error(),
 	})
 
 	if err != nil && !clientv3.IsConnCanceled(err) {
