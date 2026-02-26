@@ -94,7 +94,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-        test: [sqlite, litestream, mysql, postgres, cockroachdb, schema-migration, nats, nats-embedded, nats-socket]
+        test: [sqlite, litestream, mysql, postgres, cockroachdb, surrealdb, schema-migration, nats, nats-embedded, nats-socket]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
     - name: Download Artifacts
