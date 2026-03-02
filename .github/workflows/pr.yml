@@ -79,7 +79,7 @@ jobs:
           ARCH=${{ matrix.arch }}
 
     - name: Upload Artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: images-${{ matrix.arch }}
         path: ${{ runner.temp }}/kine*.tar
