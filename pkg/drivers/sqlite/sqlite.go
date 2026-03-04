@@ -77,7 +77,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	}
 
 	dialect.LastInsertID = true
-	dialect.GetSizeSQL = `SELECT SUM(pgsize) FROM dbstat`
+	dialect.GetSizeSQL = `SELECT (page_count - freelist_count) * page_size FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()`
 	dialect.CompactSQL = `
 		DELETE FROM kine AS kv
 		WHERE
