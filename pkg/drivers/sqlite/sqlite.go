@@ -40,6 +40,7 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_id_deleted_index ON kine (id,deleted)`,
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
+		`CREATE INDEX IF NOT EXISTS kine_id_compact_rev_key_with_prev_revision_index ON kine(id, name, prev_revision) WHERE name != 'compact_rev_key' AND prev_revision != 0`,
 	}
 )
 
