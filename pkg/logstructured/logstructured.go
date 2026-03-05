@@ -191,15 +191,17 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 		return rev, nil, err
 	}
 	if revision == 0 && len(events) == 0 {
-		// if no revision is requested and no events are returned, then
+		// if no revision is requested and no events are returned, then try to
 		// get the current revision and relist.  Relist is required because
 		// between now and getting the current revision something could have
 		// been created.
-		currentRev, err := l.log.CurrentRevision(ctx)
+		rev, err = l.log.CurrentRevision(ctx)
 		if err != nil {
-			return currentRev, nil, err
+			return rev, nil, err
 		}
-		return l.List(ctx, prefix, startKey, limit, currentRev, keysOnly)
+		if rrev, rkvs, rerr := l.List(ctx, prefix, startKey, limit, rev, keysOnly); rerr == nil {
+			return rrev, rkvs, rerr
+		}
 	}
 
 	kvs := make([]*server.KeyValue, 0, len(events))
