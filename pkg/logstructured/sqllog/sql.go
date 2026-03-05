@@ -634,11 +634,11 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	if err != nil {
 		return 0, err
 	}
+	s.currentRev.Store(rev)
 	select {
 	case s.notify <- rev:
 	default:
 	}
-	s.currentRev.Store(rev)
 	return rev, nil
 }
 
