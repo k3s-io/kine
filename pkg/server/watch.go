@@ -38,7 +38,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 	id := atomic.AddInt64(&serverID, 1)
 	w := watcher{
 		id:       id,
-		server:   ws,
+		server:   &server{ws: ws},
 		backend:  s.limited.backend,
 		watches:  map[int64]func(){},
 		progress: map[int64]chan<- int64{},
@@ -69,13 +69,32 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 	}
 }
 
+// server wraps the raw WatchServer with a mutex preventing
+// concurrent calls to Send. WatchServer.Send calls StreamServer.SendMsg
+// which is not safe to call concurrently from different goroutines.
+type server struct {
+	sync.Mutex
+
+	ws etcdserverpb.Watch_WatchServer
+}
+
+func (s *server) Send(wr *etcdserverpb.WatchResponse) error {
+	s.Lock()
+	defer s.Unlock()
+	return s.ws.Send(wr)
+}
+
+// watcher holds state for a single Watch StreamServer
+// Each StreamServer may have multiple watches over different keys; each watch has a globally unique ID
+// Individual watches may (at time of creation) opt in to receving periodic progress notifications,
+// which send a message with a header containing the current revision, but no events.
 type watcher struct {
 	sync.RWMutex
 
 	id       int64
 	wg       sync.WaitGroup
 	backend  Backend
-	server   etcdserverpb.Watch_WatchServer
+	server   *server
 	watches  map[int64]func()
 	progress map[int64]chan<- int64
 	notify   atomic.Bool
@@ -361,6 +380,11 @@ func (w *watcher) ProgressAll(ctx context.Context) {
 // ProgressIfSynced sends a progress report on any channels that are synced.
 func (w *watcher) ProgressIfSynced(ctx context.Context) {
 	logrus.Tracef("WATCH PROGRESS TICK server=%d", w.id)
+	if w.notify.Load() {
+		// Do not send direct progress to individual to watches if broadcast progress has been requested.
+		// This avoids sending unxpected double-progress - one broadcast in response to the request, another direct from this timer.
+		return
+	}
 
 	revision, err := w.backend.CurrentRevision(ctx)
 	if err != nil {
