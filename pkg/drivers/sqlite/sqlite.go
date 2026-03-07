@@ -17,7 +17,6 @@ import (
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/util"
 	"github.com/mattn/go-sqlite3"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -118,7 +117,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	}
 
 	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint); err != nil {
-		return nil, nil, errors.Wrap(err, "setup db")
+		return nil, nil, fmt.Errorf("setup db: %w", err)
 	}
 
 	dialect.Migrate(context.Background())

@@ -3,6 +3,7 @@ package sqllog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -234,18 +234,18 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 
 	t, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return 0, 0, errors.Wrap(err, "failed to begin transaction")
+		return 0, 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer t.MustRollback()
 
 	currentRev, err := t.CurrentRevision(s.ctx)
 	if err != nil {
-		return 0, 0, errors.Wrap(err, "failed to get current revision")
+		return 0, 0, fmt.Errorf("failed to get current revision: %w", err)
 	}
 
 	dbCompactRev, err := t.GetCompactRevision(s.ctx)
 	if err != nil {
-		return 0, 0, errors.Wrap(err, "failed to get compact revision")
+		return 0, 0, fmt.Errorf("failed to get compact revision: %w", err)
 	}
 
 	// Check to see if another node already compacted. This is normal on a multi-server cluster.
@@ -268,11 +268,11 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	start := time.Now()
 	deletedRows, err := t.Compact(s.ctx, targetCompactRev)
 	if err != nil {
-		return 0, 0, errors.Wrapf(err, "failed to compact to revision %d", targetCompactRev)
+		return 0, 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
 
 	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
-		return 0, 0, errors.Wrap(err, "failed to record compact revision")
+		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
 	}
 
 	// only commit the transaction if we make it all the way through deleting and
