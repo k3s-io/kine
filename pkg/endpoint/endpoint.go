@@ -2,6 +2,8 @@ package endpoint
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 	"net"
 	"os"
@@ -16,7 +18,6 @@ import (
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -90,7 +91,7 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 		if config.Endpoint != "" {
 			epType = "configured endpoint"
 		}
-		return ETCDConfig{}, errors.Wrap(err, "failed to create driver for "+epType)
+		return ETCDConfig{}, fmt.Errorf("failed to create driver for %s: %w", epType, err)
 	}
 
 	if backend == nil {
@@ -113,7 +114,7 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 
 	grpcServer, err := grpcServer(config)
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "creating GRPC server")
+		return ETCDConfig{}, fmt.Errorf("creating GRPC server: %w", err)
 	}
 
 	go func() {
@@ -126,7 +127,7 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 	}()
 
 	if err := backend.Start(bctx); err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "starting kine backend")
+		return ETCDConfig{}, fmt.Errorf("starting kine backend: %w", err)
 	}
 
 	// set up GRPC server and register services
@@ -136,7 +137,7 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 	// Create raw listener and wrap in cmux for protocol switching
 	listener, err := createListener(bctx, config)
 	if err != nil {
-		return ETCDConfig{}, errors.Wrap(err, "creating listener")
+		return ETCDConfig{}, fmt.Errorf("creating listener: %w", err)
 	}
 
 	wg.Add(1)
