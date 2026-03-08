@@ -652,6 +652,11 @@ func (s *surrealDBBackend) Compact(ctx context.Context, revision int64) (int64, 
 	return deleted, nil
 }
 
+func (s *surrealDBBackend) WaitForSyncTo(revision int64) {
+	// SurrealDB backend currently executes reads and writes directly against the
+	// primary store, so there is no asynchronous replication sync point to wait on.
+}
+
 func init() {
 	drivers.Register("surreal", New)
 	drivers.Register("surrealdb", New)
