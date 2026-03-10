@@ -284,7 +284,11 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	return targetCompactRev, currentRev, nil
 }
 
-// postCompact executes any post-compact database cleanup - vacuuming, WAL truncate, etc.
+// postCompact executes any driver-specific cleanup after a successful compaction pass.
+// The actual operation depends on the Dialect implementation; for example, the SQLite driver
+// uses this to run a WAL checkpoint (PRAGMA wal_checkpoint) to flush committed pages back
+// into the main database file (this does NOT reclaim free pages or shrink the database file;
+// disk space reclamation is handled separately via VACUUM at startup).
 func (s *SQLLog) postCompact() error {
 	return s.d.PostCompact(s.ctx)
 }
