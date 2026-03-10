@@ -64,11 +64,13 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 
 	noCompactCheckpoint := strings.Contains(dataSourceName, "_kine_disable_compact_wal_checkpoint")
 	noAutoCheckpoint := strings.Contains(dataSourceName, "_kine_disable_wal_autocheckpoint")
+	noStartupVacuum := strings.Contains(dataSourceName, "_kine_disable_startup_vacuum")
 
 	if driverName == "litestream" {
-		logrus.Infof("Litestream compatibility options enabled (all WAL checkpointing disabled)")
+		logrus.Infof("Litestream compatibility options enabled (all WAL checkpointing and startup VACUUM disabled)")
 		noCompactCheckpoint = true
 		noAutoCheckpoint = true
+		noStartupVacuum = true
 	}
 
 	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
@@ -116,7 +118,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return err.Error()
 	}
 
-	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint); err != nil {
+	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint, noStartupVacuum); err != nil {
 		return nil, nil, fmt.Errorf("setup db: %w", err)
 	}
 
@@ -124,7 +126,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
 }
 
-func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint bool) error {
+func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) error {
 	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
 
 	schema := append([]string{}, schema...)
@@ -145,6 +147,19 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint bool) error {
 	}
 
 	logrus.Infof("Database tables and indexes are up to date")
+
+	if noStartupVacuum {
+		logrus.Infof("Startup VACUUM is disabled")
+	} else {
+		logrus.Infof("Running startup VACUUM to reclaim disk space, this may take a moment...")
+
+		if _, err := db.Exec(`VACUUM`); err != nil {
+			logrus.Warnf("Startup VACUUM failed (non-fatal): %v", err)
+		} else {
+			logrus.Infof("Startup VACUUM completed successfully")
+		}
+	}
+
 	return nil
 }
 
