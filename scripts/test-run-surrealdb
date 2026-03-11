@@ -55,7 +55,7 @@ start-test() {
 export -f start-test
 
 VERSION_LIST="\
-    surrealdb 2.6"
+    surrealdb 3"
 
 while read -r ENGINE VERSION; do
     LABEL="$ENGINE-$VERSION" \
