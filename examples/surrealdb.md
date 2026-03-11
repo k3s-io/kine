@@ -35,15 +35,13 @@ surreal start --log info --user root --pass root file://data/kine.db
 ### 2. Start Kine with SurrealDB
 
 ```bash
-kine --endpoint=ws://localhost:8000/kine/kubernetes
+kine --endpoint=surrealdb://localhost:8000/kine/kubernetes
 ```
 
 With custom credentials:
 
 ```bash
-export SURREALDB_USER=admin
-export SURREALDB_PASS=mypassword
-kine --endpoint=ws://localhost:8000/kine/kubernetes
+kine --endpoint=surrealdb://localhost:8000/kine/kubernetes?username=admin&password=mypassword
 ```
 
 ### 3. Verify the Connection
@@ -91,7 +89,7 @@ surreal start \
 
 ```bash
 kine \
-  --endpoint=wss://surrealdb.example.com:8000/production/kubernetes \
+  --endpoint=surrealdbs://surrealdb.example.com:8000/production/kubernetes \
   --compact-interval=5m \
   --compact-batch-size=1000 \
   --compact-timeout=30s \
@@ -105,7 +103,7 @@ kine \
 
 ```bash
 curl -sfL https://get.k3s.io | sh -s - server \
-  --datastore-endpoint="ws://localhost:8000/kine/kubernetes"
+  --datastore-endpoint="surrealdb://localhost:8000/kine/kubernetes"
 ```
 
 ### K3s with External SurrealDB
@@ -115,7 +113,7 @@ export SURREALDB_USER=k3s_user
 export SURREALDB_PASS=k3s_password
 
 curl -sfL https://get.k3s.io | sh -s - server \
-  --datastore-endpoint="ws://surrealdb.internal:8000/production/k3s"
+  --datastore-endpoint="surrealdb://surrealdb.internal:8000/production/k3s"
 ```
 
 ### K3s HA Cluster with SurrealDB
@@ -124,12 +122,12 @@ curl -sfL https://get.k3s.io | sh -s - server \
 # First server
 curl -sfL https://get.k3s.io | sh -s - server \
   --cluster-init \
-  --datastore-endpoint="wss://surrealdb.example.com:8000/production/k3s"
+  --datastore-endpoint="surrealdbs://surrealdb.example.com:8000/production/k3s"
 
 # Additional servers
 curl -sfL https://get.k3s.io | sh -s - server \
   --server https://first-server:6443 \
-  --datastore-endpoint="wss://surrealdb.example.com:8000/production/k3s"
+  --datastore-endpoint="surrealdbs://surrealdb.example.com:8000/production/k3s"
 ```
 
 ## Docker Compose Example
@@ -159,7 +157,7 @@ services:
     image: rancher/kine:latest
     container_name: kine
     command: 
-      - --endpoint=ws://surrealdb:8000/kine/kubernetes
+      - --endpoint=surrealdb://surrealdb:8000/kine/kubernetes
       - --listen-address=0.0.0.0:2379
     ports:
       - "2379:2379"
@@ -277,7 +275,7 @@ metadata:
   name: kine-config
   namespace: kube-system
 data:
-  endpoint: "ws://surrealdb-0.surrealdb.kube-system.svc.cluster.local:8000/kine/kubernetes"
+  endpoint: "surrealdb://surrealdb-0.surrealdb.kube-system.svc.cluster.local:8000/kine/kubernetes"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -524,7 +522,7 @@ surreal import \
 
 ```bash
 # Kine debug logging
-kine --endpoint=ws://localhost:8000/kine/kubernetes --log-level=trace
+kine --endpoint=surrealdb://localhost:8000/kine/kubernetes --log-level=trace
 
 # SurrealDB debug logging
 surreal start --log trace --user root --pass root

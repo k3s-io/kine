@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	defaultDSN = "ws://127.0.0.1:8000/kine/kubernetes"
+	defaultDSN = "surrealdb://127.0.0.1:8000/kine/kubernetes"
 )
 
 var (
@@ -69,8 +70,18 @@ func parseDSN(dsn string) (endpoint, namespace, database, username, password str
 		return "", "", "", "", "", fmt.Errorf("invalid DSN format")
 	}
 
-	protocol := parts[0]
+	dsnScheme := parts[0]
 	remainder := parts[1]
+	transport := dsnScheme
+
+	switch dsnScheme {
+	case "surrealdb":
+		// `surrealdb://` is Kine's backend selector; default transport to WebSocket.
+		transport = "ws"
+	case "surrealdbs":
+		// `surrealdbs://` is Kine's secure backend selector; use secure WebSocket.
+		transport = "wss"
+	}
 
 	queryIdx := strings.Index(remainder, "?")
 	var query string
@@ -84,8 +95,6 @@ func parseDSN(dsn string) (endpoint, namespace, database, username, password str
 		return "", "", "", "", "", fmt.Errorf("invalid DSN format, expected protocol://host:port/namespace/database")
 	}
 
-	endpoint = fmt.Sprintf("%s://%s", protocol, hostParts[0])
-
 	nsParts := strings.Split(hostParts[1], "/")
 	if len(nsParts) != 2 {
 		return "", "", "", "", "", fmt.Errorf("namespace and database required")
@@ -96,28 +105,52 @@ func parseDSN(dsn string) (endpoint, namespace, database, username, password str
 
 	username = "root"
 	password = "root"
+	hasUsernameInDSN := false
+	hasPasswordInDSN := false
 
 	if query != "" {
-		params := strings.Split(query, "&")
-		for _, param := range params {
-			kv := strings.SplitN(param, "=", 2)
-			if len(kv) == 2 {
-				switch kv[0] {
-				case "user", "username":
-					username = kv[1]
-				case "pass", "password":
-					password = kv[1]
-				}
-			}
+		params, err := url.ParseQuery(query)
+		if err != nil {
+			return "", "", "", "", "", fmt.Errorf("invalid DSN query: %w", err)
+		}
+
+		if value := params.Get("username"); value != "" {
+			username = value
+			hasUsernameInDSN = true
+		}
+		if value := params.Get("password"); value != "" {
+			password = value
+			hasPasswordInDSN = true
+		}
+		if value := params.Get("transport"); value != "" {
+			transport = value
+		}
+		if value := params.Get("scheme"); value != "" {
+			transport = value
+		}
+		if value := params.Get("protocol"); value != "" {
+			transport = value
 		}
 	}
 
-	if envUser := os.Getenv("SURREALDB_USER"); envUser != "" {
-		username = envUser
+	switch transport {
+	case "ws", "wss", "http", "https":
+	default:
+		return "", "", "", "", "", fmt.Errorf("unsupported surrealdb transport %q", transport)
 	}
-	if envPass := os.Getenv("SURREALDB_PASS"); envPass != "" {
-		password = envPass
+
+	if !hasUsernameInDSN {
+		if envUser := os.Getenv("SURREALDB_USER"); envUser != "" {
+			username = envUser
+		}
 	}
+	if !hasPasswordInDSN {
+		if envPass := os.Getenv("SURREALDB_PASS"); envPass != "" {
+			password = envPass
+		}
+	}
+
+	endpoint = fmt.Sprintf("%s://%s", transport, hostParts[0])
 
 	return endpoint, namespace, database, username, password, nil
 }
@@ -659,6 +692,7 @@ func (s *surrealDBBackend) WaitForSyncTo(revision int64) {
 
 func init() {
 	drivers.Register("surrealdb", New)
+	drivers.Register("surrealdbs", New)
 
 	logrus.Info("SurrealDB driver registered")
 }

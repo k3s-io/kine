@@ -1,7 +1,7 @@
 #!/bin/bash
 
 start-test() {
-    local ip port user pass namespace database image kine_endpoint kine_url
+    local ip port user pass namespace database image db_endpoint kine_endpoint kine_url
 
     ip=$(cat "$TEST_DIR"/databases/*/metadata/ip)
     port=$(cat "$TEST_DIR"/databases/*/metadata/port)
@@ -16,7 +16,8 @@ start-test() {
         user="root"
     fi
 
-    kine_endpoint="http://$ip:$port"
+    db_endpoint="http://$ip:$port"
+    kine_endpoint="surrealdb://$ip:$port/$namespace/$database?username=$user&password=$pass"
 
     DB_CONNECTION_TEST="
         docker run --rm
@@ -29,7 +30,7 @@ start-test() {
           -H \"surreal-ns: $namespace\"
           -H \"surreal-db: $database\"
           -d \"RETURN 1;\"
-          \"$kine_endpoint/sql\"
+          \"$db_endpoint/sql\"
     " timeout --foreground 1m bash -c "wait-for-db-connection"
 
     SURREAL_NS="$namespace" \
