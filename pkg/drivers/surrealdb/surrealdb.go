@@ -658,10 +658,7 @@ func (s *surrealDBBackend) WaitForSyncTo(revision int64) {
 }
 
 func init() {
-	drivers.Register("surreal", New)
 	drivers.Register("surrealdb", New)
-	drivers.Register("ws", New)
-	drivers.Register("wss", New)
 
 	logrus.Info("SurrealDB driver registered")
 }
