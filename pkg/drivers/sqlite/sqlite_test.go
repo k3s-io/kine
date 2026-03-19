@@ -4,7 +4,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -15,8 +14,8 @@ import (
 // schema, inserts rowCount rows, then deletes them all. The deleted pages remain
 // on SQLite's internal freelist so the file stays large on disk despite holding
 // no data — simulating the post-compaction bloat that VACUUM is meant to fix.
-// It returns the open *sql.DB and the path to the database file.
-func createBloatedDB(t *testing.T, rowCount int) (*sql.DB, string) {
+// It returns the open *sql.DB.
+func createBloatedDB(t *testing.T, rowCount int) *sql.DB {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -81,30 +80,30 @@ func createBloatedDB(t *testing.T, rowCount int) (*sql.DB, string) {
 		t.Fatalf("failed to checkpoint after delete: %v", err)
 	}
 
-	return db, dbPath
+	return db
 }
 
-// fileSize returns the size of the file at path.
-func fileSize(t *testing.T, path string) int64 {
+// freelistCount returns the number of pages on SQLite's internal freelist.
+func freelistCount(t *testing.T, db *sql.DB) int64 {
 	t.Helper()
 
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("failed to stat %s: %v", path, err)
+	var count int64
+	if err := db.QueryRow(`SELECT freelist_count FROM pragma_freelist_count()`).Scan(&count); err != nil {
+		t.Fatalf("failed to query freelist_count: %v", err)
 	}
 
-	return fi.Size()
+	return count
 }
 
 func TestSetupVacuumReclaimsDiskSpace(t *testing.T) {
 	const rowCount = 10000
 
-	db, dbPath := createBloatedDB(t, rowCount)
+	db := createBloatedDB(t, rowCount)
 	defer db.Close()
 
-	sizeBefore := fileSize(t, dbPath)
-	if sizeBefore == 0 {
-		t.Fatal("database file is empty before setup - test setup is broken")
+	freelistBefore := freelistCount(t, db)
+	if freelistBefore == 0 {
+		t.Fatal("freelist is empty before setup - test setup is broken")
 	}
 
 	// Run setup with VACUUM enabled (noStartupVacuum=false).
@@ -112,33 +111,26 @@ func TestSetupVacuumReclaimsDiskSpace(t *testing.T) {
 		t.Fatalf("setup() failed: %v", err)
 	}
 
-	// VACUUM rewrites the database file, but the OS may report the old size
-	// while connections using cache=shared still hold the original file
-	// descriptor. Close the pool so the old fd is released and the filesystem
-	// reflects the new (smaller) file.
-	db.Close()
+	freelistAfter := freelistCount(t, db)
 
-	sizeAfter := fileSize(t, dbPath)
-
-	// After VACUUM the file should be smaller, all rows have been deleted
-	// so the file should shrink by at least 50%.
-	threshold := sizeBefore / 2
-	if sizeAfter >= threshold {
-		t.Errorf("VACUUM did not reclaim disk space: size before=%d, after=%d (expected < %d)", sizeBefore, sizeAfter, threshold)
+	// After VACUUM the freelist should be empty — all unused pages are
+	// reclaimed and the database file is rewritten without gaps.
+	if freelistAfter != 0 {
+		t.Errorf("VACUUM did not reclaim freelist pages: before=%d, after=%d (expected 0)", freelistBefore, freelistAfter)
 	}
 
-	t.Logf("VACUUM reclaimed space: %d -> %d bytes (%.1f%% reduction)", sizeBefore, sizeAfter, 100*(1-float64(sizeAfter)/float64(sizeBefore)))
+	t.Logf("VACUUM reclaimed freelist pages: %d -> %d", freelistBefore, freelistAfter)
 }
 
 func TestSetupVacuumDisabledPreservesFileSize(t *testing.T) {
 	const rowCount = 10000
 
-	db, dbPath := createBloatedDB(t, rowCount)
+	db := createBloatedDB(t, rowCount)
 	defer db.Close()
 
-	sizeBefore := fileSize(t, dbPath)
-	if sizeBefore == 0 {
-		t.Fatal("database file is empty before setup - test setup is broken")
+	freelistBefore := freelistCount(t, db)
+	if freelistBefore == 0 {
+		t.Fatal("freelist is empty before setup - test setup is broken")
 	}
 
 	// Run setup with VACUUM disabled (noStartupVacuum=true).
@@ -146,19 +138,15 @@ func TestSetupVacuumDisabledPreservesFileSize(t *testing.T) {
 		t.Fatalf("setup() failed: %v", err)
 	}
 
-	// Close the pool before measuring, same as the VACUUM-enabled test, so
-	// that the OS reports the true file size without stale fd interference.
-	db.Close()
+	freelistAfter := freelistCount(t, db)
 
-	sizeAfter := fileSize(t, dbPath)
-
-	// With VACUUM disabled, the file size should remain the same (or very
-	// close - schema/index creation is idempotent and adds negligible data).
-	// Allow a small tolerance for WAL checkpoint overhead.
-	lowerBound := sizeBefore * 9 / 10
-	if sizeAfter < lowerBound {
-		t.Errorf("file unexpectedly shrank without VACUUM: size before=%d, after=%d", sizeBefore, sizeAfter)
+	// With VACUUM disabled, the freelist should remain substantially
+	// unchanged. Schema/index creation is idempotent but may consume a
+	// handful of freelist pages, so allow a small tolerance.
+	lowerBound := freelistBefore * 9 / 10
+	if freelistAfter < lowerBound {
+		t.Errorf("freelist unexpectedly shrank without VACUUM: before=%d, after=%d (expected >= %d)", freelistBefore, freelistAfter, lowerBound)
 	}
 
-	t.Logf("No VACUUM: file size before=%d, after=%d bytes", sizeBefore, sizeAfter)
+	t.Logf("No VACUUM: freelist pages before=%d, after=%d", freelistBefore, freelistAfter)
 }
