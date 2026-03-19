@@ -15,6 +15,8 @@ jobs:
       contents: write # Needed to update release with binary assets
       packages: write # Needed for GHCR image push
       id-token: write # needed for the Vault authentication
+      attestations: write # needed for attest action
+      artifact-metadata: write # needed for attestation upload to GHCR
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -33,8 +35,13 @@ jobs:
             sha256sum kine-"${a}" > sha256sum-"${a}".txt
           done
           
+      - name: Attest binaries
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/artifacts/kine-*
+
       - name: Upload binaries to release
-        uses: softprops/action-gh-release@v2.5.0 # https://github.com/softprops/action-gh-release/issues/587
+        uses: softprops/action-gh-release@v2.6.1
         with:
           files: |
             dist/artifacts/kine-*
@@ -48,6 +55,11 @@ jobs:
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials username | DOCKER_USERNAME ;
             secret/data/github/repo/${{ github.repository }}/dockerhub/rancher/credentials password | DOCKER_TOKEN ;
     
+      - name: Set DockerHub repo
+        if: github.repository_owner != 'k3s-io'
+        run: |
+          echo "DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}" >> "$GITHUB_ENV"
+
       - name: Login to DockerHub with Rancher Secrets
         if: github.repository_owner == 'k3s-io'
         uses: docker/login-action@v4
@@ -70,30 +82,24 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push (k3s-io)
-        if: github.repository_owner == 'k3s-io'
+      - name: Build and push
         uses: docker/build-push-action@v7
+        id: build
         with:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           context: .
           target: multi-arch-package
           push: true
           tags: |
-            rancher/kine:latest
-            rancher/kine:${{ github.ref_name }}
+            ${{ env.DOCKER_USERNAME }}/kine:latest
+            ${{ env.DOCKER_USERNAME }}/kine:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/kine:latest
             ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
-
-      - name: Build and push (forks)
-        if: github.repository_owner != 'k3s-io'
-        uses: docker/build-push-action@v7
+      
+      - name: Attest images
+        uses: actions/attest@v4
+        id: attest
         with:
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          context: .
-          target: multi-arch-package
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/kine:latest
-            ${{ secrets.DOCKER_USERNAME }}/kine:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/kine:latest
-            ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
+          subject-name: ghcr.io/${{ github.repository_owner }}/kine
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
