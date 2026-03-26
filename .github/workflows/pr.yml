@@ -12,15 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
     - name: Setup Go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
       with:
         go-version: '1.25'
 
     - name: Lint
-      uses: golangci/golangci-lint-action@v9
+      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
       with:
         version: v2.7
 
@@ -39,13 +39,13 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
     - name: Build Dockerfile - binary
-      uses: docker/build-push-action@v7
+      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
       with:
         context: .
         file: ./Dockerfile
@@ -56,7 +56,7 @@ jobs:
           ARCH=${{ matrix.arch }}
 
     - name: Build Dockerfile - package
-      uses: docker/build-push-action@v7
+      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
       with:
         context: .
         file: ./Dockerfile
@@ -68,7 +68,7 @@ jobs:
           ARCH=${{ matrix.arch }}
 
     - name: Build Dockerfile.test
-      uses: docker/build-push-action@v7
+      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
       with:
         context: .
         file: ./Dockerfile.test
@@ -79,7 +79,7 @@ jobs:
           ARCH=${{ matrix.arch }}
 
     - name: Upload Artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
       with:
         name: images-${{ matrix.arch }}
         path: ${{ runner.temp }}/kine*.tar
@@ -98,7 +98,7 @@ jobs:
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
     - name: Download Artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
       with:
         name: images-${{ matrix.arch }}
         path: ${{ runner.temp }}
