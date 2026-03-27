@@ -4,7 +4,18 @@ ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
 RUN GOPROXY=direct go install golang.org/x/tools/cmd/goimports@gopls/v0.20.0
-RUN curl -sL https://raw.githubusercontent.com/golangci/golangci-lint/refs/tags/v2.7.2/install.sh | sh -s -- v2.7.2
+RUN GOLANGCI_VERSION=v2.7.2 && \
+    case "${ARCH}" in \
+        amd64) GOLANGCI_SHA256="ce46a1f1d890e7b667259f70bb236297f5cf8791a9b6b98b41b283d93b5b6e88" ;; \
+        arm64) GOLANGCI_SHA256="7028e810837722683dab679fb121336cfa303fecff39dfe248e3e36bc18d941b" ;; \
+        *) echo "Unsupported architecture for golangci-lint: ${ARCH}" && exit 1 ;; \
+    esac && \
+    cd /tmp && \
+    curl -fsSL "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_VERSION}/golangci-lint-${GOLANGCI_VERSION#v}-linux-${ARCH}.tar.gz" -o golangci-lint.tar.gz && \
+    echo "${GOLANGCI_SHA256}  golangci-lint.tar.gz" | sha256sum -c - && \
+    tar --strip-components=1 -xzf golangci-lint.tar.gz "golangci-lint-${GOLANGCI_VERSION#v}-linux-${ARCH}/golangci-lint" && \
+    install -m 0755 golangci-lint /usr/local/bin/golangci-lint && \
+    rm -f /tmp/golangci-lint /tmp/golangci-lint.tar.gz
 WORKDIR /go/src/github.com/k3s-io/kine
 
 # Validate needs everything in the project, so we separate it out for better caching
