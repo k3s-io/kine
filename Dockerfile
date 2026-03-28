@@ -3,7 +3,9 @@ FROM golang:1.25-alpine3.23 AS infra
 ARG ARCH=amd64
 
 RUN apk -U add bash coreutils git gcc musl-dev vim less curl wget ca-certificates
-RUN GOPROXY=direct go install golang.org/x/tools/cmd/goimports@gopls/v0.20.0
+# goimports version gopls/v0.20.0
+# https://github.com/golang/tools/releases/tag/gopls%2Fv0.20.0
+RUN GOPROXY=direct go install golang.org/x/tools/cmd/goimports@2e31135b736b96cd609904370c71563ce5447826
 RUN GOLANGCI_VERSION=v2.7.2 && \
     case "${ARCH}" in \
         amd64) GOLANGCI_SHA256="ce46a1f1d890e7b667259f70bb236297f5cf8791a9b6b98b41b283d93b5b6e88" ;; \
