@@ -6,6 +6,7 @@ Kine is an etcdshim that translates etcd API to:
 - Postgres
 - MySQL/MariaDB
 - NATS
+- MongoDB
 
 ## Features
 - Can be ran standalone so any k8s (not just K3s) can use Kine
