@@ -46,4 +46,7 @@ echo "did test-nats-embedded $?"
 . ./scripts/test-run-nats-socket
 echo "did test-nats-socket $?"
 
+. ./scripts/test-run-mongodb
+echo "Did test-run-mongodb $?"
+
 exit 0

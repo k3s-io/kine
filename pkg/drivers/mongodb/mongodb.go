@@ -17,6 +17,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"k8s.io/client-go/util/workqueue"
+)
+
+const (
+	retryInterval = 250 * time.Millisecond
 )
 
 func init() {
@@ -45,9 +50,12 @@ type KineReg struct {
 }
 
 // RevisionReg is the single document in the revision collection used as an atomic counter.
+// It also stores the last compacted revision so that Get/Watch can return ErrCompacted
+// for historical reads below the compact point.
 type RevisionReg struct {
-	ID       bson.ObjectID `bson:"_id,omitempty"`
-	Revision int64         `bson:"revision"`
+	ID              bson.ObjectID `bson:"_id,omitempty"`
+	Revision        int64         `bson:"revision"`
+	CompactRevision int64         `bson:"compactRevision,omitempty"`
 }
 
 // CollStats holds size information for a collection.
@@ -69,9 +77,18 @@ func (kr *KineReg) toKeyValue(keysOnly bool) *server.KeyValue {
 	return kv
 }
 
+// ttlEventKV tracks when a key with a TTL lease should be deleted.
+type ttlEventKV struct {
+	key         string
+	modRevision int64
+	expiredAt   time.Time
+}
+
 // MongoBackend implements server.Backend using MongoDB.
 type MongoBackend struct {
-	mu           sync.Mutex
+	// createMu serialises Create calls to prevent TOCTOU races:
+	// two concurrent goroutines seeing "key does not exist" and both inserting.
+	createMu     sync.Mutex
 	client       *mongo.Client
 	db           *mongo.Database
 	coll         *mongo.Collection
@@ -126,7 +143,8 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	return true, b, nil
 }
 
-// Start pings MongoDB, creates indexes, and ensures a health-check key exists.
+// Start pings MongoDB, creates indexes, ensures a health-check key exists,
+// and launches the TTL goroutine that expires keys with a lease.
 func (b *MongoBackend) Start(ctx context.Context) error {
 	if err := b.client.Ping(ctx, readpref.Primary()); err != nil {
 		return fmt.Errorf("pinging MongoDB: %w", err)
@@ -134,11 +152,27 @@ func (b *MongoBackend) Start(ctx context.Context) error {
 	if err := setupIndexes(ctx, b.coll); err != nil {
 		return fmt.Errorf("setting up MongoDB indexes: %w", err)
 	}
-	if _, err := b.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
+	// Create the health key and immediately update it to advance to revision 2.
+	// All kine backends start at revision 2 (the compiled apiserver conformance
+	// tests rely on this). On subsequent restarts the key already exists, so only
+	// the Create is skipped and the revision stays at its current (higher) value.
+	if rev, err := b.Create(ctx, "/registry/health", nil, 0); err != nil {
 		if !errors.Is(err, server.ErrKeyExists) {
 			logrus.Warnf("mongodb: failed to create health check key: %v", err)
 		}
+	} else if _, _, _, err := b.Update(ctx, "/registry/health", []byte(`{"health":"true"}`), rev, 0); err != nil {
+		logrus.Warnf("mongodb: failed to update health check key: %v", err)
 	}
+	go b.ttl(ctx)
+	// Disconnect the client when the context is cancelled so that connection pool
+	// file descriptors are released promptly (important in test environments where
+	// many backends are created and destroyed in the same process).
+	go func() {
+		<-ctx.Done()
+		disconnectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = b.client.Disconnect(disconnectCtx)
+	}()
 	logrus.Infof("MongoDB backend started (db=%s)", b.db.Name())
 	return nil
 }
@@ -174,10 +208,46 @@ func (b *MongoBackend) nextRevision(ctx context.Context) (int64, error) {
 	return rev.Revision, nil
 }
 
+// getCompactRevision returns the last revision that has been compacted, or 0 if none.
+func (b *MongoBackend) getCompactRevision(ctx context.Context) (int64, error) {
+	var rev RevisionReg
+	err := b.collRevision.FindOne(ctx, bson.M{}).Decode(&rev)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return rev.CompactRevision, nil
+}
+
+// setCompactRevision persists the compact revision so future Get/Watch calls can
+// return ErrCompacted for historical reads at or below this point.
+func (b *MongoBackend) setCompactRevision(ctx context.Context, revision int64) error {
+	_, err := b.collRevision.UpdateOne(
+		ctx,
+		bson.M{},
+		bson.M{"$set": bson.M{"compactRevision": revision}},
+		options.UpdateOne().SetUpsert(true),
+	)
+	return err
+}
+
 // Get returns the most recent value for key at or before revision.
 // It returns nil KV when the key does not exist or its latest event is a deletion.
 // If revision is 0, the latest is returned. rangeEnd and limit are unused for single-key gets.
 func (b *MongoBackend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
+	// Return ErrCompacted for any historical read at or below the compact point.
+	if revision > 0 {
+		compactRev, err := b.getCompactRevision(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		if revision < compactRev {
+			return revision, nil, server.ErrCompacted
+		}
+	}
+
 	// Fetch the LATEST document for the key (including tombstones) so we can correctly
 	// determine whether the key is live. Filtering on deleted=0 first would return
 	// a stale live document even when a newer tombstone exists.
@@ -214,7 +284,11 @@ func (b *MongoBackend) Get(ctx context.Context, key, rangeEnd string, limit, rev
 }
 
 // Create inserts a new key. Returns ErrKeyExists if the key already exists and is not deleted.
+// A per-instance mutex serialises the check-then-insert to prevent concurrent goroutines from
+// both seeing "key absent" and both succeeding with a double-create.
 func (b *MongoBackend) Create(ctx context.Context, key string, value []byte, lease int64) (int64, error) {
+	b.createMu.Lock()
+	defer b.createMu.Unlock()
 	existing, err := b.findLatestForKey(ctx, key, 0, true)
 	if err != nil {
 		return 0, err
@@ -254,7 +328,10 @@ func (b *MongoBackend) Update(ctx context.Context, key string, value []byte, rev
 	if existing == nil {
 		return 0, nil, false, nil
 	}
-	if existing.Revision != revision {
+	// The revision parameter is an upper bound: the caller says "I expect the latest
+	// revision of this key to be at or before revision". If the actual latest is
+	// already past that point (concurrent write), the update is a conflict.
+	if existing.Revision > revision {
 		return existing.Revision, existing.toKeyValue(false), false, nil
 	}
 
@@ -284,10 +361,15 @@ func (b *MongoBackend) Delete(ctx context.Context, key string, revision int64) (
 		return 0, nil, false, err
 	}
 	if existing == nil {
-		return 0, nil, true, nil
+		// Key never existed — no-op (mirrors logstructured behaviour).
+		curRev, _ := b.CurrentRevision(ctx)
+		return curRev, nil, true, nil
 	}
 	if existing.Deleted == 1 {
-		return existing.Revision, existing.toKeyValue(false), true, nil
+		// Key was already deleted — return not-found so the server sends a failed
+		// Txn response, which the Kubernetes storage layer maps to IsNotFound.
+		curRev, _ := b.CurrentRevision(ctx)
+		return curRev, nil, false, nil
 	}
 	if revision != 0 && existing.Revision != revision {
 		return existing.Revision, existing.toKeyValue(false), false, nil
@@ -312,8 +394,23 @@ func (b *MongoBackend) List(ctx context.Context, prefix, startKey string, limit,
 	if err != nil {
 		return 0, nil, err
 	}
-	returnRev := curRev
 
+	if revision > 0 {
+		// Reject requests for future revisions.
+		if revision > curRev {
+			return curRev, nil, server.ErrFutureRev
+		}
+		// Reject requests for compacted revisions.
+		compactRev, err := b.getCompactRevision(ctx)
+		if err != nil {
+			return 0, nil, err
+		}
+		if revision < compactRev {
+			return revision, nil, server.ErrCompacted
+		}
+	}
+
+	returnRev := curRev
 	matchFilter := buildPrefixFilter(prefix, startKey)
 	if revision > 0 {
 		matchFilter["revision"] = bson.M{"$lte": revision}
@@ -359,6 +456,23 @@ func (b *MongoBackend) List(ctx context.Context, prefix, startKey string, limit,
 // Count returns the current revision and the number of live keys matching the given prefix,
 // at or before revision. startKey acts as a lower bound for the key range.
 func (b *MongoBackend) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
+	if revision > 0 {
+		curRev, err := b.CurrentRevision(ctx)
+		if err != nil {
+			return 0, 0, err
+		}
+		if revision > curRev {
+			return curRev, 0, server.ErrFutureRev
+		}
+		compactRev, err := b.getCompactRevision(ctx)
+		if err != nil {
+			return 0, 0, err
+		}
+		if revision < compactRev {
+			return revision, 0, server.ErrCompacted
+		}
+	}
+
 	matchFilter := buildPrefixFilter(prefix, startKey)
 	if revision > 0 {
 		matchFilter["revision"] = bson.M{"$lte": revision}
@@ -403,6 +517,20 @@ func (b *MongoBackend) Count(ctx context.Context, prefix, startKey string, revis
 // then queries for new documents since the last known revision.
 func (b *MongoBackend) Watch(ctx context.Context, key string, revision int64) server.WatchResult {
 	curRev, _ := b.CurrentRevision(ctx)
+	compactRev, _ := b.getCompactRevision(ctx)
+
+	// If the requested start revision has been compacted, signal the caller immediately.
+	// Watch uses <= because the event log AT compactRev is gone; List/Get use < because
+	// the data document AT compactRev is still physically present.
+	if revision > 0 && revision <= compactRev {
+		eventC := make(chan []*server.Event)
+		close(eventC)
+		return server.WatchResult{
+			CurrentRevision: curRev,
+			CompactRevision: compactRev,
+			Events:          eventC,
+		}
+	}
 
 	eventC := make(chan []*server.Event, 100)
 	errC := make(chan error, 1)
@@ -505,28 +633,28 @@ func (b *MongoBackend) Compact(ctx context.Context, revision int64) (int64, erro
 	}
 	cursor.Close(ctx)
 
-	var deleted int64
-
 	// Step 2: delete superseded revisions.
 	if len(agg.PrevRevisions) > 0 {
-		res, err := b.coll.DeleteMany(ctx, bson.M{"revision": bson.M{"$in": agg.PrevRevisions}})
-		if err != nil {
-			return deleted, err
+		if _, err := b.coll.DeleteMany(ctx, bson.M{"revision": bson.M{"$in": agg.PrevRevisions}}); err != nil {
+			return 0, err
 		}
-		deleted += res.DeletedCount
 	}
 
 	// Step 3: delete tombstone documents at or before the compact revision.
-	res, err := b.coll.DeleteMany(ctx, bson.M{
+	if _, err := b.coll.DeleteMany(ctx, bson.M{
 		"revision": bson.M{"$lte": revision},
 		"deleted":  bson.M{"$gt": int64(0)},
-	})
-	if err != nil {
-		return deleted, err
+	}); err != nil {
+		return 0, err
 	}
-	deleted += res.DeletedCount
 
-	return deleted, nil
+	// Step 4: persist the compact revision so that Get/Watch can enforce ErrCompacted.
+	if err := b.setCompactRevision(ctx, revision); err != nil {
+		return 0, err
+	}
+
+	// Return the current revision (mirrors SQL and NATS backends).
+	return b.CurrentRevision(ctx)
 }
 
 // WaitForSyncTo blocks until the current global revision reaches the target.
@@ -651,6 +779,157 @@ func (b *MongoBackend) findLatestForKey(ctx context.Context, key string, maxRevi
 		return nil, err
 	}
 	return &doc, nil
+}
+
+// ttl is a long-running goroutine that watches for keys with a Lease (TTL) and
+// deletes them once the TTL has elapsed. It mirrors the logstructured TTL behaviour.
+func (b *MongoBackend) ttl(ctx context.Context) {
+	queue := workqueue.NewTypedDelayingQueue[string]()
+	mu := &sync.RWMutex{}
+	store := make(map[string]*ttlEventKV)
+	eventCh := b.ttlEvents(ctx)
+
+	go func() {
+		for b.handleTTLEvent(ctx, mu, queue, store) {
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			queue.ShutDown()
+			return
+		case event, ok := <-eventCh:
+			if !ok {
+				queue.ShutDown()
+				return
+			}
+			if event.Delete {
+				continue
+			}
+			b.upsertTTLEntry(mu, store, queue, event.KV)
+		}
+	}
+}
+
+// ttlEvents returns a channel that first yields all currently live keys that
+// have a Lease (from an initial list), then streams all subsequent watch events
+// that carry a Lease.
+func (b *MongoBackend) ttlEvents(ctx context.Context) chan *server.Event {
+	result := make(chan *server.Event)
+	go func() {
+		defer close(result)
+
+		// Initial list: page through all keys starting with "/" that have a lease.
+		curRev, err := b.CurrentRevision(ctx)
+		if err != nil {
+			logrus.Errorf("mongodb TTL: failed to get current revision: %v", err)
+			return
+		}
+		startKey := ""
+		for {
+			_, kvs, err := b.List(ctx, "/", startKey, 1000, curRev, false)
+			if err != nil {
+				logrus.Errorf("mongodb TTL: initial list failed: %v", err)
+				return
+			}
+			for _, kv := range kvs {
+				if kv.Lease > 0 {
+					select {
+					case result <- &server.Event{KV: kv}:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+			if len(kvs) < 1000 {
+				break
+			}
+			startKey = kvs[len(kvs)-1].Key
+		}
+
+		// Continuous watch from curRev onwards.
+		wr := b.Watch(ctx, "/", curRev)
+		if wr.CompactRevision != 0 {
+			logrus.Errorf("mongodb TTL: watch failed: compacted at %d", wr.CompactRevision)
+			return
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case events, ok := <-wr.Events:
+				if !ok {
+					return
+				}
+				for _, event := range events {
+					if event.KV.Lease > 0 {
+						select {
+						case result <- event:
+						case <-ctx.Done():
+							return
+						}
+					}
+				}
+			}
+		}
+	}()
+	return result
+}
+
+// handleTTLEvent processes one item from the TTL work queue.
+func (b *MongoBackend) handleTTLEvent(ctx context.Context, mu *sync.RWMutex, queue workqueue.TypedDelayingInterface[string], store map[string]*ttlEventKV) bool {
+	key, shutdown := queue.Get()
+	if shutdown {
+		return false
+	}
+	defer queue.Done(key)
+
+	mu.RLock()
+	entry := store[key]
+	mu.RUnlock()
+	if entry == nil {
+		return true
+	}
+
+	if remaining := time.Until(entry.expiredAt); remaining > 0 {
+		queue.AddAfter(key, remaining)
+		return true
+	}
+
+	logrus.Tracef("mongodb TTL: deleting key=%s modRev=%d", entry.key, entry.modRevision)
+	if _, _, _, err := b.Delete(ctx, entry.key, entry.modRevision); err != nil && !errors.Is(err, context.Canceled) {
+		logrus.Errorf("mongodb TTL: delete failed for key=%s: %v, retrying", entry.key, err)
+		queue.AddAfter(key, retryInterval)
+		return true
+	}
+
+	mu.Lock()
+	delete(store, key)
+	mu.Unlock()
+	return true
+}
+
+// upsertTTLEntry adds or updates the TTL entry for a key and enqueues the deletion.
+func (b *MongoBackend) upsertTTLEntry(mu *sync.RWMutex, store map[string]*ttlEventKV, queue workqueue.TypedDelayingInterface[string], kv *server.KeyValue) {
+	expires := time.Duration(kv.Lease) * time.Second
+	expiredAt := time.Now().Add(expires)
+
+	mu.Lock()
+	existing := store[kv.Key]
+	if existing != nil && existing.modRevision >= kv.ModRevision {
+		mu.Unlock()
+		return // already tracking a newer or same revision
+	}
+	store[kv.Key] = &ttlEventKV{
+		key:         kv.Key,
+		modRevision: kv.ModRevision,
+		expiredAt:   expiredAt,
+	}
+	mu.Unlock()
+
+	logrus.Tracef("mongodb TTL: scheduled key=%s modRev=%d in %v", kv.Key, kv.ModRevision, expires)
+	queue.AddAfter(kv.Key, expires)
 }
 
 // setupIndexes creates the required indexes on the kine collection.

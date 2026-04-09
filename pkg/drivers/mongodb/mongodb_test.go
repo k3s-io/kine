@@ -265,10 +265,10 @@ func TestMongoDB_Delete(t *testing.T) {
 	expEqual(t, pfx("/d"), kv.Key)
 	expEqual(t, "to-delete", string(kv.Value))
 
-	// Deleting again returns ok=true (idempotent — key is already gone).
+	// Deleting again returns ok=false — key is in tombstone state, maps to IsNotFound.
 	_, _, ok, err = b.Delete(ctx, pfx("/d"), 0)
 	noErr(t, err)
-	expEqual(t, true, ok)
+	expEqual(t, false, ok)
 
 	// After delete, Get returns nil KV.
 	_, kv, err = b.Get(ctx, pfx("/d"), "", 0, 0, false)

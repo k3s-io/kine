@@ -17,5 +17,10 @@ test-load() {
     python3 hack/histogram.py --backend-name "$LABEL" | awk '{print "[PERF]\t" $0}'
 }
 
+if ! python3 -c "import kubernetes, termplotlib" 2>/dev/null; then
+    echo "Skipping load test: missing Python modules (install kubernetes and termplotlib)"
+    exit 0
+fi
+
 echo "Running configmap load generation script"
 test-load

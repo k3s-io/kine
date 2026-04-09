@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# database-pre-hook is called by provision-database after creating the metadata directory.
+# Used here to inject the MongoDB root username into the container env-file, since
+# provision-database only sets the password via DB_PASSWORD_ENV.
+database-pre-hook() {
+    local count=$1
+    echo "MONGO_INITDB_ROOT_USERNAME=mongo" >> $TEST_DIR/databases/$count/metadata/env
+}
+export -f database-pre-hook
+
+start-test() {
+    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
+    local port=$(cat $TEST_DIR/databases/*/metadata/port)
+    local pass=$(cat $TEST_DIR/databases/*/metadata/password)
+
+    # Wait until MongoDB is ready to accept connections.
+    DB_CONNECTION_TEST="
+        docker run --rm
+        --name connection-test
+        mongo:7.0
+        mongosh mongodb://mongo:$pass@$ip:$port/admin --eval 'db.adminCommand({ping:1})'" \
+    timeout --foreground 2m bash -c "wait-for-db-connection"
+
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="mongodb://mongo:$pass@$ip:$port/kine?authSource=admin" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="mongodb://mongo:$pass@$ip:$port/kine?authSource=admin" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+VERSION_LIST="\
+    mongo 8.0"
+
+while read ENGINE VERSION; do
+    LABEL=$ENGINE-$VERSION \
+        DB_PASSWORD_ENV=MONGO_INITDB_ROOT_PASSWORD \
+        DB_IMAGE=docker.io/library/$ENGINE:$VERSION \
+        run-test
+done <<< $VERSION_LIST
