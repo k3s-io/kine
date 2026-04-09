@@ -174,10 +174,14 @@ func (b *MongoBackend) nextRevision(ctx context.Context) (int64, error) {
 	return rev.Revision, nil
 }
 
-// Get returns the most recent non-deleted value for key at or before revision.
+// Get returns the most recent value for key at or before revision.
+// It returns nil KV when the key does not exist or its latest event is a deletion.
 // If revision is 0, the latest is returned. rangeEnd and limit are unused for single-key gets.
 func (b *MongoBackend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
-	filter := bson.M{"key": key, "deleted": int64(0)}
+	// Fetch the LATEST document for the key (including tombstones) so we can correctly
+	// determine whether the key is live. Filtering on deleted=0 first would return
+	// a stale live document even when a newer tombstone exists.
+	filter := bson.M{"key": key}
 	if revision > 0 {
 		filter["revision"] = bson.M{"$lte": revision}
 	}
@@ -189,20 +193,22 @@ func (b *MongoBackend) Get(ctx context.Context, key, rangeEnd string, limit, rev
 
 	var doc KineReg
 	err := b.coll.FindOne(ctx, filter, opts).Decode(&doc)
-	if errors.Is(err, mongo.ErrNoDocuments) {
-		curRev, _ := b.CurrentRevision(ctx)
+	curRev, curRevErr := b.CurrentRevision(ctx)
+	if errors.Is(err, mongo.ErrNoDocuments) || doc.Deleted != 0 {
+		if curRevErr != nil {
+			return 0, nil, curRevErr
+		}
 		return curRev, nil, nil
 	}
 	if err != nil {
 		return 0, nil, err
 	}
 
-	curRev, err := b.CurrentRevision(ctx)
-	if err != nil {
-		return 0, nil, err
-	}
 	if revision > 0 {
 		return revision, doc.toKeyValue(keysOnly), nil
+	}
+	if curRevErr != nil {
+		return 0, nil, curRevErr
 	}
 	return curRev, doc.toKeyValue(keysOnly), nil
 }
@@ -238,7 +244,10 @@ func (b *MongoBackend) Create(ctx context.Context, key string, value []byte, lea
 // Update modifies the value of key at the exact given revision.
 // Returns (rev, kv, false, nil) when the key has already been modified past revision.
 func (b *MongoBackend) Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *server.KeyValue, bool, error) {
-	existing, err := b.findLatestForKey(ctx, key, revision, false)
+	// Always fetch the LATEST version of the key with no revision upper bound.
+	// Using revision as an upper bound would incorrectly find an old document that
+	// still matches the requested revision even after subsequent updates.
+	existing, err := b.findLatestForKey(ctx, key, 0, false)
 	if err != nil {
 		return 0, nil, false, err
 	}
@@ -400,24 +409,24 @@ func (b *MongoBackend) Watch(ctx context.Context, key string, revision int64) se
 
 	go func() {
 		defer close(eventC)
-		lastRev := revision
-		if lastRev == 0 {
-			lastRev = curRev
+		// When revision > 0 the caller wants events starting AT that revision (inclusive).
+		// fetchEventsSince uses $gt (exclusive), so subtract 1 to convert to an exclusive
+		// lower bound that yields the same inclusive result.
+		lastRev := curRev
+		if revision > 0 {
+			lastRev = revision - 1
 		}
 
 		for {
-			// Capture current notification channel before waiting, so we never miss
-			// a signal that arrives between the fetch and the next Wait call.
+			// Step 1: snapshot the notification channel BEFORE fetching.
+			// Any write that occurs after this snapshot closes this channel,
+			// ensuring we never miss a notification between the fetch and the wait.
 			b.watchMu.RLock()
 			notifyCh := b.watchCh
 			b.watchMu.RUnlock()
 
-			select {
-			case <-ctx.Done():
-				return
-			case <-notifyCh:
-			}
-
+			// Step 2: fetch events already in DB since lastRev (handles the case
+			// where Watch is created after events have already been written).
 			events, err := b.fetchEventsSince(ctx, key, lastRev)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
@@ -432,6 +441,15 @@ func (b *MongoBackend) Watch(ctx context.Context, key string, revision int64) se
 				case <-ctx.Done():
 					return
 				}
+				// More events may exist; loop immediately without waiting.
+				continue
+			}
+
+			// Step 3: no new events — wait for the next write or cancellation.
+			select {
+			case <-ctx.Done():
+				return
+			case <-notifyCh:
 			}
 		}
 	}()
