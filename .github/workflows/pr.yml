@@ -45,7 +45,7 @@ jobs:
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
     - name: Build Dockerfile - binary
-      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
       with:
         context: .
         file: ./Dockerfile
@@ -56,7 +56,7 @@ jobs:
           ARCH=${{ matrix.arch }}
 
     - name: Build Dockerfile - package
-      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
       with:
         context: .
         file: ./Dockerfile
@@ -68,7 +68,7 @@ jobs:
           ARCH=${{ matrix.arch }}
 
     - name: Build Dockerfile.test
-      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
       with:
         context: .
         file: ./Dockerfile.test
