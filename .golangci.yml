@@ -33,6 +33,7 @@ linters:
         - {name: max-public-structs, disabled: true}
         - {name: unused-parameter, disabled: true}
         - {name: unused-receiver, disabled: true}
+        - {name: use-waitgroup-go, disabled: true}
         - {name: var-naming, disabled: true}
   exclusions:
     generated: lax
