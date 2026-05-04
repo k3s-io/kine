@@ -101,6 +101,8 @@ func setDatabasePath(endpoint, dir string) (string, error) {
 	hash := fmt.Sprintf("%.8x", sha256.Sum256([]byte(dir)))
 	scheme, _, _ := strings.Cut(endpoint, "://")
 	switch scheme {
+	case "memory":
+		return endpoint, nil
 	case "", "sqlite":
 		// empty scheme means default sqlite db
 		return fmt.Sprintf("sqlite://%s/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate", dir), nil
