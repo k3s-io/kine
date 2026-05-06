@@ -40,10 +40,8 @@ func (l *LogStructured) Start(ctx context.Context) error {
 		return err
 	}
 	// See https://github.com/kubernetes/kubernetes/blob/442a69c3bdf6fe8e525b05887e57d89db1e2f3a5/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go#L97
-	if _, err := l.Create(ctx, "/registry/health", []byte(`{"health":"true"}`), 0); err != nil {
-		if err != server.ErrKeyExists {
-			logrus.Errorf("Failed to create health check key: %v", err)
-		}
+	if _, err := l.Create(ctx, server.HealthKey, []byte(server.HealthVal), 0); err != nil && err != server.ErrKeyExists {
+		logrus.Errorf("Failed to create health check key: %v", err)
 	}
 	go ttl.Run(ctx, l)
 	return nil

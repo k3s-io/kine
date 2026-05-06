@@ -112,14 +112,14 @@ func (b *Backend) Start(ctx context.Context) error {
 
 	b.l.Infof("Creating health key...")
 
-	rev, err := b.Create(ctx, "/registry/health", nil, 0)
+	rev, err := b.Create(ctx, server.HealthKey, []byte(server.HealthVal), 0)
 	if err != nil && err != server.ErrKeyExists {
 		b.l.Errorf("failed to create health key: %v", err)
 		return err
 	}
 
-	// Perform an update to increment the revision.
-	_, _, _, err = b.Update(ctx, "/registry/health", []byte(`{"health":"true"}`), rev, 0)
+	// update health to create rev=2 for consistency with other backends
+	_, _, _, err = b.Update(ctx, server.HealthKey, []byte(server.HealthVal), rev, 0)
 	if err != nil {
 		return err
 	}

@@ -444,10 +444,10 @@ func TestCompactTrimsHistory(t *testing.T) {
 	}
 
 	// After compact at rev 4 every log entry is at-or-below the boundary, so
-	// the log is fully trimmed. Per-key history in m.keys still holds each
+	// the log should contain only 4. Per-key history in m.keys still holds each
 	// key's floor entry so reads at the compact boundary resolve correctly.
-	if got := len(b.log); got != 0 {
-		t.Fatalf("log length after compact: got %d, want 0", got)
+	if got := len(b.log); got != 1 {
+		t.Fatalf("log length after compact: got %d, want 1", got)
 	}
 	histA, _ := b.keys.Get("/test/a")
 	if got := len(histA); got != 1 {
@@ -463,12 +463,12 @@ func TestCompactTrimsHistory(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, "v3", string(kv.Value))
 
-	// Calling Compact at a rev <= current compactRevision is a no-op.
-	if _, err := b.Compact(ctx, 2); err != nil {
-		t.Fatal(err)
+	// Calling Compact at a rev <= current compactRevision is an error
+	if _, err := b.Compact(ctx, 2); err == nil {
+		t.Fatal("expected error, got nil")
 	}
-	if got := len(b.log); got != 0 {
-		t.Fatalf("log length after no-op compact: got %d, want 0", got)
+	if got := len(b.log); got != 1 {
+		t.Fatalf("log length after no-op compact: got %d, want 1", got)
 	}
 }
 
@@ -494,9 +494,9 @@ func TestCompactDropsTombstones(t *testing.T) {
 	if !ok || len(histB) != 1 {
 		t.Fatalf("/test/b history after compact: got %v, want 1 entry", histB)
 	}
-	// Every log entry was at-or-below the boundary, so the log is fully trimmed.
-	if got := len(b.log); got != 0 {
-		t.Fatalf("log length after compact: got %d, want 0", got)
+	// Every log entry was at-or-below the boundary, so the log contains only last entry
+	if got := len(b.log); got != 1 {
+		t.Fatalf("log length after compact: got %d, want 1", got)
 	}
 }
 
@@ -517,15 +517,18 @@ func TestCompactStraddlesBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Log keeps entries strictly above compactRev: rev 4 and rev 5.
-	if got := len(b.log); got != 2 {
-		t.Fatalf("log length after compact(3): got %d, want 2", got)
+	// Log keeps entries at or above compactRev: rev 3, 4, 5.
+	if got := len(b.log); got != 3 {
+		t.Fatalf("log length after compact(3): got %d, want 3", got)
 	}
-	if got := b.log[0].revision; got != 4 {
-		t.Fatalf("log[0].revision: got %d, want 4", got)
+	if got := b.log[0].revision; got != 3 {
+		t.Fatalf("log[0].revision: got %d, want 3", got)
 	}
-	if got := b.log[1].revision; got != 5 {
-		t.Fatalf("log[1].revision: got %d, want 5", got)
+	if got := b.log[1].revision; got != 4 {
+		t.Fatalf("log[1].revision: got %d, want 4", got)
+	}
+	if got := b.log[2].revision; got != 5 {
+		t.Fatalf("log[2].revision: got %d, want 5", got)
 	}
 
 	// logIndexAfter math is anchored at compactRev+1 = 4.

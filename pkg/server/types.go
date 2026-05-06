@@ -19,6 +19,11 @@ var (
 	ErrGRPCUnhealthy = rpctypes.ErrGRPCUnhealthy
 )
 
+const (
+	HealthKey = `/registry/health`
+	HealthVal = `{"health":"true"}`
+)
+
 type Backend interface {
 	Start(ctx context.Context) error
 	Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *KeyValue, error)

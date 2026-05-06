@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -65,31 +66,14 @@ type Memory struct {
 var _ server.Backend = &Memory{}
 
 func (m *Memory) Start(ctx context.Context) error {
-	// Seed the same startup entries that SQL-backed and NATS backends do:
-	//   1. compact_rev_key — written by SQLLog.compactStart; gives the backend
-	//      a non-zero starting revision (apiserver rejects rev=0).
-	//   2. /registry/health — written by LogStructured.Start; the apiserver
-	//      uses it as a liveness probe.
-	m.mu.Lock()
-	rev := m.nextRevision()
-	m.appendEntry(&entry{
-		revision:       rev,
-		key:            "compact_rev_key",
-		createRevision: rev,
-		version:        1,
-		created:        true,
-	})
-	rev = m.nextRevision()
-	m.appendEntry(&entry{
-		revision:       rev,
-		key:            "/registry/health",
-		value:          []byte(`{"health":"true"}`),
-		createRevision: rev,
-		version:        1,
-		created:        true,
-	})
-	m.mu.Unlock()
-
+	// See https://github.com/kubernetes/kubernetes/blob/442a69c3bdf6fe8e525b05887e57d89db1e2f3a5/staging/src/k8s.io/apiserver/pkg/storage/storagebackend/factory/etcd3.go#L970
+	if _, err := m.Create(ctx, server.HealthKey, []byte(server.HealthVal), 0); err != nil {
+		logrus.Errorf("Failed to create health check key: %v", err)
+	}
+	// update health to create rev=2 for consistency with other backends
+	if _, _, _, err := m.Update(ctx, server.HealthKey, []byte(server.HealthVal), 1, 0); err != nil {
+		logrus.Errorf("Failed to update health check key: %v", err)
+	}
 	go ttl.Run(ctx, m)
 	return nil
 }
@@ -127,6 +111,7 @@ func (m *Memory) appendEntry(e *entry) {
 		e.prev = hist[len(hist)-1]
 	}
 	m.keys.Set(e.key, append(hist, e))
+	m.broadcast()
 }
 
 // broadcast wakes every goroutine currently blocked on getNotifyCh.
@@ -237,7 +222,6 @@ func (m *Memory) Create(ctx context.Context, key string, value []byte, lease int
 		lease:          lease,
 		created:        true,
 	})
-	m.broadcast()
 	return rev, nil
 }
 
@@ -264,7 +248,6 @@ func (m *Memory) Update(ctx context.Context, key string, value []byte, revision,
 		lease:          lease,
 	}
 	m.appendEntry(e)
-	m.broadcast()
 	return rev, e.toKeyValue(), true, nil
 }
 
@@ -291,7 +274,6 @@ func (m *Memory) Delete(ctx context.Context, key string, revision int64) (int64,
 		lease:          latest.lease,
 		deleted:        true,
 	})
-	m.broadcast()
 	return rev, latest.toKeyValue(), true, nil
 }
 
@@ -452,10 +434,10 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 
 	rev := m.currentRevision.Load()
 	if revision > rev {
-		return rev, nil
+		return 0, server.ErrFutureRev
 	}
 	if revision <= m.compactRevision {
-		return rev, nil
+		return 0, server.ErrCompacted
 	}
 
 	var toRemove []string
@@ -499,16 +481,14 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 	}
 
 	// Trim the log. Because the log is dense and ordered by revision, the cut
-	// point is just (revision - oldCompactRevision); everything before it has
-	// revision <= the target and is no longer reachable via Watch.
-	cut := int(revision - m.compactRevision)
-	if cut > len(m.log) {
-		cut = len(m.log)
+	// point is just before (revision - oldCompactRevision); everything before that has
+	// revision < the target and is no longer reachable via Watch.
+	// We know that revision must be > currentRevision and <= compactRevision,
+	// but guard against cutting out of bounds or removing all entries.
+	if cut := int(revision-m.compactRevision) - 1; cut > 0 {
+		// use slices.Delete to bulk-zero deleted elements from the backing array for GC
+		m.log = slices.Delete(m.log, 0, cut)
 	}
-	for i := 0; i < cut; i++ {
-		m.log[i] = nil
-	}
-	m.log = m.log[cut:]
 
 	m.compactRevision = revision
 	return rev, nil
