@@ -705,12 +705,20 @@ func (s *SQLLog) DbSize(ctx context.Context) (int64, error) {
 }
 
 func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, error) {
-	if s.compactInterval <= 0 {
-		// manual compact is a no-op unless automatic compaction is disabled
-		compactRev, _ := s.d.GetCompactRevision(s.ctx)
-		s.compactIter(compactRev, targetCompactRev)
+	currentRev, _ := s.CurrentRevision(ctx)
+	if targetCompactRev > currentRev {
+		return 0, server.ErrFutureRev
 	}
-	return s.CurrentRevision(ctx)
+	compactRev, _ := s.d.GetCompactRevision(s.ctx)
+	if targetCompactRev <= compactRev {
+		return 0, server.ErrCompacted
+	}
+	// manual compact is a no-op unless automatic compaction is disabled
+	if s.compactInterval <= 0 {
+		s.compactIter(compactRev, targetCompactRev)
+		return s.CurrentRevision(ctx)
+	}
+	return currentRev, nil
 }
 
 func (s *SQLLog) WaitForSyncTo(revision int64) {
