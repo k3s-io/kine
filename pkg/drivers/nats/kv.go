@@ -328,7 +328,9 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 
 	filter := keys
 
-	if !strings.HasSuffix(filter, "/") {
+	if filter != "/" && strings.HasSuffix(filter, "/") {
+		filter = strings.TrimSuffix(keys, "/")
+	} else {
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
 			filter = keys[:idx+1]
@@ -466,13 +468,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 
 	e.btm.RLock()
 	for {
-		// KINE pagination logic relies on checking if response is > limit
-		// if limit > 0 && len(matches) == int(limit) {
-		// break
-		// }
-
 		k := it.Key()
-
 		if exact && k != seekKey {
 			break
 		}
@@ -486,6 +482,10 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 		// Get the latest update for the key.
 		if op := getSeqOp(v, revision, false); op != nil {
 			matches = append(matches, &keySeq{key: k, seq: op.seq})
+		}
+
+		if limit > 0 && int64(len(matches)) >= limit {
+			break
 		}
 
 		if !it.Next() {
@@ -756,11 +756,6 @@ func (e *KeyValue) getListOps(prefix, startKey string, revision int64) ([]*keySe
 
 	e.btm.RLock()
 	for {
-		// KINE pagination logic relies on checking if response is > limit
-		// if limit > 0 && len(matches) == int(limit) {
-		// break
-		// }
-
 		k := it.Key()
 
 		if exact && k != seekKey {
@@ -823,23 +818,8 @@ func getSeqOp(val []*seqOp, revision int64, allowDeleted bool) *seqOp {
 }
 
 func seekKey(prefix, startKey string) (string, bool) {
-	exact := !strings.HasSuffix(prefix, "/") && startKey == ""
-
-	if startKey == "" || startKey == prefix {
-		return prefix, exact
+	if startKey == "" {
+		return prefix, true
 	}
-
-	seekKey := strings.TrimSuffix(prefix, "/")
-
-	startKey = strings.TrimPrefix(startKey, seekKey)
-	startKey = strings.TrimPrefix(startKey, "/")
-
-	var k string
-	if startKey != "" {
-		k = fmt.Sprintf("%s/%s", seekKey, startKey)
-	} else {
-		k = prefix
-	}
-
-	return k, exact
+	return strings.TrimSuffix(startKey, "/"), false
 }

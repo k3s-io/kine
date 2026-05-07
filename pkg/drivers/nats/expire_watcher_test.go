@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/sirupsen/logrus"
 )
 
 type expiredEntry struct {
@@ -14,7 +15,10 @@ type expiredEntry struct {
 }
 
 func TestExpireWatcherExecutesCallbacks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	events := make(chan expiredEntry, 2)
@@ -50,7 +54,10 @@ func TestExpireWatcherExecutesCallbacks(t *testing.T) {
 }
 
 func TestExpireWatcherReevaluatesOnEarlierEntry(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	events := make(chan expiredEntry, 2)
@@ -76,7 +83,10 @@ func TestExpireWatcherReevaluatesOnEarlierEntry(t *testing.T) {
 }
 
 func TestExpireWatcherRemoveKeyCancelsExpiry(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	done := make(chan expiredEntry, 1)

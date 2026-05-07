@@ -18,7 +18,7 @@ func TestKeyEncode(t *testing.T) {
 		{"a/a", fmt.Sprintf("%s.2g.2g", noRootPrefix), false},
 		{"/a/a/a", "2g.2g.2g", false},
 		{"a/*/a", fmt.Sprintf("%s.2g.j.2g", noRootPrefix), false},
-		{"/a/*/a/", "2g.j.2g", false},
+		{"/a/*/a/", "2g.j.2g.p", false},
 	}
 
 	codec := &keyCodec{}

@@ -78,6 +78,9 @@ func New(c *Config) (Server, error) {
 	// Explicitly set JetStream to true since we need the KV store.
 	opts.JetStream = true
 
+	// Do not handle shutdown signals; kine does that
+	opts.NoSigs = true
+
 	// Note, if don't listen is set, host and port will be ignored.
 	opts.DontListen = c.DontListen
 
