@@ -165,6 +165,19 @@ export -f wait-for-db-connection
 
 # ---
 
+wait-for-kine() {(
+    set -e -o pipefail
+    local num=${1:-1}
+    local name=$(cat $TEST_DIR/kine/$num/metadata/name)
+    while ! docker logs $name 2>&1 | grep -qF " available at "; do
+        echo "Waiting for kine to become available..." >&2
+        sleep 5
+    done
+)}
+export -f wait-for-kine
+
+# ---
+
 fetch-kubeconfig() {(
     set -e -o pipefail
     local num=${1:-1}
@@ -236,7 +249,7 @@ export -f build-apiserver-tests
 run-apiserver-tests() {
   test -e ./bin/etcd3.test || build-apiserver-tests
   for TEST in ./bin/*.test; do
-    $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m
+    (set -x; $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m)
   done
 }
 export -f run-apiserver-tests
@@ -246,6 +259,7 @@ export -f run-apiserver-tests
 provision-cluster() {
     run-function cluster-pre-hook
 
+    timeout --foreground 120s bash -c "wait-for-kine $i"
     provision-server
     timeout --foreground 120s bash -c "wait-for-kubeconfig $i"
     timeout --foreground 120s bash -c "wait-for-apiserver $i"

@@ -53,7 +53,10 @@ func setupBackend(ctx context.Context, wg *sync.WaitGroup, t *testing.T) (*serve
 }
 
 func TestBackend_Create(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	wg := &sync.WaitGroup{}
 
 	defer func() {
@@ -95,7 +98,7 @@ func TestBackend_Create(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, baseRev+4, rev)
 
-	srev, count, err := b.Count(ctx, prefix("/"), "", 0)
+	srev, count, err := b.Count(ctx, prefix("/"), prefix("/"), 0)
 	noErr(t, err)
 	expEqual(t, baseRev+4, srev)
 	expEqual(t, 4, count)
@@ -108,7 +111,7 @@ func TestBackend_Create(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, baseRev+6, currRev)
 
-	srev, count, err = b.Count(ctx, prefix("/"), "", 0)
+	srev, count, err = b.Count(ctx, prefix("/"), prefix(""), 0)
 	noErr(t, err)
 	expEqual(t, baseRev+6, srev)
 	expEqual(t, 3, count)
@@ -117,14 +120,17 @@ func TestBackend_Create(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, baseRev+7, rev)
 
-	srev, count, err = b.Count(ctx, prefix("/"), "", 0)
+	srev, count, err = b.Count(ctx, prefix("/"), prefix("/"), 0)
 	noErr(t, err)
 	expEqual(t, baseRev+7, srev)
 	expEqual(t, 4, count)
 }
 
 func TestBackend_Get(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	wg := &sync.WaitGroup{}
 
 	defer func() {
@@ -196,7 +202,10 @@ func TestBackend_Get(t *testing.T) {
 }
 
 func TestBackend_Update(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	wg := &sync.WaitGroup{}
 
 	defer func() {
@@ -249,7 +258,10 @@ func TestBackend_Update(t *testing.T) {
 }
 
 func TestBackend_Delete(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	wg := &sync.WaitGroup{}
 
 	defer func() {
@@ -305,7 +317,10 @@ func TestBackend_Delete(t *testing.T) {
 }
 
 func TestBackend_List(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	wg := &sync.WaitGroup{}
 
 	defer func() {
@@ -338,7 +353,7 @@ func TestBackend_List(t *testing.T) {
 	rev, ents, err := b.List(ctx, prefix("/"), "", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, baseRev+7, rev)
-	expEqual(t, 7, len(ents))
+	expEqual(t, 0, len(ents))
 	expSortedKeys(t, ents)
 
 	// List the keys with prefix.
@@ -356,7 +371,7 @@ func TestBackend_List(t *testing.T) {
 	expSortedKeys(t, ents)
 
 	// List the keys up to a revision.
-	rev, ents, err = b.List(ctx, prefix("/"), "", 0, baseRev+3, false)
+	rev, ents, err = b.List(ctx, prefix("/"), prefix("/"), 0, baseRev+3, false)
 	noErr(t, err)
 	expEqual(t, baseRev+3, rev)
 	expEqual(t, 3, len(ents))
@@ -364,20 +379,20 @@ func TestBackend_List(t *testing.T) {
 	expEqualKeys(t, []string{prefix("/a"), prefix("/a/b/c"), prefix("/b")}, ents)
 
 	// List the keys with a limit.
-	rev, ents, err = b.List(ctx, prefix("/"), "", 4, 0, false)
+	rev, ents, err = b.List(ctx, prefix("/"), prefix("/"), 4, 0, false)
 	noErr(t, err)
 	expEqual(t, baseRev+7, rev)
-	expEqual(t, 7, len(ents)) // expect full list
+	expEqual(t, 4, len(ents)) // expect the requested amount
 	expSortedKeys(t, ents)
-	expEqualKeys(t, []string{prefix("/a"), prefix("/a/b"), prefix("/a/b/c"), prefix("/b"), prefix("/c"), prefix("/d/a"), prefix("/d/b")}, ents)
+	expEqualKeys(t, []string{prefix("/a"), prefix("/a/b"), prefix("/a/b/c"), prefix("/b")}, ents)
 
 	// List the keys with a limit after some start key.
 	rev, ents, err = b.List(ctx, prefix("/"), prefix("/b"), 2, 0, false)
 	noErr(t, err)
 	expEqual(t, baseRev+7, rev)
-	expEqual(t, 4, len(ents))
+	expEqual(t, 2, len(ents))
 	expSortedKeys(t, ents)
-	expEqualKeys(t, []string{prefix("/b"), prefix("/c"), prefix("/d/a"), prefix("/d/b")}, ents)
+	expEqualKeys(t, []string{prefix("/b"), prefix("/c")}, ents)
 
 	// List the keys after some start key with slash prefix
 	rev, ents, err = b.List(ctx, prefix("/"), prefix("/c"), 0, 0, false)
@@ -389,7 +404,10 @@ func TestBackend_List(t *testing.T) {
 }
 
 func TestBackend_Watch(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
+
+	ctx, cancel := context.WithCancel(t.Context())
 	wg := &sync.WaitGroup{}
 
 	defer func() {

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/ttl"
+	"github.com/sirupsen/logrus"
 	"github.com/tidwall/btree"
 )
 
@@ -56,12 +58,15 @@ func expEqualKeys(t *testing.T, want []string, got []*server.KeyValue) {
 
 func setupBackend(t *testing.T) (*Memory, context.Context) {
 	t.Helper()
+	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetOutput(t.Output())
 	b := &Memory{
 		keys:     btree.NewMap[string, []*entry](0),
 		notifyCh: make(chan struct{}),
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	ctx := t.Context()
+	t.Cleanup(func() { logrus.SetOutput(os.Stdout) })
+
 	// Skip Start() to avoid the production seed entries (compact_rev_key,
 	// /registry/health) so tests can assert exact revision values.
 	go ttl.Run(ctx, b)
@@ -86,7 +91,7 @@ func TestCreate(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 
-	_, count, err := b.Count(ctx, "/test/", "", 0)
+	_, count, err := b.Count(ctx, "/test/", "/test/", 0)
 	noErr(t, err)
 	expEqual(t, int64(3), count)
 }
@@ -246,7 +251,7 @@ func TestList(t *testing.T) {
 	b.Create(ctx, "/test/d/b", nil, 0)
 
 	// All keys under prefix.
-	rev, ents, err := b.List(ctx, "/test/", "", 0, 0, false)
+	rev, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
 	expEqual(t, 7, len(ents))
@@ -267,20 +272,20 @@ func TestList(t *testing.T) {
 	expSortedKeys(t, ents)
 
 	// At a revision.
-	rev, ents, err = b.List(ctx, "/test/", "", 0, 3, false)
+	rev, ents, err = b.List(ctx, "/test/", "/test/", 0, 3, false)
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 	expEqual(t, 3, len(ents))
 	expSortedKeys(t, ents)
 	expEqualKeys(t, []string{"/test/a", "/test/a/b/c", "/test/b"}, ents)
 
-	// Full list with limit (kine returns full set, pagination handled upstream).
-	rev, ents, err = b.List(ctx, "/test/", "", 4, 0, false)
+	// Full list with limit
+	rev, ents, err = b.List(ctx, "/test/", "/test/", 4, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
-	expEqual(t, 7, len(ents))
+	expEqual(t, 4, len(ents))
 	expSortedKeys(t, ents)
-	expEqualKeys(t, []string{"/test/a", "/test/a/b", "/test/a/b/c", "/test/b", "/test/c", "/test/d/a", "/test/d/b"}, ents)
+	expEqualKeys(t, []string{"/test/a", "/test/a/b", "/test/a/b/c", "/test/b"}, ents)
 
 	// Start key with range.
 	rev, ents, err = b.List(ctx, "/test/", "/test/c", 0, 0, false)
@@ -298,7 +303,7 @@ func TestListExcludesDeleted(t *testing.T) {
 	b.Create(ctx, "/test/b", []byte("val"), 0)
 	b.Delete(ctx, "/test/a", rev)
 
-	_, ents, err := b.List(ctx, "/test/", "", 0, 0, false)
+	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, 1, len(ents))
 	expEqual(t, "/test/b", ents[0].Key)
@@ -311,13 +316,13 @@ func TestCount(t *testing.T) {
 	b.Create(ctx, "/test/b", nil, 0)
 	b.Create(ctx, "/test/c", nil, 0)
 
-	rev, count, err := b.Count(ctx, "/test/", "", 0)
+	rev, count, err := b.Count(ctx, "/test/", "/test/", 0)
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 	expEqual(t, int64(3), count)
 
 	// Count at an earlier revision.
-	_, count, err = b.Count(ctx, "/test/", "", 2)
+	_, count, err = b.Count(ctx, "/test/", "/test/", 2)
 	noErr(t, err)
 	expEqual(t, int64(2), count)
 }
@@ -416,12 +421,12 @@ func TestCompact(t *testing.T) {
 	expEqualErr(t, server.ErrCompacted, err)
 
 	// List at current revision should work.
-	_, ents, err := b.List(ctx, "/test/", "", 0, 0, false)
+	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, 3, len(ents))
 
 	// List at the compact boundary should work.
-	_, ents, err = b.List(ctx, "/test/", "", 0, 2, false)
+	_, ents, err = b.List(ctx, "/test/", "/test/", 0, 2, false)
 	noErr(t, err)
 	expEqual(t, 2, len(ents))
 }
@@ -594,7 +599,7 @@ func TestKeysOnly(t *testing.T) {
 	b.Create(ctx, "/test/a", []byte("value-a"), 0)
 	b.Create(ctx, "/test/b", []byte("value-b"), 0)
 
-	_, ents, err := b.List(ctx, "/test/", "", 0, 0, true)
+	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, true)
 	noErr(t, err)
 	expEqual(t, 2, len(ents))
 	for _, kv := range ents {
@@ -650,7 +655,7 @@ func TestTTLExpiration(t *testing.T) {
 	}
 
 	// All keys should be present immediately after creation.
-	_, ents, err := b.List(ctx, "/test/", "", 0, 0, false)
+	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, len(leases), len(ents))
 

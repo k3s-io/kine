@@ -29,14 +29,12 @@ func (e *keyCodec) EncodeRange(prefix string) (string, error) {
 		return fmt.Sprintf("%s.>", noRootPrefix), nil
 	}
 
-	ek, err := e.Encode(prefix)
+	ek, err := e.Encode(strings.TrimSuffix(prefix, "/"))
 	if err != nil {
 		return "", err
 	}
 
-	enc := fmt.Sprintf("%s.>", ek)
-
-	return enc, nil
+	return ek + ".>", nil
 }
 
 func (*keyCodec) Encode(key string) (string, error) {
@@ -46,8 +44,8 @@ func (*keyCodec) Encode(key string) (string, error) {
 
 	hasRootPrefix := strings.HasPrefix(key, "/")
 
-	// Trim leading and trailing slashes.
-	key = strings.Trim(key, "/")
+	// Trim leading slashes
+	key = strings.TrimPrefix(key, "/")
 
 	var parts []string
 

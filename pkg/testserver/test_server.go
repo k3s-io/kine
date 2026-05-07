@@ -41,7 +41,7 @@ func NewTestConfig(t testing.TB) *embed.Config {
 func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	t.Helper()
 	logrus.SetLevel(logrus.TraceLevel)
-	logrus.SetOutput(&testWriter{tb: t})
+	logrus.SetOutput(t.Output())
 
 	if cfg == nil {
 		cfg = NewTestConfig(t)
@@ -131,14 +131,4 @@ func setDatabasePath(endpoint, dir string) (string, error) {
 		ep.Path += hash
 		return ep.String(), nil
 	}
-}
-
-// TODO: replace this with *testing.TB.Output() once we switch to go1.25
-type testWriter struct {
-	tb testing.TB
-}
-
-func (tw *testWriter) Write(p []byte) (int, error) {
-	tw.tb.Logf("%s", p)
-	return 0, nil
 }

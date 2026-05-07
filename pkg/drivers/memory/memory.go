@@ -184,9 +184,6 @@ func (m *Memory) logIndexAfter(rev int64) int {
 
 // Get returns the current revision and the KeyValue for the given key.
 func (m *Memory) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
-	if strings.HasSuffix(key, "/") && rangeEnd == "" {
-		key = key[:len(key)-1]
-	}
 	rev, kvs, err := m.List(ctx, key, rangeEnd, limit, revision, keysOnly)
 	if err != nil {
 		return rev, nil, err
@@ -321,6 +318,10 @@ func (m *Memory) List(ctx context.Context, prefix, startKey string, limit, revis
 				kv.Value = nil
 			}
 			kvs = append(kvs, kv)
+		}
+
+		if limit > 0 && int64(len(kvs)) >= limit {
+			break
 		}
 
 		if !iter.Next() {
@@ -501,15 +502,8 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 // Otherwise startKey is normalized into the prefix's namespace and used as
 // the resume point for paginated range scans.
 func seekKey(prefix, startKey string) (string, bool) {
-	exact := !strings.HasSuffix(prefix, "/") && startKey == ""
-	if startKey == "" || startKey == prefix {
-		return prefix, exact
+	if startKey == "" {
+		return prefix, true
 	}
-	base := strings.TrimSuffix(prefix, "/")
-	startKey = strings.TrimPrefix(startKey, base)
-	startKey = strings.TrimPrefix(startKey, "/")
-	if startKey != "" {
-		return base + "/" + startKey, false
-	}
-	return prefix, exact
+	return strings.TrimSuffix(startKey, "/"), false
 }

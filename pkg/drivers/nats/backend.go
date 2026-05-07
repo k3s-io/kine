@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/server"
@@ -165,10 +164,6 @@ func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision i
 // Get returns the store's current revision, the associated server.KeyValue or an error.
 // Mirrors etcd and other drivers by being a list call with a single return
 func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
-	if strings.HasSuffix(key, "/") && rangeEnd == "" {
-		key = key[:len(key)-1]
-	}
-
 	rev, kvs, err := b.List(ctx, key, rangeEnd, limit, revision, keysOnly)
 	if err != nil {
 		return rev, nil, err

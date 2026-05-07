@@ -98,7 +98,7 @@ func Run(ctx context.Context, b server.Backend) {
 // to the workqueue. Pagination is anchored at the revision returned by the
 // first List so subsequent pages are stable.
 func seed(ctx context.Context, b server.Backend, mu *sync.RWMutex, queue workqueue.TypedDelayingInterface[string], store map[string]*entry) (int64, error) {
-	rev, kvs, err := b.List(ctx, "/", "", listPageSize, 0, false)
+	rev, kvs, err := b.List(ctx, "/", "/", listPageSize, 0, true)
 	if err != nil {
 		return rev, err
 	}
@@ -113,7 +113,7 @@ func seed(ctx context.Context, b server.Backend, mu *sync.RWMutex, queue workque
 		if int64(len(kvs)) < listPageSize {
 			break
 		}
-		_, kvs, err = b.List(ctx, "/", kvs[len(kvs)-1].Key, listPageSize, rev, false)
+		_, kvs, err = b.List(ctx, "/", kvs[len(kvs)-1].Key, listPageSize, rev, true)
 		if err != nil {
 			return rev, err
 		}
