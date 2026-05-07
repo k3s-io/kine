@@ -59,7 +59,7 @@ ENTRYPOINT ["/bin/kine"]
 
 FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine3.22 AS multi-arch-build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine3.23 AS multi-arch-build
 COPY --from=xx / /
 ARG TAG
 ARG DIRTY
