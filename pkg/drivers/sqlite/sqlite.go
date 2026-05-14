@@ -79,7 +79,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	}
 
 	dialect.LastInsertID = true
-	dialect.GetSizeSQL = `SELECT (page_count - freelist_count) * page_size FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()`
+	dialect.GetSizeSQL = `SELECT (page_count - freelist_count) * page_size FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size() /* GetSizeSQL */`
 	dialect.CompactSQL = `
 		DELETE FROM kine AS kv
 		WHERE
@@ -96,11 +96,11 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 				WHERE
 					kd.deleted != 0 AND
 					kd.id <= ?
-			)`
+			) /* CompactSQL */`
 	if noCompactCheckpoint {
 		logrus.Infof("WAL checkpoint on compact is disabled")
 	} else {
-		dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL)`
+		dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL) /* PostCompactSQL */`
 	}
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
