@@ -43,7 +43,7 @@ type Dialect interface {
 	ListCurrent(ctx context.Context, prefix, startKey string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error)
 	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (*sql.Rows, error)
 	CountCurrent(ctx context.Context, prefix, startKey string) (int64, int64, error)
-	Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error)
+	Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error)
 	//nolint:revive

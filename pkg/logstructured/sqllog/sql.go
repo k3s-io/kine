@@ -614,7 +614,18 @@ func (s *SQLLog) Count(ctx context.Context, prefix, startKey string, revision in
 	if revision == 0 {
 		return s.d.CountCurrent(ctx, prefix, startKey)
 	}
-	return s.d.Count(ctx, prefix, startKey, revision)
+
+	rev, compact, rows, err := s.d.Count(ctx, prefix, startKey, revision)
+	if err != nil {
+		return 0, 0, err
+	}
+	if revision > rev {
+		return rev, 0, server.ErrFutureRev
+	}
+	if revision < compact {
+		return rev, 0, server.ErrCompacted
+	}
+	return rev, rows, nil
 }
 
 func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error) {
