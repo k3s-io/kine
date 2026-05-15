@@ -274,24 +274,27 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 }
 
 func (d *Generic) query(ctx context.Context, sql string, args ...any) (result *sql.Rows, err error) {
-	logrus.Tracef("QUERY %v : %s", util.Summarize(args), util.Stripped(sql))
+	query := util.Fill(sql, args)
+	logrus.Tracef("QUERY: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, d.ErrCode(err), util.Stripped(sql), args)
+		metrics.ObserveSQL(startTime, d.ErrCode(err), query)
 	}()
 	return d.DB.QueryContext(ctx, sql, args...)
 }
 
 func (d *Generic) queryRow(ctx context.Context, sql string, args ...any) (result *sql.Row) {
-	logrus.Tracef("QUERY ROW %v : %s", util.Summarize(args), util.Stripped(sql))
+	query := util.Fill(sql, args)
+	logrus.Tracef("QUERY ROW: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, d.ErrCode(result.Err()), util.Stripped(sql), args)
+		metrics.ObserveSQL(startTime, d.ErrCode(result.Err()), query)
 	}()
 	return d.DB.QueryRowContext(ctx, sql, args...)
 }
 
 func (d *Generic) execute(ctx context.Context, sql string, args ...any) (result sql.Result, err error) {
+	query := util.Fill(sql, args)
 	if d.LockWrites {
 		d.Lock()
 		defer d.Unlock()
@@ -299,10 +302,10 @@ func (d *Generic) execute(ctx context.Context, sql string, args ...any) (result 
 
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
 	for i := uint(0); i < 20; i++ {
-		logrus.Tracef("EXEC (try: %d) %v : %s", i, util.Summarize(args), util.Stripped(sql))
+		logrus.Tracef("EXEC (try=%d): %s", i, query)
 		startTime := time.Now()
 		result, err = d.DB.ExecContext(ctx, sql, args...)
-		metrics.ObserveSQL(startTime, d.ErrCode(err), util.Stripped(sql), args)
+		metrics.ObserveSQL(startTime, d.ErrCode(err), query)
 		if err != nil && d.Retry != nil && d.Retry(err) {
 			wait(i)
 			continue
