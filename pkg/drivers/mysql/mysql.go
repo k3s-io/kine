@@ -17,8 +17,8 @@ import (
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
+	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/util"
 )
 
 const (
@@ -81,11 +81,12 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	}
 
 	dialect.LastInsertID = true
-	dialect.GetSizeSQL = `
+	dialect.GetSizeSQL = query.New(`
 		SELECT SUM(data_length + index_length)
 		FROM information_schema.TABLES
-		WHERE table_schema = DATABASE() AND table_name = 'kine' /* GetSizeSQL */`
-	dialect.CompactSQL = `
+		WHERE table_schema = DATABASE() AND table_name = 'kine'`,
+		"?", false, "GetSize")
+	dialect.CompactSQL = query.New(`
 		DELETE kv FROM kine AS kv
 		INNER JOIN (
 			SELECT kp.prev_revision AS id
@@ -101,7 +102,8 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.deleted != 0 AND
 				kd.id <= ?
 		) AS ks
-		ON kv.id = ks.id /* CompactSQL */`
+		ON kv.id = ks.id`,
+		"?", false, "Compact")
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1062 {
 			return server.ErrKeyExists
@@ -142,7 +144,7 @@ func setup(db *sql.DB) error {
 
 	if !exists {
 		for _, stmt := range schema {
-			logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+			logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 			if _, err := db.Exec(stmt); err != nil {
 				if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
 					return err
@@ -162,7 +164,7 @@ func setup(db *sql.DB) error {
 		if stmt == "" {
 			continue
 		}
-		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, util.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, query.Strip(stmt))
 		if _, err := db.Exec(stmt); err != nil {
 			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1061 {
 				return err
@@ -195,7 +197,7 @@ func createDBIfNotExist(dataSourceName string) error {
 
 	if !exists {
 		stmt := fmt.Sprintf(createDB, dbName)
-		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 		if _, err = db.Exec(stmt); err != nil {
 			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
 				return err

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/k3s-io/kine/pkg/metrics"
+	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -57,7 +57,7 @@ func (t *Tx) MustRollback() {
 
 func (t *Tx) GetCompactRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := t.queryRow(ctx, CompactRevSQL)
+	row := t.queryRow(ctx, t.d.CompactRevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -88,7 +88,7 @@ func (t *Tx) DeleteRevision(ctx context.Context, revision int64) error {
 
 func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
 	var id int64
-	row := t.queryRow(ctx, CurrentRevSQL)
+	row := t.queryRow(ctx, t.d.CurrentRevSQL)
 	err := row.Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -96,29 +96,32 @@ func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (t *Tx) query(ctx context.Context, sql string, args ...any) (result *sql.Rows, err error) {
-	logrus.Tracef("TX QUERY %v : %s", util.Summarize(args), util.Stripped(sql))
+func (t *Tx) query(ctx context.Context, sql *query.Named, args ...any) (result *sql.Rows, err error) {
+	query := sql.Fill(args)
+	logrus.Tracef("TX QUERY: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, t.d.ErrCode(err), util.Stripped(sql), args)
+		metrics.ObserveSQL(startTime, t.d.ErrCode(err), query)
 	}()
-	return t.x.QueryContext(ctx, sql, args...)
+	return t.x.QueryContext(ctx, sql.Query, args...)
 }
 
-func (t *Tx) queryRow(ctx context.Context, sql string, args ...any) (result *sql.Row) {
-	logrus.Tracef("TX QUERY ROW %v : %s", util.Summarize(args), util.Stripped(sql))
+func (t *Tx) queryRow(ctx context.Context, sql *query.Named, args ...any) (result *sql.Row) {
+	query := sql.Fill(args)
+	logrus.Tracef("TX QUERY ROW: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, t.d.ErrCode(result.Err()), util.Stripped(sql), args)
+		metrics.ObserveSQL(startTime, t.d.ErrCode(result.Err()), query)
 	}()
-	return t.x.QueryRowContext(ctx, sql, args...)
+	return t.x.QueryRowContext(ctx, sql.Query, args...)
 }
 
-func (t *Tx) execute(ctx context.Context, sql string, args ...any) (result sql.Result, err error) {
-	logrus.Tracef("TX EXEC %v : %s", util.Summarize(args), util.Stripped(sql))
+func (t *Tx) execute(ctx context.Context, sql *query.Named, args ...any) (result sql.Result, err error) {
+	query := sql.Fill(args)
+	logrus.Tracef("TX EXEC: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, t.d.ErrCode(err), util.Stripped(sql), args)
+		metrics.ObserveSQL(startTime, t.d.ErrCode(err), query)
 	}()
-	return t.x.ExecContext(ctx, sql, args...)
+	return t.x.ExecContext(ctx, sql.Query, args...)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
+	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/tls"
 	"github.com/k3s-io/kine/pkg/util"
@@ -74,8 +75,8 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
-	dialect.GetSizeSQL = `SELECT pg_total_relation_size('kine') /* GetSizeSQL */`
-	dialect.CompactSQL = `
+	dialect.GetSizeSQL = query.New(`SELECT pg_total_relation_size('kine')`, "$", true, "GetSize")
+	dialect.CompactSQL = query.New(`
 		DELETE FROM kine AS kv
 		USING	(
 			SELECT kp.prev_revision AS id
@@ -91,7 +92,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.deleted != 0 AND
 				kd.id <= $2
 		) AS ks
-		WHERE kv.id = ks.id /* CompactSQL */`
+		WHERE kv.id = ks.id`, "$", true, "Compact")
 	dialect.FillRetryDuration = time.Millisecond + 5
 	dialect.InsertRetry = func(err error) bool {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
@@ -141,10 +142,10 @@ func setup(db *sql.DB) error {
 	}
 
 	for _, stmt := range schema {
-		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
 		if !collationSupported {
 			stmt = strings.ReplaceAll(stmt, ` COLLATE "C"`, "")
 		}
+		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
@@ -164,7 +165,7 @@ func setup(db *sql.DB) error {
 		if stmt == "" {
 			continue
 		}
-		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, util.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, query.Strip(stmt))
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
@@ -197,7 +198,7 @@ func createDBIfNotExist(dataSourceName string) error {
 
 	if !exists {
 		stmt := fmt.Sprintf(createDB, dbName)
-		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 		if _, err = db.Exec(stmt); err != nil {
 			logrus.Warnf("failed to create database %s: %v", dbName, err)
 		} else {

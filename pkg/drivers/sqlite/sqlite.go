@@ -14,8 +14,8 @@ import (
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
+	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
-	"github.com/k3s-io/kine/pkg/util"
 	"github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
@@ -79,11 +79,13 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	}
 
 	dialect.LastInsertID = true
-	dialect.GetSizeSQL = `SELECT (page_count - freelist_count) * page_size FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size() /* GetSizeSQL */`
-	dialect.CompactSQL = `
+	dialect.GetSizeSQL = query.New(`
+		SELECT (page_count - freelist_count) * page_size
+		FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()`,
+		"?", false, "GetSize")
+	dialect.CompactSQL = query.New(`
 		DELETE FROM kine AS kv
-		WHERE
-			kv.id IN (
+		WHERE kv.id IN (
 				SELECT kp.prev_revision AS id
 				FROM kine AS kp
 				WHERE
@@ -95,12 +97,12 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 				FROM kine AS kd
 				WHERE
 					kd.deleted != 0 AND
-					kd.id <= ?
-			) /* CompactSQL */`
+					kd.id <= ?)`,
+		"?", false, "Compact")
 	if noCompactCheckpoint {
 		logrus.Infof("WAL checkpoint on compact is disabled")
 	} else {
-		dialect.PostCompactSQL = `PRAGMA wal_checkpoint(FULL) /* PostCompactSQL */`
+		dialect.PostCompactSQL = query.New(`PRAGMA wal_checkpoint(FULL)`, "?", false, "PostCompactSQL")
 	}
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
@@ -139,7 +141,7 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 	}
 
 	for _, stmt := range schema {
-		logrus.Tracef("SETUP EXEC : %v", util.Stripped(stmt))
+		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
 			return err
