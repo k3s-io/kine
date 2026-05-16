@@ -239,9 +239,9 @@ func toEvents(events ...*Event) []*mvccpb.Event {
 }
 
 func toEvent(event *Event) *mvccpb.Event {
-	e := &mvccpb.Event{
-		Kv:     toKV(event.KV),
-		PrevKv: toKV(event.PrevKV),
+	e := &mvccpb.Event{Kv: toKV(event.KV)}
+	if !event.Create {
+		e.PrevKv = toKV(event.PrevKV)
 	}
 	if event.Delete {
 		e.Type = mvccpb.DELETE
