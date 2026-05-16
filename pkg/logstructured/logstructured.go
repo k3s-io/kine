@@ -87,7 +87,7 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		logrus.Tracef("CREATE %s, size=%d, lease=%d => rev=%d, err=%v", key, len(value), lease, revRet, errRet)
 	}()
 
-	rev, prevEvent, err := l.get(ctx, key, "", 1, 0, true, false)
+	rev, prevEvent, err := l.get(ctx, key, "", 1, 0, true, true)
 	if err != nil {
 		return 0, err
 	}
@@ -135,10 +135,9 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 	if revision != 0 && event.KV.ModRevision != revision {
 		return rev, event.KV, false, nil
 	}
-
 	deleteEvent := &server.Event{
 		Delete: true,
-		KV:     event.KV,
+		KV:     &server.KeyValue{Key: event.KV.Key},
 		PrevKV: event.KV,
 	}
 
