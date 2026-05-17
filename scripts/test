@@ -46,4 +46,10 @@ echo "did test-nats-embedded $?"
 . ./scripts/test-run-nats-socket
 echo "did test-nats-socket $?"
 
+. ./scripts/test-run-t4
+echo "did test-t4 $?"
+
+. ./scripts/test-run-t4-s3
+echo "did test-t4-s3 $?"
+
 exit 0

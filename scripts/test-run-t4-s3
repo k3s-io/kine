@@ -1,0 +1,59 @@
+#!/bin/bash
+# t4 single-node with S3 durability against an adobe/s3mock container.
+# Exercises the full S3 path — credential resolution, bucket access,
+# checkpoint + WAL upload — that test-run-t4 does not.
+#
+# Multi-node t4 + S3 is intentionally out of scope here: the standard kine
+# test harness only supervises one kine container per run, so a 3-node
+# cluster would need a parallel harness. test-run-t4 covers the driver
+# wiring and apiserver tests for the multi-node code paths.
+
+start-test() {
+    local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
+    local bucket="kine-t4-test"
+
+    DB_CONNECTION_TEST="
+        docker run --rm
+        --name connection-test
+        --network container:$(cat $TEST_DIR/databases/*/metadata/name)
+        curlimages/curl:8.10.1
+        --silent --fail http://localhost:9090/${bucket}" \
+    timeout --foreground 1m bash -c "wait-for-db-connection"
+
+    # adobe/s3mock accepts any access key / secret; values are checked for
+    # presence, not validity. Bucket / endpoint pass through as env vars
+    # consumed by kine's CLI parser (EnvVars on the --s3-* flags).
+    local s3_endpoint="http://$ip:9090"
+    export KINE_ENV="\
+        -e AWS_ACCESS_KEY_ID=test \
+        -e AWS_SECRET_ACCESS_KEY=test \
+        -e KINE_S3_BUCKET=${bucket} \
+        -e KINE_S3_ENDPOINT=$s3_endpoint"
+    local endpoint="t4:///tmp/t4"
+
+    # The Go-level apiserver tests are in-process: env vars must be set on
+    # the host shell, not piped through $KINE_ENV.
+    AWS_ACCESS_KEY_ID=test \
+    AWS_SECRET_ACCESS_KEY=test \
+    KINE_S3_BUCKET="${bucket}" \
+    KINE_S3_ENDPOINT="$s3_endpoint" \
+        KINE_IMAGE=$IMAGE KINE_ENDPOINT="$endpoint" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="$endpoint" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+# adobe/s3mock pre-creates buckets via COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS.
+# The harness's $DB_PASSWORD_ENV isn't useful here (s3mock has no auth) but is
+# required by provision-database; we use it as a harmless placeholder.
+database-pre-hook() {
+    echo "COM_ADOBE_TESTING_S3MOCK_STORE_INITIAL_BUCKETS=kine-t4-test" \
+        >> $TEST_DIR/databases/$1/metadata/env
+}
+export -f database-pre-hook
+
+LABEL=t4-s3 \
+DB_IMAGE=mirror.gcr.io/adobe/s3mock:5.0.0 \
+DB_PASSWORD_ENV=DUMMY \
+run-test

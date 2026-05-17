@@ -1,0 +1,14 @@
+#!/bin/bash
+# Single-node t4 in local-only mode (no S3 bucket): exercises the driver
+# wiring, kine endpoint, k3s integration, and the apiserver storage tests.
+# See test-run-t4-s3 for the multi-node + MinIO variant.
+
+start-test() {
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="t4:///tmp/t4" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="t4:///tmp/t4" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+LABEL=t4 run-test
