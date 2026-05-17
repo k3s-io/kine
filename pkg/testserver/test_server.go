@@ -67,6 +67,7 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 		t.Fatalf("Failed to set database path: %v", err)
 	}
 	config.Endpoint = dsn
+	setObjectStorePath(&config, cfg.Dir)
 
 	e, err := endpoint.Listen(ctx, config)
 	if err != nil {
@@ -96,9 +97,26 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	return client
 }
 
+// setObjectStorePath isolates remote state for drivers whose local database
+// path is not enough to separate test instances.
+func setObjectStorePath(config *endpoint.Config, dir string) {
+	scheme, _, _ := strings.Cut(config.Endpoint, "://")
+	if scheme != "t4" || config.S3Config.Bucket == "" {
+		return
+	}
+
+	folder := strings.TrimSuffix(config.S3Config.Folder, "/")
+	hash := databaseHash(dir)
+	if folder == "" {
+		config.S3Config.Folder = hash
+		return
+	}
+	config.S3Config.Folder = folder + "/" + hash
+}
+
 func setDatabasePath(endpoint, dir string) (string, error) {
 	// append a hash of the temp dir to the db name for remote engines where we cannot set the db path directly
-	hash := fmt.Sprintf("%.8x", sha256.Sum256([]byte(dir)))
+	hash := databaseHash(dir)
 	scheme, _, _ := strings.Cut(endpoint, "://")
 	switch scheme {
 	case "memory":
@@ -131,4 +149,8 @@ func setDatabasePath(endpoint, dir string) (string, error) {
 		ep.Path += hash
 		return ep.String(), nil
 	}
+}
+
+func databaseHash(dir string) string {
+	return fmt.Sprintf("%.8x", sha256.Sum256([]byte(dir)))
 }

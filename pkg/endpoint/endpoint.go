@@ -53,6 +53,8 @@ type Config struct {
 	CompactBatchSize      int64
 	PollBatchSize         int64
 	LogFormat             string
+	PeerConfig            drivers.PeerConfig
+	S3Config              drivers.S3Config
 }
 
 type ETCDConfig struct {
@@ -81,6 +83,8 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 		CompactMinRetain:      config.CompactMinRetain,
 		CompactBatchSize:      config.CompactBatchSize,
 		PollBatchSize:         config.PollBatchSize,
+		PeerConfig:            config.PeerConfig,
+		S3Config:              config.S3Config,
 	})
 
 	if err != nil {
