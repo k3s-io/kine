@@ -84,7 +84,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	dialect.GetSizeSQL = `
 		SELECT SUM(data_length + index_length)
 		FROM information_schema.TABLES
-		WHERE table_schema = DATABASE() AND table_name = 'kine'`
+		WHERE table_schema = DATABASE() AND table_name = 'kine' /* GetSizeSQL */`
 	dialect.CompactSQL = `
 		DELETE kv FROM kine AS kv
 		INNER JOIN (
@@ -101,7 +101,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.deleted != 0 AND
 				kd.id <= ?
 		) AS ks
-		ON kv.id = ks.id`
+		ON kv.id = ks.id /* CompactSQL */`
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1062 {
 			return server.ErrKeyExists

@@ -1,9 +1,9 @@
 package metrics
 
 import (
+	"fmt"
 	"time"
 
-	"github.com/k3s-io/kine/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -44,21 +44,19 @@ var (
 	SlowSQLWarningThreshold = 5 * time.Second
 )
 
-func ObserveSQL(start time.Time, errCode string, sql util.Stripped, args any) {
+func ObserveSQL(start time.Time, errCode string, query fmt.Stringer) {
 	SQLTotal.WithLabelValues(errCode).Inc()
 	duration := time.Since(start)
 	SQLTime.WithLabelValues(errCode).Observe(duration.Seconds())
 	if SlowSQLThreshold > 0 && duration >= SlowSQLThreshold {
-		instrumentedLogger := logrus.WithField("duration", duration)
-
-		if logrus.GetLevel() == logrus.TraceLevel {
-			instrumentedLogger.WithField("args", args)
-		}
-
+		instrumentedLogger := logrus.WithFields(logrus.Fields{
+			"duration": duration.String(),
+			"started":  start.Format(time.RFC3339Nano),
+		})
 		if duration < SlowSQLWarningThreshold {
-			instrumentedLogger.Infof("Slow SQL (started: %v) (total time: %v): %s", start, duration, sql)
+			instrumentedLogger.Infof("Slow SQL: %s", query)
 		} else {
-			instrumentedLogger.Warnf("Slow SQL (started: %v) (total time: %v): %s", start, duration, sql)
+			instrumentedLogger.Warnf("Slow SQL: %s", query)
 		}
 	}
 }

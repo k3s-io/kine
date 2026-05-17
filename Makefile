@@ -2,6 +2,8 @@
 
 ARCH ?= amd64
 REPO ?= rancher
+SHELL := bash
+PKGSRC := $(shell find pkg/ -type f)
 DEFAULT_BUILD_ARGS=--build-arg="REPO=$(REPO)" --build-arg="TAG=$(TAG)" --build-arg="ARCH=$(ARCH)" --build-arg="DIRTY=$(DIRTY)"
 DIRTY := $(shell git status --porcelain --untracked-files=no)
 ifneq ($(DIRTY),)
@@ -38,3 +40,10 @@ package:
 
 .PHONY: ci
 ci: validate build package
+
+.PHONY: apiserver-tests
+apiserver-tests: bin/etcd3.test bin/metrics.test bin/preflight.test
+
+bin/etcd3.test bin/metrics.test bin/preflight.test: $(PKGSRC)
+	. ./scripts/test-helpers && build-apiserver-tests
+

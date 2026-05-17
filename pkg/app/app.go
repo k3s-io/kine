@@ -216,6 +216,7 @@ func run(c *cli.Context) (rerr error) {
 	} else if config.LogFormat == "json" {
 		logrus.SetFormatter(&logrus.JSONFormatter{
 			// To align with https://cloud.google.com/logging/docs/structured-logging
+			TimestampFormat: time.RFC3339Nano,
 			FieldMap: logrus.FieldMap{
 				logrus.FieldKeyLevel: "severity",
 				logrus.FieldKeyMsg:   "message",

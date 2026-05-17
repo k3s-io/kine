@@ -61,7 +61,7 @@ func (l *LogStructured) Get(ctx context.Context, key, rangeEnd string, limit, re
 }
 
 func (l *LogStructured) get(ctx context.Context, key, rangeEnd string, limit, revision int64, includeDeletes, keysOnly bool) (int64, *server.Event, error) {
-	rev, events, err := l.log.List(ctx, strings.ReplaceAll(key, `_`, `^_`), rangeEnd, limit, revision, includeDeletes, keysOnly)
+	rev, events, err := l.log.List(ctx, key, rangeEnd, limit, revision, includeDeletes, keysOnly)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -87,7 +87,7 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		logrus.Tracef("CREATE %s, size=%d, lease=%d => rev=%d, err=%v", key, len(value), lease, revRet, errRet)
 	}()
 
-	rev, prevEvent, err := l.get(ctx, key, "", 1, 0, true, false)
+	rev, prevEvent, err := l.get(ctx, key, "", 1, 0, true, true)
 	if err != nil {
 		return 0, err
 	}
@@ -135,10 +135,9 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 	if revision != 0 && event.KV.ModRevision != revision {
 		return rev, event.KV, false, nil
 	}
-
 	deleteEvent := &server.Event{
 		Delete: true,
-		KV:     event.KV,
+		KV:     &server.KeyValue{Key: event.KV.Key},
 		PrevKV: event.KV,
 	}
 
@@ -203,14 +202,14 @@ func (l *LogStructured) Count(ctx context.Context, prefix, startKey string, revi
 	}()
 	rev, count, err := l.log.Count(ctx, prefix, startKey, revision)
 	if err != nil {
-		return 0, 0, err
+		return rev, 0, err
 	}
 
 	if count == 0 {
 		// if count is zero, then so is revision, so now get the current revision and re-count at that revision
 		currentRev, err := l.log.CurrentRevision(ctx)
 		if err != nil {
-			return 0, 0, err
+			return currentRev, 0, err
 		}
 		rev, rows, err := l.List(ctx, prefix, prefix, 1000, currentRev, true)
 		return rev, int64(len(rows)), err
