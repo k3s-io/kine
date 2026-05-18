@@ -1,6 +1,7 @@
 package query
 
 import (
+	"database/sql"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -64,6 +65,19 @@ func (f *Filled) String() string {
 
 func (f *Filled) QueryString() string {
 	return fmt.Sprintf(params.ReplaceAllString(f.Query, "%v"), summarize(f.Args)...)
+}
+
+// Stmt is a wrapper around sql.Stmt that remembers what query it was prepared from
+type Stmt struct {
+	*Named
+	Stmt *sql.Stmt
+}
+
+func (s *Stmt) Close() error {
+	if s.Stmt != nil {
+		return s.Stmt.Close()
+	}
+	return nil
 }
 
 func Strip(s string) string {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/metrics"
+	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/sirupsen/logrus"
 )
@@ -477,6 +478,7 @@ func (s *SQLLog) startWatch() (chan server.Events, error) {
 
 func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 	var (
+		stmt         *query.Stmt
 		skip         int64
 		skipTime     time.Time
 		waitForMore  = true
@@ -507,10 +509,23 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		s.polled.Broadcast()
 		s.Unlock()
 
-		rows, err := s.d.After(s.ctx, "%", pollRevision, s.pollBatchSize)
+		if stmt == nil {
+			var err error
+			stmt, err = s.d.PrepareAfter(s.ctx, s.pollBatchSize)
+			if err != nil {
+				logrus.Errorf("Failed to prepare to list latest changes: %v", err)
+			}
+			continue
+		}
+
+		rows, err := s.d.QueryAfter(s.ctx, stmt, "%", pollRevision)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
-				logrus.Errorf("fail to list latest changes: %v", err)
+				logrus.Errorf("Failed to list latest changes: %v", err)
+			}
+			if stmt != nil {
+				stmt.Close()
+				stmt = nil
 			}
 			continue
 		}
