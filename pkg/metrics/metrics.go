@@ -46,7 +46,7 @@ var (
 	SlowSQLWarningThreshold = 5 * time.Second
 )
 
-func ObserveSQL(start time.Time, errCode string, sql *query.Filled) {
+func ObserveSQL(start time.Time, errCode string, retries int, sql *query.Filled) {
 	if sql.Name != "" {
 		SQLTotal.WithLabelValues(sql.Name, errCode).Inc()
 		duration := time.Since(start)
@@ -57,6 +57,9 @@ func ObserveSQL(start time.Time, errCode string, sql *query.Filled) {
 				"duration": duration.String(),
 				"started":  start.Format(time.RFC3339Nano),
 			})
+			if retries > 0 {
+				instrumentedLogger = instrumentedLogger.WithField("retries", retries)
+			}
 			if duration < SlowSQLWarningThreshold {
 				instrumentedLogger.Infof("Slow SQL: %s", sql.QueryString())
 			} else {
