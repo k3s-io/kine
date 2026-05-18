@@ -277,7 +277,7 @@ func (d *Generic) queryStatement(ctx context.Context, stmt *query.Stmt, args ...
 	logrus.Tracef("QUERY PREPARED: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, d.ErrCode(err), query)
+		metrics.ObserveSQL(startTime, d.ErrCode(err), 0, query)
 	}()
 	return stmt.Stmt.QueryContext(ctx, args...)
 }
@@ -287,7 +287,7 @@ func (d *Generic) query(ctx context.Context, sql *query.Named, args ...any) (res
 	logrus.Tracef("QUERY: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, d.ErrCode(err), query)
+		metrics.ObserveSQL(startTime, d.ErrCode(err), 0, query)
 	}()
 	return d.DB.QueryContext(ctx, sql.Query, args...)
 }
@@ -297,26 +297,30 @@ func (d *Generic) queryRow(ctx context.Context, sql *query.Named, args ...any) (
 	logrus.Tracef("QUERY ROW: %s", query)
 	startTime := time.Now()
 	defer func() {
-		metrics.ObserveSQL(startTime, d.ErrCode(result.Err()), query)
+		metrics.ObserveSQL(startTime, d.ErrCode(result.Err()), 0, query)
 	}()
 	return d.DB.QueryRowContext(ctx, sql.Query, args...)
 }
 
 func (d *Generic) execute(ctx context.Context, sql *query.Named, args ...any) (result sql.Result, err error) {
+	retries := 0
+	startTime := time.Now()
 	query := sql.Fill(args)
 	if d.LockWrites {
 		d.Lock()
 		defer d.Unlock()
 	}
 
+	defer func() {
+		metrics.ObserveSQL(startTime, d.ErrCode(err), retries, query)
+	}()
+
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
-	for i := uint(0); i < 20; i++ {
-		logrus.Tracef("EXEC (try=%d): %s", i, query)
-		startTime := time.Now()
+	for ; retries < 20; retries++ {
+		logrus.Tracef("EXEC (try=%d): %s", retries, query)
 		result, err = d.DB.ExecContext(ctx, sql.Query, args...)
-		metrics.ObserveSQL(startTime, d.ErrCode(err), query)
 		if err != nil && d.Retry != nil && d.Retry(err) {
-			wait(i)
+			wait(uint(retries))
 			continue
 		}
 		return result, err
@@ -511,7 +515,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		err = row.Scan(&id)
 
 		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
-			logrus.Warnf("retriable insert error for key %v: %v", key, err)
+			logrus.Warnf("Retriable insert error for key %v: %v", key, err)
 			metrics.InsertErrorsTotal.WithLabelValues("true").Inc()
 			wait(i)
 			continue
@@ -519,7 +523,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 
 		if err != nil {
 			metrics.InsertErrorsTotal.WithLabelValues("false").Inc()
-			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("insert error for key %v: %v", key, err)
+			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("Insert error for key %v: %v", key, err)
 		}
 
 		return id, err
