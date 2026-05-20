@@ -47,7 +47,7 @@ type Dialect interface {
 	CurrentRevision(ctx context.Context) (int64, error)
 	After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error)
 	//nolint:revive
-	Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (int64, error)
+	Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value []byte) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
 	SetCompactRevision(ctx context.Context, revision int64) error
