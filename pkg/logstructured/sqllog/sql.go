@@ -644,7 +644,6 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 		e.PrevKV.ModRevision,
 		e.KV.Lease,
 		e.KV.Value,
-		e.PrevKV.Value,
 	)
 	if err != nil {
 		return 0, err

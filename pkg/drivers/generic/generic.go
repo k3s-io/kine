@@ -244,17 +244,17 @@ func Open(ctx context.Context, wg *sync.WaitGroup, driverName, dataSourceName st
 
 		InsertLastInsertIDSQL: query.New(`
 			INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?)`,
+			SELECT ?, ?, ?, ?, ?, ?, ?, (SELECT value FROM kine WHERE id = ?) AS old_value`,
 			paramCharacter, numbered, "InsertLastInsertID"),
 
 		InsertSQL: query.New(`
 			INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+			SELECT ?, ?, ?, ?, ?, ?, ?, (SELECT value FROM kine WHERE id = ?) AS old_value RETURNING id`,
 			paramCharacter, numbered, "Insert"),
 
 		FillSQL: query.New(`
 			INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			values(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			paramCharacter, numbered, "Fill"),
 	}, err
 }
@@ -439,7 +439,7 @@ func (d *Generic) IsFill(key string) bool {
 }
 
 //nolint:revive
-func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value, prevValue []byte) (id int64, err error) {
+func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value []byte) (id int64, err error) {
 	if d.TranslateErr != nil {
 		defer func() {
 			if err != nil {
@@ -458,7 +458,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	}
 
 	if d.LastInsertID {
-		row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
+		row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, previousRevision)
 		if err != nil {
 			return 0, err
 		}
@@ -472,7 +472,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// duplicate key error to the client.
 	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
 	for i := uint(0); i < 20; i++ {
-		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, prevValue)
+		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, previousRevision)
 		err = row.Scan(&id)
 
 		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
