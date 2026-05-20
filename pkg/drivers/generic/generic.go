@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultMaxIdleConns = 2 // copied from database/sql
+	defaultMaxIdleConns = 20 // database/sql default is 2, but profiling suggests that kine needs ~10-15 connections available under moderate load
 )
 
 // explicit interface check
@@ -54,6 +54,7 @@ type ConnectionPoolConfig struct {
 	MaxIdle     int           // zero means defaultMaxIdleConns; negative means 0
 	MaxOpen     int           // <= 0 means unlimited
 	MaxLifetime time.Duration // maximum amount of time a connection may be reused
+	MaxIdleTime time.Duration // maximum amount of time a connection may remain idle
 }
 
 type Generic struct {
@@ -125,10 +126,13 @@ func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB,
 		connPoolConfig.MaxIdle = defaultMaxIdleConns
 	}
 
-	logrus.Infof("Configuring %s database connection pooling: maxIdleConns=%d, maxOpenConns=%d, connMaxLifetime=%s", driverName, connPoolConfig.MaxIdle, connPoolConfig.MaxOpen, connPoolConfig.MaxLifetime)
+	logrus.Infof(
+		"Configuring %s database connection pooling: maxIdle=%d, maxOpen=%d, maxLifetime=%s, maxIdleTime=%s",
+		driverName, connPoolConfig.MaxIdle, connPoolConfig.MaxOpen, connPoolConfig.MaxLifetime, connPoolConfig.MaxIdleTime)
 	db.SetMaxIdleConns(connPoolConfig.MaxIdle)
 	db.SetMaxOpenConns(connPoolConfig.MaxOpen)
 	db.SetConnMaxLifetime(connPoolConfig.MaxLifetime)
+	db.SetConnMaxIdleTime(connPoolConfig.MaxIdleTime)
 }
 
 func openAndTest(driverName, dataSourceName string) (*sql.DB, error) {
