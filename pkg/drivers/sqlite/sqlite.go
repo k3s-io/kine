@@ -5,6 +5,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"strings"
@@ -66,14 +67,22 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	noAutoCheckpoint := strings.Contains(dataSourceName, "_kine_disable_wal_autocheckpoint")
 	noStartupVacuum := strings.Contains(dataSourceName, "_kine_disable_startup_vacuum")
 
+	connector := &sqliteConnector{dsn: dataSourceName}
 	if driverName == "litestream" {
 		logrus.Infof("Litestream compatibility options enabled (all WAL checkpointing and startup VACUUM disabled)")
 		noCompactCheckpoint = true
 		noAutoCheckpoint = true
 		noStartupVacuum = true
+		connector.driver = &sqlite3.SQLiteDriver{
+			ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
+				return conn.SetFileControlInt("main", sqlite3.SQLITE_FCNTL_PERSIST_WAL, 1)
+			},
+		}
+	} else {
+		connector.driver = &sqlite3.SQLiteDriver{}
 	}
 
-	dialect, err := generic.Open(ctx, wg, driverName, dataSourceName, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.OpenDB(ctx, wg, driverName, connector, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -166,13 +175,21 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 }
 
 func init() {
-	sql.Register("litestream", &sqlite3.SQLiteDriver{
-		ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
-			return conn.SetFileControlInt("main", sqlite3.SQLITE_FCNTL_PERSIST_WAL, 1)
-		},
-	})
-
 	drivers.Register("sqlite", New)
 	drivers.Register("litestream", NewWithLitestream)
 	drivers.SetDefault("sqlite")
+}
+
+// sqliteConnector wraps SQLiteDriver and a DSN with methods to satisfy the driver.Connector interface
+type sqliteConnector struct {
+	driver *sqlite3.SQLiteDriver
+	dsn    string
+}
+
+func (c *sqliteConnector) Connect(_ context.Context) (driver.Conn, error) {
+	return c.driver.Open(c.dsn)
+}
+
+func (c *sqliteConnector) Driver() driver.Driver {
+	return c.driver
 }

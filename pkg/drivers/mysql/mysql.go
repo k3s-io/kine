@@ -4,6 +4,7 @@ import (
 	"context"
 	cryptotls "crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/sirupsen/logrus"
 
+	"github.com/k3s-io/kine/pkg/dialer"
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
@@ -66,16 +68,21 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		tlsConfig.MinVersion = cryptotls.VersionTLS11
 	}
 
-	parsedDSN, err := prepareDSN(cfg.DataSourceName, tlsConfig)
+	config, err := prepareConfig(cfg.DataSourceName, tlsConfig)
 	if err != nil {
 		return false, nil, err
 	}
 
-	if err := createDBIfNotExist(parsedDSN); err != nil {
+	connector, err := mysql.NewConnector(config)
+	if err != nil {
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, wg, "mysql", parsedDSN, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	if err := createDBIfNotExist(ctx, config, connector); err != nil {
+		return false, nil, err
+	}
+
+	dialect, err := generic.OpenDB(ctx, wg, "mysql", connector, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
@@ -176,21 +183,13 @@ func setup(db *sql.DB) error {
 	return nil
 }
 
-func createDBIfNotExist(dataSourceName string) error {
-	config, err := mysql.ParseDSN(dataSourceName)
-	if err != nil {
-		return err
-	}
+func createDBIfNotExist(ctx context.Context, config *mysql.Config, connector driver.Connector) error {
 	dbName := config.DBName
-
-	db, err := sql.Open("mysql", dataSourceName)
-	if err != nil {
-		return err
-	}
+	db := sql.OpenDB(connector)
 	defer db.Close()
 
 	var exists bool
-	err = db.QueryRow("SELECT 1 FROM information_schema.SCHEMATA WHERE schema_name = ?", dbName).Scan(&exists)
+	err := db.QueryRow("SELECT 1 FROM information_schema.SCHEMATA WHERE schema_name = ?", dbName).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
 	}
@@ -198,17 +197,19 @@ func createDBIfNotExist(dataSourceName string) error {
 	if !exists {
 		stmt := fmt.Sprintf(createDB, dbName)
 		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
-		if _, err = db.Exec(stmt); err != nil {
+		if _, err = db.ExecContext(ctx, stmt); err != nil {
 			if mysqlError, ok := err.(*mysql.MySQLError); !ok || mysqlError.Number != 1049 {
 				return err
 			}
-			config.DBName = ""
-			db, err = sql.Open("mysql", config.FormatDSN())
+			createConfig := config.Clone()
+			createConfig.DBName = ""
+			connector, err = mysql.NewConnector(createConfig)
 			if err != nil {
 				return err
 			}
+			db = sql.OpenDB(connector)
 			defer db.Close()
-			if _, err = db.Exec(stmt); err != nil {
+			if _, err = db.ExecContext(ctx, stmt); err != nil {
 				return err
 			}
 		}
@@ -216,7 +217,7 @@ func createDBIfNotExist(dataSourceName string) error {
 	return nil
 }
 
-func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, error) {
+func prepareConfig(dataSourceName string, tlsConfig *cryptotls.Config) (*mysql.Config, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultUnixDSN
 		if tlsConfig != nil {
@@ -225,12 +226,12 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 	}
 	config, err := mysql.ParseDSN(dataSourceName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// setting up tlsConfig
 	if tlsConfig != nil {
 		if err := mysql.RegisterTLSConfig("kine", tlsConfig); err != nil {
-			return "", err
+			return nil, err
 		}
 		config.TLSConfig = "kine"
 	}
@@ -239,9 +240,9 @@ func prepareDSN(dataSourceName string, tlsConfig *cryptotls.Config) (string, err
 		dbName = config.DBName
 	}
 	config.DBName = dbName
-	parsedDSN := config.FormatDSN()
+	config.DialFunc = dialer.CachingDialer.DialContext
 
-	return parsedDSN, nil
+	return config, nil
 }
 
 func init() {
