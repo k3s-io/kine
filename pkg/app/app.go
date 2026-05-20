@@ -101,7 +101,7 @@ func New() *cli.App {
 			Name:        "datastore-max-idle-connections",
 			Usage:       "Maximum number of idle connections retained by datastore. If value = 0, the system default will be used. If value < 0, idle connections will not be reused.",
 			Destination: &config.ConnectionPoolConfig.MaxIdle,
-			Value:       0,
+			Value:       20,
 			EnvVars:     []string{"KINE_DATASTORE_MAX_IDLE_CONNECTIONS"},
 		},
 		&cli.IntFlag{
@@ -117,6 +117,13 @@ func New() *cli.App {
 			Destination: &config.ConnectionPoolConfig.MaxLifetime,
 			Value:       0,
 			EnvVars:     []string{"KINE_DATASTORE_CONNECTION_MAX_LIFETIME"},
+		},
+		&cli.DurationFlag{
+			Name:        "datastore-connection-max-idle-time",
+			Usage:       "Maximum amount of time a connection remain idle before being closed. If value <= 0, then there is no limit.",
+			Destination: &config.ConnectionPoolConfig.MaxIdleTime,
+			Value:       time.Minute * 2,
+			EnvVars:     []string{"KINE_DATASTORE_CONNECTION_MAX_IDLE_TIME"},
 		},
 		&cli.DurationFlag{
 			Name:        "slow-sql-threshold",
