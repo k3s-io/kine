@@ -218,6 +218,10 @@ func New() *cli.App {
 }
 
 func run(c *cli.Context) (rerr error) {
+	if c.Args().Len() != 0 {
+		return fmt.Errorf("%s does not accept positional arguments, only flags", c.App.Name)
+	}
+
 	if config.LogFormat == "plain" {
 		logrus.SetFormatter(&logrus.TextFormatter{
 			ForceColors:     true,

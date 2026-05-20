@@ -3,6 +3,7 @@ package pgsql
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"net/url"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib" // sql driver
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/k3s-io/kine/pkg/dialer"
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/generic"
 	"github.com/k3s-io/kine/pkg/logstructured"
@@ -61,16 +64,17 @@ var (
 )
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	parsedDSN, err := prepareDSN(cfg.DataSourceName, cfg.BackendTLSConfig)
+	config, err := prepareConfig(cfg.DataSourceName, cfg.BackendTLSConfig)
 	if err != nil {
 		return false, nil, err
 	}
 
-	if err := createDBIfNotExist(parsedDSN); err != nil {
+	connector := stdlib.GetConnector(*config)
+	if err := createDBIfNotExist(ctx, config, connector); err != nil {
 		return false, nil, err
 	}
 
-	dialect, err := generic.Open(ctx, wg, "pgx", parsedDSN, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
+	dialect, err := generic.OpenDB(ctx, wg, "pgx", connector, cfg.ConnectionPoolConfig, "$", true, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
@@ -175,40 +179,39 @@ func setup(db *sql.DB) error {
 	return nil
 }
 
-func createDBIfNotExist(dataSourceName string) error {
-	u, err := util.ParseURL(dataSourceName)
+func createDBIfNotExist(ctx context.Context, config *pgx.ConnConfig, connector driver.Connector) error {
+	createConfig := config.Copy()
+	createConfig.Database = "postgres"
+	connector = stdlib.GetConnector(*createConfig)
+	conn, err := connector.Connect(ctx)
 	if err != nil {
-		return err
-	}
-
-	dbName := strings.SplitN(u.Path, "/", 2)[1]
-	u.Path = "/postgres"
-	db, err := sql.Open("pgx", u.String())
-	if err != nil {
-		logrus.Warnf("failed to ensure existence of database %s: unable to connect to default postgres database: %v", dbName, err)
+		logrus.Warnf("failed to ensure existence of database %s: unable to connect to default postgres database: %v", createConfig.Database, err)
 		return nil
 	}
+	conn.Close()
+
+	db := sql.OpenDB(connector)
 	defer db.Close()
 
 	var exists bool
-	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", dbName).Scan(&exists)
+	err = db.QueryRow("SELECT 1 FROM pg_database WHERE datname = $1", config.Database).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
-		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", dbName, err)
+		logrus.Warnf("failed to check existence of database %s, going to attempt create: %v", config.Database, err)
 	}
 
 	if !exists {
-		stmt := fmt.Sprintf(createDB, dbName)
+		stmt := fmt.Sprintf(createDB, config.Database)
 		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 		if _, err = db.Exec(stmt); err != nil {
-			logrus.Warnf("failed to create database %s: %v", dbName, err)
+			logrus.Warnf("failed to create database %s: %v", config.Database, err)
 		} else {
-			logrus.Tracef("created database: %s", dbName)
+			logrus.Tracef("created database: %s", config.Database)
 		}
 	}
 	return nil
 }
 
-func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
+func prepareConfig(dataSourceName string, tlsInfo tls.Config) (*pgx.ConnConfig, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultDSN
 	} else {
@@ -216,7 +219,7 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 	}
 	u, err := util.ParseURL(dataSourceName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if len(u.Path) == 0 || u.Path == "/" {
 		u.Path = "/kubernetes"
@@ -228,7 +231,7 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 
 	queryMap, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	// set up tls dsn
 	params := url.Values{}
@@ -252,7 +255,12 @@ func prepareDSN(dataSourceName string, tlsInfo tls.Config) (string, error) {
 		params.Add(k, v[0])
 	}
 	u.RawQuery = params.Encode()
-	return u.String(), nil
+	config, err := pgx.ParseConfig(u.String())
+	if err != nil {
+		return nil, err
+	}
+	config.DialFunc = dialer.CachingDialer.DialContext
+	return config, nil
 }
 
 func init() {
