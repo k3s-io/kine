@@ -170,49 +170,18 @@ func (l *LogStructured) List(ctx context.Context, prefix, startKey string, limit
 	}
 
 	rev, events, err := l.log.List(ctx, strings.ReplaceAll(prefix, `_`, `^_`), startKey, limit, revision, false, keysOnly)
-	if err != nil {
-		return rev, nil, err
-	}
-	if revision == 0 && len(events) == 0 {
-		// if no revision is requested and no events are returned, then try to
-		// get the current revision and relist.  Relist is required because
-		// between now and getting the current revision something could have
-		// been created.
-		rev, err = l.log.CurrentRevision(ctx)
-		if err != nil {
-			return rev, nil, err
-		}
-		if rrev, rkvs, rerr := l.List(ctx, prefix, startKey, limit, rev, keysOnly); rerr == nil {
-			return rrev, rkvs, rerr
-		}
-	}
-
 	kvs := make([]*server.KeyValue, 0, len(events))
 	for _, event := range events {
 		kvs = append(kvs, event.KV)
 	}
-	return rev, kvs, nil
+	return rev, kvs, err
 }
 
 func (l *LogStructured) Count(ctx context.Context, prefix, startKey string, revision int64) (revRet int64, count int64, err error) {
 	defer func() {
 		logrus.Tracef("COUNT %s, rev=%d => rev=%d, count=%d, err=%v", prefix, revision, revRet, count, err)
 	}()
-	rev, count, err := l.log.Count(ctx, prefix, startKey, revision)
-	if err != nil {
-		return rev, 0, err
-	}
-
-	if count == 0 {
-		// if count is zero, then so is revision, so now get the current revision and re-count at that revision
-		currentRev, err := l.log.CurrentRevision(ctx)
-		if err != nil {
-			return currentRev, 0, err
-		}
-		rev, rows, err := l.List(ctx, prefix, prefix, 1000, currentRev, true)
-		return rev, int64(len(rows)), err
-	}
-	return rev, count, nil
+	return l.log.Count(ctx, prefix, startKey, revision)
 }
 
 func (l *LogStructured) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {
