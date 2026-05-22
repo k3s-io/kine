@@ -366,7 +366,7 @@ func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revis
 		return 0, nil, err
 	}
 
-	if revision != 0 && len(result) == 0 {
+	if len(result) == 0 {
 		// a zero length result won't have the compact or current revisions so get them manually
 		rev, err = s.CurrentRevision(ctx)
 		if err != nil {
