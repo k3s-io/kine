@@ -652,6 +652,7 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 		e.PrevKV = &server.KeyValue{}
 	}
 
+	currentRev := s.currentRev.Load()
 	rev, err := s.d.Insert(ctx, e.KV.Key,
 		e.Create,
 		e.Delete,
@@ -663,10 +664,14 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	if err != nil {
 		return 0, err
 	}
-	s.currentRev.Store(rev)
-	select {
-	case s.notify <- rev:
-	default:
+	// currentRev may have moved ahead due to other inserts between when Insert returned
+	// and now; ensure that we don't roll it back if it has changed elsewhere. If the
+	// swap succeeded, notify the polling loop of the new revision.
+	if s.currentRev.CompareAndSwap(currentRev, rev) {
+		select {
+		case s.notify <- rev:
+		default:
+		}
 	}
 	return rev, nil
 }
