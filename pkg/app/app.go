@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
 	"sync"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/k3s-io/kine/pkg/signals"
 	"github.com/k3s-io/kine/pkg/version"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/writer"
 	"github.com/urfave/cli/v2"
 )
 
@@ -210,6 +213,7 @@ func New() *cli.App {
 func run(c *cli.Context) (rerr error) {
 	if config.LogFormat == "plain" {
 		logrus.SetFormatter(&logrus.TextFormatter{
+			ForceColors:     true,
 			FullTimestamp:   true,
 			TimestampFormat: time.RFC3339Nano,
 		})
@@ -229,6 +233,11 @@ func run(c *cli.Context) (rerr error) {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.TraceLevel)
 	}
+
+	// send info/error/warning to stderr, debug/trace to stdout
+	logrus.SetOutput(ioutil.Discard)
+	logrus.AddHook(&writer.Hook{Writer: os.Stderr, LogLevels: []logrus.Level{logrus.PanicLevel, logrus.FatalLevel, logrus.ErrorLevel, logrus.WarnLevel, logrus.InfoLevel}})
+	logrus.AddHook(&writer.Hook{Writer: os.Stdout, LogLevels: []logrus.Level{logrus.DebugLevel, logrus.TraceLevel}})
 
 	ctx := signals.SetupSignalContext()
 

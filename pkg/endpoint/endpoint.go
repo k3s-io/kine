@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -270,29 +271,44 @@ func grpcServer(config Config) (*grpc.Server, error) {
 
 func unaryStatsInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 	start := time.Now()
+	clientAddr := ""
+	if client, ok := peer.FromContext(ctx); ok {
+		clientAddr = client.Addr.String()
+		if host, _, err := net.SplitHostPort(clientAddr); err == nil {
+			clientAddr = host
+		}
+	}
 	defer func() {
-		logrus.Tracef("UNARY STATS method=%s, time=%s", info.FullMethod, time.Since(start).Truncate(time.Microsecond))
+		logrus.Tracef("UNARY STATS client=%s, method=%s, time=%s", clientAddr, info.FullMethod, time.Since(start).Truncate(time.Microsecond))
 	}()
 	return handler(ctx, req)
 }
 
 func streamStatsInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	return handler(srv, &loggingServerStream{ServerStream: ss})
+	clientAddr := ""
+	if client, ok := peer.FromContext(ss.Context()); ok {
+		clientAddr = client.Addr.String()
+		if host, _, err := net.SplitHostPort(clientAddr); err == nil {
+			clientAddr = host
+		}
+	}
+	return handler(srv, &loggingServerStream{ServerStream: ss, clientAddr: clientAddr})
 }
 
 type loggingServerStream struct {
 	grpc.ServerStream
+	clientAddr string
 }
 
 func (l *loggingServerStream) SendMsg(m any) error {
 	start := time.Now()
 	defer func() {
 		if wr, ok := m.(*etcdserverpb.WatchResponse); ok {
-			logrus.Tracef("STREAM STATS WATCH SEND DONE id=%d, revision=%d, events=%d, size=%d, reason=%q, time=%s", wr.WatchId, wr.Header.Revision, len(wr.Events), wr.Size(), wr.CancelReason, time.Since(start).Truncate(time.Microsecond))
+			logrus.Tracef("STREAM STATS WATCH SEND DONE client=%s, id=%d, revision=%d, events=%d, size=%d, reason=%q, time=%s", l.clientAddr, wr.WatchId, wr.Header.Revision, len(wr.Events), wr.Size(), wr.CancelReason, time.Since(start).Truncate(time.Microsecond))
 			return
 		}
 		if p, ok := m.(proto.Message); ok {
-			logrus.Tracef("STREAM STATS SENDMSG name=%s, size=%d, time=%s", proto.MessageName(p), proto.Size(p), time.Since(start).Truncate(time.Microsecond))
+			logrus.Tracef("STREAM STATS SENDMSG client=%s, name=%s, size=%d, time=%s", l.clientAddr, proto.MessageName(p), proto.Size(p), time.Since(start).Truncate(time.Microsecond))
 		}
 	}()
 	return l.ServerStream.SendMsg(m)
