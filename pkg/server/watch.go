@@ -72,8 +72,12 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 // server wraps the raw WatchServer with a mutex preventing
 // concurrent calls to Send. WatchServer.Send calls StreamServer.SendMsg
 // which is not safe to call concurrently from different goroutines.
+// server also ensures that the current revision never goes backwards,
+// which could otherwise happen due to races between the event watch loop
+// and watch progress notifications.
 type server struct {
 	sync.Mutex
+	maxRevision int64
 
 	ws etcdserverpb.Watch_WatchServer
 }
@@ -81,6 +85,13 @@ type server struct {
 func (s *server) Send(wr *etcdserverpb.WatchResponse) error {
 	s.Lock()
 	defer s.Unlock()
+	if wr != nil && wr.Header != nil && wr.Header.Revision > 0 {
+		if wr.Header.Revision > s.maxRevision {
+			s.maxRevision = wr.Header.Revision
+		} else {
+			wr.Header.Revision = s.maxRevision
+		}
+	}
 	return s.ws.Send(wr)
 }
 
@@ -165,6 +176,7 @@ func (w *watcher) watch(ctx context.Context, key string, id, startRevision int64
 		return
 	}
 
+	var maxRev int64
 	outer := true
 	for outer {
 		var reads int
@@ -195,14 +207,19 @@ func (w *watcher) watch(ctx context.Context, key string, id, startRevision int64
 			if len(events) > 0 {
 				revision = events[len(events)-1].KV.ModRevision
 			}
-		case revision = <-progressCh:
-			// have been requested to send progress with no events
+		case progressRev := <-progressCh:
+			// have been requested to send progress with no events;
+			// only do so if we've not already seen events with a higher revision
+			if progressRev >= maxRev {
+				revision = progressRev
+			}
 		}
 
 		// send response. note that there are no events if this is a progress response -
 		// but revision 0 is also sent on the progress channel to check if this
 		// reader has synced or not, so we must not send with revision 0.
 		if revision != 0 && (len(events) == 0 || revision >= startRevision) {
+			maxRev = revision
 			wr := &etcdserverpb.WatchResponse{
 				Header:  txnHeader(revision),
 				WatchId: id,
