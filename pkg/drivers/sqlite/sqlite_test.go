@@ -1,13 +1,9 @@
-//go:build cgo
-
 package sqlite
 
 import (
 	"database/sql"
 	"path/filepath"
 	"testing"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // createBloatedDB creates a temporary SQLite database in WAL mode with the kine
@@ -19,10 +15,12 @@ func createBloatedDB(t *testing.T, rowCount int) *sql.DB {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate")
+	connector, err := newConnector("sqlite3", dbPath+"?"+DefaultParams)
 	if err != nil {
-		t.Fatalf("failed to open database: %v", err)
+		t.Fatalf("Failed to create connector: %v", err)
 	}
+
+	db := sql.OpenDB(connector)
 
 	// Create the kine table (same schema as production).
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS kine

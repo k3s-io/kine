@@ -6,12 +6,14 @@ cd $(dirname $0)/..
 . ./scripts/version
 
 mkdir -p dist/artifacts
-cp bin/kine dist/artifacts/kine${SUFFIX}
-file dist/artifacts/kine${SUFFIX}
 
-TAG=${TAG:-${VERSION_TAG}${SUFFIX}}
+if [ "${CGO_ENABLED:-1}" = "0" ]; then
+  NOCGO="-nocgo"
+fi
+
+TAG=${TAG:-${VERSION_TAG}${SUFFIX}}${NOCGO}
 IMAGE_NAME=${IMAGE_NAME:-kine}
 IMAGE=${REPO}/${IMAGE_NAME}:${TAG}
 
-docker build --tag ${IMAGE} --target package -f Dockerfile .
+docker build --tag ${IMAGE} --build-arg="CGO_ENABLED=${CGO_ENABLED:-1}" --build-arg="NOCGO=${NOCGO}" --target package -f Dockerfile .
 echo Built ${IMAGE}

@@ -1,5 +1,3 @@
-//go:build cgo
-
 package sqlite
 
 import (
@@ -17,11 +15,13 @@ import (
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
 	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
-	"github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
 
 var (
+	DefaultParams = "_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&cache=shared"
+	DefaultDSN    = "./db/state.db?" + DefaultParams
+
 	schema = []string{
 		`CREATE TABLE IF NOT EXISTS kine
 			(
@@ -45,41 +45,37 @@ var (
 )
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg, false)
+	backend, _, err := NewVariant(ctx, wg, "sqlite3", cfg)
 	return false, backend, err
 }
 
 func NewWithLitestream(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	backend, _, err := NewVariant(ctx, wg, "litestream", cfg, true)
+	backend, _, err := NewVariant(ctx, wg, "litestream", cfg)
 	return false, backend, err
 }
 
-func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config, litestream bool) (server.Backend, *generic.Generic, error) {
-	dataSourceName := cfg.DataSourceName
-	if dataSourceName == "" {
+func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg *drivers.Config) (server.Backend, *generic.Generic, error) {
+	if cfg.DataSourceName == "" {
 		if err := os.MkdirAll("./db", 0700); err != nil {
 			return nil, nil, err
 		}
-		dataSourceName = "./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate"
+		cfg.DataSourceName = DefaultDSN
 	}
 
-	noCompactCheckpoint := strings.Contains(dataSourceName, "_kine_disable_compact_wal_checkpoint")
-	noAutoCheckpoint := strings.Contains(dataSourceName, "_kine_disable_wal_autocheckpoint")
-	noStartupVacuum := strings.Contains(dataSourceName, "_kine_disable_startup_vacuum")
+	noCompactCheckpoint := strings.Contains(cfg.DataSourceName, "_kine_disable_compact_wal_checkpoint")
+	noAutoCheckpoint := strings.Contains(cfg.DataSourceName, "_kine_disable_wal_autocheckpoint")
+	noStartupVacuum := strings.Contains(cfg.DataSourceName, "_kine_disable_startup_vacuum")
 
-	connector := &sqliteConnector{dsn: dataSourceName}
 	if driverName == "litestream" {
 		logrus.Infof("Litestream compatibility options enabled (all WAL checkpointing and startup VACUUM disabled)")
 		noCompactCheckpoint = true
 		noAutoCheckpoint = true
 		noStartupVacuum = true
-		connector.driver = &sqlite3.SQLiteDriver{
-			ConnectHook: func(conn *sqlite3.SQLiteConn) (err error) {
-				return conn.SetFileControlInt("main", sqlite3.SQLITE_FCNTL_PERSIST_WAL, 1)
-			},
-		}
-	} else {
-		connector.driver = &sqlite3.SQLiteDriver{}
+	}
+
+	connector, err := newConnector(driverName, cfg.DataSourceName)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	dialect, err := generic.OpenDB(ctx, wg, driverName, connector, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
@@ -111,23 +107,10 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	if noCompactCheckpoint {
 		logrus.Infof("WAL checkpoint on compact is disabled")
 	} else {
-		dialect.PostCompactSQL = query.New(`PRAGMA wal_checkpoint(FULL)`, "?", false, "PostCompactSQL")
+		dialect.PostCompactSQL = postCompact()
 	}
-	dialect.TranslateErr = func(err error) error {
-		if err, ok := err.(sqlite3.Error); ok && err.ExtendedCode == sqlite3.ErrConstraintUnique {
-			return server.ErrKeyExists
-		}
-		return err
-	}
-	dialect.ErrCode = func(err error) string {
-		if err == nil {
-			return ""
-		}
-		if err, ok := err.(sqlite3.Error); ok {
-			return fmt.Sprint(err.ExtendedCode)
-		}
-		return err.Error()
-	}
+	dialect.TranslateErr = translateErr
+	dialect.ErrCode = errCode
 
 	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint, noStartupVacuum); err != nil {
 		return nil, nil, fmt.Errorf("setup db: %w", err)
@@ -138,7 +121,8 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 }
 
 func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) error {
-	logrus.Infof("Configuring database table schema and indexes, this may take a moment...")
+	logrus.Infof("Kine built with sqlite from %s", version())
+	logrus.Info("Configuring database table schema and indexes, this may take a moment...")
 
 	schema := append([]string{}, schema...)
 	if !noCheckpointing {
@@ -182,7 +166,7 @@ func init() {
 
 // sqliteConnector wraps SQLiteDriver and a DSN with methods to satisfy the driver.Connector interface
 type sqliteConnector struct {
-	driver *sqlite3.SQLiteDriver
+	driver driver.Driver
 	dsn    string
 }
 
