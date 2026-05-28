@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds kine for the HOST architecture and OS
-set -e
+set -ex
 
 source $(dirname $0)/version
 
@@ -18,8 +18,13 @@ fi
 if [ "$(uname)" = "Linux" ]; then
     OTHER_LINKFLAGS="-extldflags -static -s"
 fi
+
+if [ "${CGO_ENABLED:-1}" = "0" ]; then
+  NOCGO="-nocgo"
+fi
+
 LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.Version=$VERSION"
 LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
 
 echo Building Kine
-CGO_CFLAGS="-DSQLITE_USE_ALLOCA=1" go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine
+CGO_ENABLED=${CGO_ENABLED:-1} CGO_CFLAGS="-DSQLITE_USE_ALLOCA=1" go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine${NOCGO}

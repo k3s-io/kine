@@ -27,12 +27,16 @@ jobs:
       - name: Build binaries
         run: make multi-arch-build
 
+      - name: Build binaries (nocgo)
+        run: make multi-arch-build CGO_ENABLED=0
+
       - name: Compute checksum for each binary
         run: |
           arch=("amd64" "arm64" "arm" "riscv64")
           cd dist/artifacts
           for a in "${arch[@]}"; do
             sha256sum kine-"${a}" > sha256sum-"${a}".txt
+            sha256sum kine-"${a}-nocgo" > sha256sum-"${a}-nocgo".txt
           done
           
       - name: Attest binaries
@@ -95,11 +99,36 @@ jobs:
             ${{ env.DOCKER_USERNAME }}/kine:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/kine:latest
             ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
-      
+
       - name: Attest images
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         id: attest
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/kine
           subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Build and push (nocgo)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        id: build-nocgo
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          context: .
+          target: multi-arch-package
+          push: true
+          build_args: |
+            CGO_ENABLED=0
+            NOCGO=-nocgo
+          tags: |
+            ${{ env.DOCKER_USERNAME }}/kine:latest-nocgo
+            ${{ env.DOCKER_USERNAME }}/kine:${{ github.ref_name }}-nocgo
+            ghcr.io/${{ github.repository_owner }}/kine:latest-nocgo
+            ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}-nocgo
+
+      - name: Attest images (nocgo)
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
+        id: attest-nocgo
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/kine
+          subject-digest: ${{ steps.build-nocgo.outputs.digest }}
           push-to-registry: true

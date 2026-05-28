@@ -30,14 +30,18 @@ jobs:
         SKIP_LINT: "true"
 
   build:
-    name: Build
+    name: Build (${{ matrix.arch }}${{ matrix.cgo == '0' && '-nocgo' || '' }})
     needs: validate
     strategy:
       fail-fast: true
       matrix:
         arch: [amd64, arm64]
+        cgo: ["1", "0"]
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     steps:
+    - name: Set Suffix
+      run: |
+        echo "SUFFIX=${{ matrix.cgo == '0' && '-nocgo' || '' }}" >> "$GITHUB_ENV"
     - name: Checkout
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -54,6 +58,7 @@ jobs:
         outputs: type=local,dest=.
         build-args: |
           ARCH=${{ matrix.arch }}
+          CGO_ENABLED=${{ matrix.cgo }}
 
     - name: Build Dockerfile - package
       uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
@@ -62,10 +67,12 @@ jobs:
         file: ./Dockerfile
         provenance: false
         target: package
-        tags: rancher/kine:latest
-        outputs: type=docker,dest=${{ runner.temp }}/kine.tar
+        tags: rancher/kine:latest${{ env.SUFFIX }}
+        outputs: type=docker,dest=${{ runner.temp }}/kine${{ env.SUFFIX }}.tar
         build-args: |
           ARCH=${{ matrix.arch }}
+          CGO_ENABLED=${{ matrix.cgo }}
+          NOCGO=${{ env.SUFFIX }}
 
     - name: Build Dockerfile.test
       uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
@@ -73,21 +80,22 @@ jobs:
         context: .
         file: ./Dockerfile.test
         provenance: false
-        tags: rancher/kine-test:latest
-        outputs: type=docker,dest=${{ runner.temp }}/kine-test.tar
+        tags: rancher/kine-test:latest${{ env.SUFFIX }}
+        outputs: type=docker,dest=${{ runner.temp }}/kine-test${{ env.SUFFIX }}.tar
         build-args: |
           ARCH=${{ matrix.arch }}
+          CGO_ENABLED=${{ matrix.cgo }}
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
       with:
-        name: images-${{ matrix.arch }}
+        name: images-${{ matrix.arch }}${{ env.SUFFIX }}
         path: ${{ runner.temp }}/kine*.tar
         if-no-files-found: error
         retention-days: 1
 
   docker:
-    name: Docker
+    name: Test ${{ matrix.test }} (${{ matrix.arch }})
     needs: build
     timeout-minutes: 60
     strategy:
@@ -111,3 +119,29 @@ jobs:
     - name: Run Test
       run: |
         docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest rancher/kine-test:latest scripts/test ${{ matrix.test }}
+
+  docker-nocgo:
+    name: Test ${{ matrix.test }} (${{ matrix.arch }}-nocgo)
+    needs: build
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        test: [sqlite, litestream]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+    - name: Download Artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        name: images-${{ matrix.arch }}-nocgo
+        path: ${{ runner.temp }}
+
+    - name: Load Images
+      run: |
+        docker load --input ${{ runner.temp }}/kine-nocgo.tar
+        docker load --input ${{ runner.temp }}/kine-test-nocgo.tar
+
+    - name: Run Test
+      run: |
+        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest-nocgo rancher/kine-test:latest-nocgo scripts/test ${{ matrix.test }}

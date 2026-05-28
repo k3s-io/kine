@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/k3s-io/kine/pkg/app"
+	"github.com/k3s-io/kine/pkg/drivers/sqlite"
 	"github.com/k3s-io/kine/pkg/endpoint"
 	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -121,9 +122,12 @@ func setDatabasePath(endpoint, dir string) (string, error) {
 	switch scheme {
 	case "memory":
 		return endpoint, nil
-	case "", "sqlite":
+	case "", "sqlite", "litestream":
 		// empty scheme means default sqlite db
-		return fmt.Sprintf("sqlite://%s/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate", dir), nil
+		if scheme == "" {
+			scheme = "sqlite"
+		}
+		return fmt.Sprintf("%s://%s/state.db?%s", scheme, dir, sqlite.DefaultParams), nil
 	case "nats", "jetstream":
 		// nats doesn't have databases, so set the bucket param instead
 		ep, err := url.Parse(endpoint)
