@@ -159,6 +159,9 @@ func parseConfig(ctx context.Context, cfg *drivers.Config) (*t4.Config, error) {
 	}
 
 	if cfg.S3Config.Bucket != "" {
+		if err := validateS3Config(cfg.S3Config); err != nil {
+			return nil, err
+		}
 		store, err := t4obj.NewS3StoreFromConfig(ctx, t4obj.S3Config{
 			Bucket:          cfg.S3Config.Bucket,
 			Prefix:          cfg.S3Config.Folder,
@@ -259,6 +262,19 @@ func parseConfig(ctx context.Context, cfg *drivers.Config) (*t4.Config, error) {
 	nodeCfg.PeerClientTLS = client
 
 	return nodeCfg, nil
+}
+
+func validateS3Config(cfg drivers.S3Config) error {
+	if (cfg.AccessKey == "") != (cfg.SecretKey == "") {
+		return errors.New("S3 static credentials require both --s3-access-key/AWS_ACCESS_KEY_ID and --s3-secret-key/AWS_SECRET_ACCESS_KEY")
+	}
+	if cfg.SessionToken != "" && cfg.AccessKey == "" {
+		return errors.New("S3 session token requires --s3-access-key/AWS_ACCESS_KEY_ID and --s3-secret-key/AWS_SECRET_ACCESS_KEY")
+	}
+	if cfg.AccessKey == "" && cfg.Profile == "" {
+		return errors.New("S3 credentials not configured; set --s3-access-key/AWS_ACCESS_KEY_ID and --s3-secret-key/AWS_SECRET_ACCESS_KEY, or set --s3-profile/AWS_PROFILE")
+	}
+	return nil
 }
 
 // peerTLSCredentials builds gRPC TransportCredentials for the t4 peer

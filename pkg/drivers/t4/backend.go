@@ -34,17 +34,15 @@ func (b *backend) Start(ctx context.Context) error {
 	)
 	deadline := time.Now().Add(retryTimeout)
 	for {
-		rev, err := b.node.Create(ctx, kserver.HealthKey, []byte(kserver.HealthVal), 0)
-		if err == nil {
-			if _, _, _, uerr := b.node.Update(ctx, kserver.HealthKey, []byte(kserver.HealthVal), rev, 0); uerr != nil {
-				logrus.Errorf("t4: failed to update health check key: %v", uerr)
+		_, err := b.node.Create(ctx, kserver.HealthKey, []byte(kserver.HealthVal), 0)
+		if err == nil || errors.Is(err, t4.ErrKeyExists) {
+			if err = b.refreshHealthKey(ctx); err == nil {
+				go ttl.Run(ctx, b)
+				return nil
 			}
-			go ttl.Run(ctx, b)
-			return nil
 		}
-		if errors.Is(err, t4.ErrKeyExists) {
-			go ttl.Run(ctx, b)
-			return nil
+		if errors.Is(err, t4.ErrClosed) {
+			return err
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("t4: backend not ready after %s: %w", retryTimeout, err)
@@ -56,6 +54,18 @@ func (b *backend) Start(ctx context.Context) error {
 		case <-time.After(retryInterval):
 		}
 	}
+}
+
+func (b *backend) refreshHealthKey(ctx context.Context) error {
+	kv, err := b.node.LinearizableGet(ctx, kserver.HealthKey)
+	if err != nil {
+		return err
+	}
+	if kv == nil {
+		return errors.New("health key disappeared")
+	}
+	_, _, _, err = b.node.Update(ctx, kserver.HealthKey, []byte(kserver.HealthVal), kv.Revision, 0)
+	return err
 }
 
 func (b *backend) CurrentRevision(_ context.Context) (int64, error) {
@@ -73,7 +83,7 @@ func (b *backend) Get(ctx context.Context, key, _ string, _, revision int64, key
 
 	kv, err := b.node.LinearizableGet(ctx, key, readOpts(revision)...)
 	if err != nil {
-		return curRev, nil, translateReadErr(err)
+		return curRev, nil, translateErr(err)
 	}
 	return curRev, toServerKV(kv, keysOnly), nil
 }
@@ -87,12 +97,14 @@ func readOpts(revision int64) []t4.ReadOption {
 	return []t4.ReadOption{t4.WithRevision(revision)}
 }
 
-// translateReadErr maps t4-internal compaction/future-rev errors to the
-// kine sentinel errors that apiserver tests check for.
-func translateReadErr(err error) error {
+// translateErr maps t4-internal errors to the kine/etcd sentinel errors that
+// apiserver understands and retries appropriately.
+func translateErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, t4.ErrNoLeader):
+		return kserver.ErrNoLeader
 	case errors.Is(err, t4.ErrCompacted):
 		return kserver.ErrCompacted
 	case errors.Is(err, t4.ErrFutureRevision):
@@ -107,13 +119,13 @@ func (b *backend) Create(ctx context.Context, key string, value []byte, lease in
 	if errors.Is(err, t4.ErrKeyExists) {
 		return 0, kserver.ErrKeyExists
 	}
-	return rev, err
+	return rev, translateErr(err)
 }
 
 func (b *backend) Delete(ctx context.Context, key string, revision int64) (int64, *kserver.KeyValue, bool, error) {
 	newRev, oldKV, deleted, err := b.node.DeleteIfRevision(ctx, key, revision)
 	if err != nil {
-		return 0, nil, false, err
+		return 0, nil, false, translateErr(err)
 	}
 	return newRev, toServerKV(oldKV, false), deleted, nil
 }
@@ -135,7 +147,7 @@ func (b *backend) List(ctx context.Context, prefix, startKey string, limit, revi
 	}
 	kvs, err := b.node.LinearizableList(ctx, prefix, opts...)
 	if err != nil {
-		return curRev, nil, translateReadErr(err)
+		return curRev, nil, translateErr(err)
 	}
 	out := make([]*kserver.KeyValue, 0, len(kvs))
 	for _, kv := range kvs {
@@ -158,7 +170,7 @@ func (b *backend) Count(ctx context.Context, prefix, startKey string, revision i
 	}
 	count, err := b.node.LinearizableCount(ctx, prefix, opts...)
 	if err != nil {
-		return curRev, 0, translateReadErr(err)
+		return curRev, 0, translateErr(err)
 	}
 	return curRev, count, nil
 }
@@ -166,7 +178,7 @@ func (b *backend) Count(ctx context.Context, prefix, startKey string, revision i
 func (b *backend) Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *kserver.KeyValue, bool, error) {
 	newRev, oldKV, updated, err := b.node.Update(ctx, key, value, revision, lease)
 	if err != nil {
-		return 0, nil, false, err
+		return 0, nil, false, translateErr(err)
 	}
 	return newRev, toServerKV(oldKV, false), updated, nil
 }
@@ -193,11 +205,7 @@ func (b *backend) Watch(ctx context.Context, key string, revision int64) kserver
 		// and apiserver's watchCache rejects them as duplicate/out-of-order.
 		ch, err := b.node.Watch(ctx, key, revision, t4.WithPrevKV())
 		if err != nil {
-			if errors.Is(err, t4.ErrCompacted) {
-				errCh <- kserver.ErrCompacted
-			} else {
-				errCh <- fmt.Errorf("t4 watch: %w", err)
-			}
+			errCh <- translateErr(err)
 			return
 		}
 		// Coalesce events that are already buffered into a single slice send.
@@ -246,7 +254,7 @@ func (b *backend) DbSize(_ context.Context) (int64, error) {
 
 func (b *backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	if err := b.node.Compact(ctx, revision); err != nil {
-		return 0, err
+		return 0, translateErr(err)
 	}
 	return revision, nil
 }

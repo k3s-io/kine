@@ -26,8 +26,10 @@ func TestParseConfigFailsWithoutCredentialsWhenBucketSet(t *testing.T) {
 	if err == nil {
 		t.Fatal("parseConfig returned nil error")
 	}
-	if !strings.Contains(err.Error(), "credentials") {
-		t.Fatalf("parseConfig error = %q, want mention of credentials", err)
+	for _, want := range []string{"S3 credentials not configured", "--s3-access-key", "AWS_ACCESS_KEY_ID", "--s3-profile", "AWS_PROFILE"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("parseConfig error = %q, want mention of %q", err, want)
+		}
 	}
 }
 
