@@ -103,7 +103,11 @@ func TestT4Backend_StartRefreshesExistingHealthKey(t *testing.T) {
 			cancel()
 			t.Fatalf("t4 New: %v", err)
 		}
-		tb := b.(*backend)
+		tb, ok := b.(*backend)
+		if !ok {
+			cancel()
+			t.Fatalf("backend type = %T, want *backend", b)
+		}
 		if err := tb.Start(ctx); err != nil {
 			cancel()
 			t.Fatalf("t4 Start: %v", err)
