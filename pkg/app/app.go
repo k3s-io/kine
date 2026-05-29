@@ -30,31 +30,32 @@ func New() *cli.App {
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
 			Name:        "listen-address",
+			Usage:       "Address to listen on for connections from etcd clients.",
 			Value:       "0.0.0.0:2379",
 			Destination: &config.Listener,
 			EnvVars:     []string{"KINE_LISTEN_ADDRESS"},
 		},
 		&cli.StringFlag{
 			Name:        "endpoint",
-			Usage:       "Storage endpoint (default is sqlite)",
+			Usage:       "Storage endpoint (default is sqlite).",
 			Destination: &config.Endpoint,
 			EnvVars:     []string{"KINE_ENDPOINT"},
 		},
 		&cli.StringFlag{
 			Name:        "ca-file",
-			Usage:       "CA cert for DB connection",
+			Usage:       "CA cert for DB connection.",
 			Destination: &config.BackendTLSConfig.CAFile,
 			EnvVars:     []string{"KINE_CA_FILE"},
 		},
 		&cli.StringFlag{
 			Name:        "cert-file",
-			Usage:       "Certificate for DB connection",
+			Usage:       "Certificate for DB connection.",
 			Destination: &config.BackendTLSConfig.CertFile,
 			EnvVars:     []string{"KINE_CERT_FILE"},
 		},
 		&cli.StringFlag{
 			Name:        "key-file",
-			Usage:       "Key file for DB connection",
+			Usage:       "Key file for DB connection.",
 			Destination: &config.BackendTLSConfig.KeyFile,
 			EnvVars:     []string{"KINE_KEY_FILE"},
 		},
@@ -67,7 +68,7 @@ func New() *cli.App {
 		},
 		&cli.StringFlag{
 			Name:        "log-format",
-			Usage:       "Log format to use. Options are 'plain' or 'json'.",
+			Usage:       "Log format to use; options are 'plain' or 'json'.",
 			Destination: &config.LogFormat,
 			Value:       "plain",
 			EnvVars:     []string{"KINE_LOG_FORMAT"},
@@ -81,19 +82,19 @@ func New() *cli.App {
 		},
 		&cli.StringFlag{
 			Name:        "server-cert-file",
-			Usage:       "Certificate for etcd connection",
+			Usage:       "Certificate for etcd connection.",
 			Destination: &config.ServerTLSConfig.CertFile,
 			EnvVars:     []string{"KINE_SERVER_CERT_FILE"},
 		},
 		&cli.StringFlag{
 			Name:        "server-key-file",
-			Usage:       "Key file for etcd connection",
+			Usage:       "Key file for etcd connection.",
 			Destination: &config.ServerTLSConfig.KeyFile,
 			EnvVars:     []string{"KINE_SERVER_KEY_FILE"},
 		},
 		&cli.StringFlag{
 			Name:        "trusted-ca-file",
-			Usage:       "CA certificate for verifying client certificates",
+			Usage:       "CA certificate for verifying client certificates.",
 			Destination: &config.ServerTLSConfig.TrustedCAFile,
 			EnvVars:     []string{"KINE_TRUSTED_CA_FILE"},
 		},
@@ -106,7 +107,7 @@ func New() *cli.App {
 		},
 		&cli.IntFlag{
 			Name:        "datastore-max-open-connections",
-			Usage:       "Maximum number of open connections used by datastore. If value <= 0, then there is no limit",
+			Usage:       "Maximum number of open connections used by datastore. If value <= 0, then there is no limit.",
 			Destination: &config.ConnectionPoolConfig.MaxOpen,
 			Value:       0,
 			EnvVars:     []string{"KINE_DATASTORE_MAX_OPEN_CONNECTIONS"},
@@ -163,14 +164,14 @@ func New() *cli.App {
 			Name:        "emulated-etcd-version",
 			Usage:       "The emulated etcd version to return on a call to the status endpoint. Defaults to 3.5.13, in order to indicate support for watch progress notifications.",
 			Destination: &config.EmulatedETCDVersion,
-			Value:       "3.5.13",
+			Value:       "3.6.11",
 			EnvVars:     []string{"KINE_EMULATED_ETCD_VERSION"},
 		},
 		&cli.DurationFlag{
 			Name:        "compact-interval",
-			Usage:       "Interval between automatic compaction. Default is 5m.",
+			Usage:       "Interval between automatic compaction. Default is off so that compact may be managed by the apiserver.",
 			Destination: &config.CompactInterval,
-			Value:       5 * time.Minute,
+			Value:       0,
 			EnvVars:     []string{"KINE_COMPACT_INTERVAL"},
 		},
 		&cli.IntFlag{
@@ -276,6 +277,7 @@ func New() *cli.App {
 		},
 		&cli.BoolFlag{
 			Name:    "debug",
+			Usage:   "Enable debug logging to stdout.",
 			EnvVars: []string{"KINE_DEBUG"},
 		},
 	}
