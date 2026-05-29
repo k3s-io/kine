@@ -17,6 +17,7 @@ var (
 	ErrKeyExists     = rpctypes.ErrGRPCDuplicateKey
 	ErrCompacted     = rpctypes.ErrGRPCCompacted
 	ErrFutureRev     = rpctypes.ErrGRPCFutureRev
+	ErrNoLeader      = rpctypes.ErrGRPCNoLeader
 	ErrGRPCUnhealthy = rpctypes.ErrGRPCUnhealthy
 )
 

@@ -91,6 +91,41 @@ func TestT4Backend_CreateGetUpdateDelete(t *testing.T) {
 	}
 }
 
+func TestT4Backend_StartRefreshesExistingHealthKey(t *testing.T) {
+	dir := t.TempDir()
+
+	start := func(t *testing.T) (*backend, context.CancelFunc, *sync.WaitGroup) {
+		t.Helper()
+		ctx, cancel := context.WithCancel(context.Background())
+		wg := &sync.WaitGroup{}
+		_, b, err := New(ctx, wg, &drivers.Config{DataSourceName: dir})
+		if err != nil {
+			cancel()
+			t.Fatalf("t4 New: %v", err)
+		}
+		tb := b.(*backend)
+		if err := tb.Start(ctx); err != nil {
+			cancel()
+			t.Fatalf("t4 Start: %v", err)
+		}
+		return tb, cancel, wg
+	}
+
+	first, cancelFirst, wgFirst := start(t)
+	firstRev := first.node.CurrentRevision()
+	cancelFirst()
+	wgFirst.Wait()
+
+	second, cancelSecond, wgSecond := start(t)
+	defer func() {
+		cancelSecond()
+		wgSecond.Wait()
+	}()
+	if secondRev := second.node.CurrentRevision(); secondRev <= firstRev {
+		t.Fatalf("restart current revision = %d, want > %d", secondRev, firstRev)
+	}
+}
+
 func TestT4Backend_ListAndCount(t *testing.T) {
 	b, ctx := newLocalBackend(t)
 
