@@ -116,7 +116,7 @@ jobs:
           context: .
           target: multi-arch-package
           push: true
-          build_args: |
+          build-args: |
             CGO_ENABLED=0
             NOCGO=-nocgo
           tags: |
