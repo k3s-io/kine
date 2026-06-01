@@ -58,6 +58,24 @@ EXPOSE 2379/tcp
 USER nobody
 ENTRYPOINT ["/bin/kine"]
 
+FROM infra AS test-base
+ARG CGO_ENABLED=1
+RUN apk -U add docker-cli file findutils py3-pip && \
+    pip install --break-system-packages kubernetes termplotlib==v0.3.4
+
+ENV KINE_SOURCE=/go/src/github.com/k3s-io/kine/
+ENV HOME=${KINE_SOURCE}
+WORKDIR ${KINE_SOURCE}
+COPY . ${KINE_SOURCE}
+
+FROM test-base AS test-apiserver-tests
+ARG CGO_ENABLED=1
+RUN bash -c "export CGO_ENABLED=${CGO_ENABLED}; source ./scripts/test-helpers; build-apiserver-tests"
+
+FROM test-base AS test
+COPY --from=test-apiserver-tests ${KINE_SOURCE}/bin ${KINE_SOURCE}/bin
+CMD ["/bin/bash"]
+
 FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine3.23 AS multi-arch-build
