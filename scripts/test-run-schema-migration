@@ -28,7 +28,7 @@ start-test() {
 }
 export -f start-test
 
-LABEL=mariadb-10.11-migration DB_PASSWORD_ENV=MYSQL_ROOT_PASSWORD DB_IMAGE=docker.io/library/mariadb:10.11 run-test
+LABEL=mariadb-10.11-migration DB_PASSWORD_ENV=MYSQL_ROOT_PASSWORD DB_IMAGE=docker.io/library/mariadb:10.11 run-test "$@"
 
 start-test() {
     local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
@@ -58,5 +58,5 @@ start-test() {
 }
 export -f start-test
 
-LABEL=postgres-15.4-migration DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/postgres:15.4 run-test
+LABEL=postgres-15.4-migration DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/library/postgres:15.4 run-test "$@"
 

@@ -56,4 +56,4 @@ export -f database-pre-hook
 LABEL=t4-s3 \
 DB_IMAGE=mirror.gcr.io/adobe/s3mock:5.0.0 \
 DB_PASSWORD_ENV=DUMMY \
-run-test
+run-test "$@"

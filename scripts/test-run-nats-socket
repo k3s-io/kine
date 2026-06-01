@@ -8,4 +8,4 @@ start-test() {
 }
 export -f start-test
 
-LABEL=nats-socket run-test
+LABEL=nats-socket run-test "$@"

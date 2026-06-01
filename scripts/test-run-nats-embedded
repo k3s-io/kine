@@ -9,5 +9,5 @@ start-test() {
 }
 export -f start-test
 
-LABEL=nats-embedded run-test
+LABEL=nats-embedded run-test "$@"
 

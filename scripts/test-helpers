@@ -99,8 +99,12 @@ export -f early-exit
 # ---
 
 run-test() {
+    local tests_to_run=("$@")
+    if [ ${#tests_to_run[@]} -eq 0 ]; then
+        tests_to_run=(test-load test-conformance)
+    fi
     export PROVISION_LOCK=$(mktemp)
-    ./scripts/test-runner $@ &
+    ./scripts/test-runner "${tests_to_run[@]}" &
     pids+=($!)
     (
         set +x

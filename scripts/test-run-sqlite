@@ -7,4 +7,4 @@ start-test() {
 }
 export -f start-test
 
-LABEL=sqlite run-test
+LABEL=sqlite run-test "$@"

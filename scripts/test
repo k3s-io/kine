@@ -13,8 +13,10 @@ docker ps
 
 # Selectively run tests
 if [ -n "$1" ]; then
-    . ./scripts/test-run-"$1"
-    echo "Did test-run-$1 $?"
+    backend="$1"
+    shift
+    . ./scripts/test-run-"$backend" "$@"
+    echo "Did test-run-$backend $?"
     exit 0
 fi
 

@@ -11,4 +11,4 @@ start-test() {
 }
 export -f start-test
 
-LABEL=t4 run-test
+LABEL=t4 run-test "$@"

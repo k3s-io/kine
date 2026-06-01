@@ -94,6 +94,36 @@ jobs:
         if-no-files-found: error
         retention-days: 1
 
+  conformance:
+    name: Conformance sqlite (${{ matrix.arch }}${{ matrix.cgo == '0' && '-nocgo' || '' }})
+    needs: build
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        cgo: ["1", "0"]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+    - name: Set Suffix
+      run: |
+        echo "SUFFIX=${{ matrix.cgo == '0' && '-nocgo' || '' }}" >> "$GITHUB_ENV"
+
+    - name: Download Artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        name: images-${{ matrix.arch }}${{ env.SUFFIX }}
+        path: ${{ runner.temp }}
+
+    - name: Load Images
+      run: |
+        docker load --input ${{ runner.temp }}/kine${{ env.SUFFIX }}.tar
+        docker load --input ${{ runner.temp }}/kine-test${{ env.SUFFIX }}.tar
+
+    - name: Run Conformance Test
+      run: |
+        docker run --name run-conformance-sqlite${{ env.SUFFIX }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest${{ env.SUFFIX }} rancher/kine-test:latest${{ env.SUFFIX }} scripts/test sqlite test-conformance
+
   docker:
     name: Test ${{ matrix.test }} (${{ matrix.arch }})
     needs: build
@@ -118,7 +148,7 @@ jobs:
 
     - name: Run Test
       run: |
-        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest rancher/kine-test:latest scripts/test ${{ matrix.test }}
+        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest rancher/kine-test:latest scripts/test ${{ matrix.test }} test-load
 
   docker-nocgo:
     name: Test ${{ matrix.test }} (${{ matrix.arch }}-nocgo)
@@ -144,4 +174,4 @@ jobs:
 
     - name: Run Test
       run: |
-        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest-nocgo rancher/kine-test:latest-nocgo scripts/test ${{ matrix.test }}
+        docker run --name run-test-${{ matrix.test }} --rm -v /var/run/docker.sock:/var/run/docker.sock -e TAG=latest-nocgo rancher/kine-test:latest-nocgo scripts/test ${{ matrix.test }} test-load

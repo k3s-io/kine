@@ -10,7 +10,12 @@ IMAGE=${REPO}/${IMAGE_NAME}:${TAG}
 
 test-setup
 provision-database $DB_ARGS
-start-test $@
+start-test
 
-./scripts/test-load
-./scripts/test-conformance
+for test_to_run in "$@"; do
+    if [ ! -f "./scripts/$test_to_run" ]; then
+        echo "test script not found: ./scripts/$test_to_run" >&2
+        exit 1
+    fi
+    ./scripts/"$test_to_run"
+done
