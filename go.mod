@@ -27,7 +27,7 @@ require (
 	google.golang.org/grpc v1.81.1
 	k8s.io/apiserver v0.35.4
 	k8s.io/client-go v0.35.4
-	modernc.org/sqlite v1.51.0
+	modernc.org/sqlite v1.52.0
 )
 
 require (
