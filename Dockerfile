@@ -49,7 +49,7 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 FROM scratch AS binary
 COPY --from=build /go/src/github.com/k3s-io/kine/bin /bin
 
-FROM alpine:3.23 AS package
+FROM alpine:3.24 AS package
 ARG NOCGO
 COPY --from=build /go/src/github.com/k3s-io/kine/bin/kine${NOCGO} /bin/kine
 RUN mkdir /db && chown nobody /db
@@ -88,7 +88,7 @@ RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
 FROM scratch AS multi-arch-binary
 COPY --from=multi-arch-build /go/src/github.com/k3s-io/kine/bin /
 
-FROM alpine:3.23 AS multi-arch-package
+FROM alpine:3.24 AS multi-arch-package
 ARG TARGETARCH
 ARG NOCGO
 ENV ARCH=${TARGETARCH}
