@@ -2,9 +2,23 @@ package sqlite
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	connector, err := newConnector("sqlite3", withCaseSensitiveLike(dbPath+"?"+DefaultParams))
+	if err != nil {
+		t.Fatalf("Failed to create connector: %v", err)
+	}
+
+	return sql.OpenDB(connector)
+}
 
 // createBloatedDB creates a temporary SQLite database in WAL mode with the kine
 // schema, inserts rowCount rows, then deletes them all. The deleted pages remain
@@ -14,19 +28,13 @@ import (
 func createBloatedDB(t *testing.T, rowCount int) *sql.DB {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	connector, err := newConnector("sqlite3", dbPath+"?"+DefaultParams)
-	if err != nil {
-		t.Fatalf("Failed to create connector: %v", err)
-	}
-
-	db := sql.OpenDB(connector)
+	db := openTestDB(t)
 
 	// Create the kine table (same schema as production).
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS kine
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS kine
 		(
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name INTEGER,
+			name TEXT,
 			created INTEGER,
 			deleted INTEGER,
 			create_revision INTEGER,
@@ -52,7 +60,7 @@ func createBloatedDB(t *testing.T, rowCount int) *sql.DB {
 	}
 
 	for i := range rowCount {
-		if _, err := stmt.Exec(i); err != nil {
+		if _, err := stmt.Exec(fmt.Sprintf("/registry/test/%d", i)); err != nil {
 			t.Fatalf("failed to insert row %d: %v", i, err)
 		}
 	}
@@ -91,6 +99,63 @@ func freelistCount(t *testing.T, db *sql.DB) int64 {
 	}
 
 	return count
+}
+
+func TestSetupCreatesTextNameColumn(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	if err := setup(db, false, false, true); err != nil {
+		t.Fatalf("setup() failed: %v", err)
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(kine)`)
+	if err != nil {
+		t.Fatalf("failed to query table info: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			typ     string
+			notNull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("failed to scan table info: %v", err)
+		}
+		if name == "name" {
+			if !strings.EqualFold(typ, "TEXT") {
+				t.Fatalf("expected kine.name to be TEXT, got %q", typ)
+			}
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to read table info: %v", err)
+	}
+
+	t.Fatal("kine.name column not found")
+}
+
+func TestSetupEnablesCaseSensitiveLike(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	if err := setup(db, false, false, true); err != nil {
+		t.Fatalf("setup() failed: %v", err)
+	}
+
+	var matches bool
+	if err := db.QueryRow(`SELECT 'a' LIKE 'A'`).Scan(&matches); err != nil {
+		t.Fatalf("failed to query LIKE behavior: %v", err)
+	}
+	if matches {
+		t.Fatal("expected LIKE to be case-sensitive after setup")
+	}
 }
 
 func TestSetupVacuumReclaimsDiskSpace(t *testing.T) {

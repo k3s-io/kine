@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -26,7 +27,7 @@ var (
 		`CREATE TABLE IF NOT EXISTS kine
 			(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				name INTEGER,
+				name TEXT,
 				created INTEGER,
 				deleted INTEGER,
 				create_revision INTEGER,
@@ -73,7 +74,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		noStartupVacuum = true
 	}
 
-	connector, err := newConnector(driverName, cfg.DataSourceName)
+	connector, err := newConnector(driverName, withCaseSensitiveLike(cfg.DataSourceName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,6 +133,7 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 		logrus.Infof("WAL auto-checkpoint is disabled")
 		schema = append(schema, `PRAGMA wal_autocheckpoint = 0`)
 	}
+	schema = append(schema, `PRAGMA case_sensitive_like = ON`)
 
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
@@ -156,6 +158,16 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 	}
 
 	return nil
+}
+
+func withCaseSensitiveLike(dsn string) string {
+	path, params, _ := strings.Cut(dsn, "?")
+	values, err := url.ParseQuery(params)
+	if err != nil {
+		return dsn
+	}
+	values.Set("_case_sensitive_like", "ON")
+	return path + "?" + values.Encode()
 }
 
 func init() {
