@@ -29,7 +29,7 @@ func (b *BackendLogger) Start(ctx context.Context) error {
 }
 
 // Get returns the store's current revision, the associated server.KeyValue or an error.
-func (b *BackendLogger) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (revRet int64, kvRet *server.KeyValue, errRet error) {
+func (b *BackendLogger) Get(ctx context.Context, key string, revision int64, keysOnly bool) (revRet int64, kvRet *server.KeyValue, errRet error) {
 	start := time.Now()
 	defer func() {
 		dur := time.Since(start)
@@ -41,7 +41,7 @@ func (b *BackendLogger) Get(ctx context.Context, key, rangeEnd string, limit, re
 		b.logMethod(dur, fStr, key, revision, revRet, kvRet != nil, size, errRet, dur)
 	}()
 
-	return b.backend.Get(ctx, key, rangeEnd, limit, revision, keysOnly)
+	return b.backend.Get(ctx, key, revision, keysOnly)
 }
 
 // Create attempts to create the key-value entry and returns the revision number.
@@ -67,27 +67,27 @@ func (b *BackendLogger) Delete(ctx context.Context, key string, revision int64) 
 	return b.backend.Delete(ctx, key, revision)
 }
 
-func (b *BackendLogger) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) (revRet int64, kvRet []*server.KeyValue, errRet error) {
+func (b *BackendLogger) List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (revRet int64, kvRet []*server.KeyValue, errRet error) {
 	start := time.Now()
 	defer func() {
 		dur := time.Since(start)
-		fStr := "LIST %s, start=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v, duration=%s"
-		b.logMethod(dur, fStr, prefix, startKey, limit, revision, revRet, len(kvRet), errRet, dur)
+		fStr := "LIST %s, end=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v, duration=%s"
+		b.logMethod(dur, fStr, key, end, limit, revision, revRet, len(kvRet), errRet, dur)
 	}()
 
-	return b.backend.List(ctx, prefix, startKey, limit, revision, keysOnly)
+	return b.backend.List(ctx, key, end, limit, revision, keysOnly)
 }
 
 // Count returns an exact count of the number of matching keys and the current revision of the database
-func (b *BackendLogger) Count(ctx context.Context, prefix, startKey string, revision int64) (revRet int64, count int64, err error) {
+func (b *BackendLogger) Count(ctx context.Context, key, end string, revision int64) (revRet int64, count int64, err error) {
 	start := time.Now()
 	defer func() {
 		dur := time.Since(start)
-		fStr := "COUNT %s, start=%s, rev=%d => rev=%d, count=%d, err=%v, duration=%s"
-		b.logMethod(dur, fStr, prefix, startKey, revision, revRet, count, err, dur)
+		fStr := "COUNT %s, end=%s, rev=%d => rev=%d, count=%d, err=%v, duration=%s"
+		b.logMethod(dur, fStr, key, end, revision, revRet, count, err, dur)
 	}()
 
-	return b.backend.Count(ctx, prefix, startKey, revision)
+	return b.backend.Count(ctx, key, end, revision)
 }
 
 func (b *BackendLogger) Update(ctx context.Context, key string, value []byte, revision, lease int64) (revRet int64, kvRet *server.KeyValue, updateRet bool, errRet error) {
@@ -105,8 +105,8 @@ func (b *BackendLogger) Update(ctx context.Context, key string, value []byte, re
 	return b.backend.Update(ctx, key, value, revision, lease)
 }
 
-func (b *BackendLogger) Watch(ctx context.Context, prefix string, revision int64) server.WatchResult {
-	return b.backend.Watch(ctx, prefix, revision)
+func (b *BackendLogger) Watch(ctx context.Context, key, end string, revision int64) server.WatchResult {
+	return b.backend.Watch(ctx, key, end, revision)
 }
 
 // DbSize get the kineBucket size from JetStream.

@@ -38,12 +38,15 @@ var (
 		WHERE (deleted = 0 OR ?)
 		ORDER BY name ASC
 		`
-	CurrentRevSQL = `SELECT MAX(id) AS current_rev FROM kine`
-	CompactRevSQL = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
-	FiltersRevSQL = `SELECT MAX(id) AS id FROM kine WHERE name LIKE ? ESCAPE '^' %s GROUP BY name`
+	CurrentRevSQL  = `SELECT MAX(id) AS current_rev FROM kine`
+	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
+	BetweenNameSQL = `SELECT MAX(id) AS id FROM kine WHERE name >= ? AND name < ? %s GROUP BY name`
+	EqualsNameSQL  = `SELECT MAX(id) AS id FROM kine WHERE name = ? %s`
 
-	listSQL    = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, FiltersRevSQL)
-	listValSQL = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, FiltersRevSQL)
+	listSQL    = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, BetweenNameSQL)
+	listValSQL = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, BetweenNameSQL)
+	getSQL     = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, EqualsNameSQL)
+	getValSQL  = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, EqualsNameSQL)
 )
 
 type ErrRetry func(error) bool
@@ -75,6 +78,8 @@ type Generic struct {
 	CountCurrentSQL         *query.Named
 	CountRevisionSQL        *query.Named
 	AfterOldValSQL          *query.Named
+	AfterAllOldValSQL       *query.Named
+	AfterSingleOldValSQL    *query.Named
 	CurrentRevSQL           *query.Named
 	CompactRevSQL           *query.Named
 	DeleteSQL               *query.Named
@@ -188,50 +193,65 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 	return &Generic{
 		DB: db,
 
-		ListCurrentSQL:          query.New(fmt.Sprintf(listSQL, "AND name >= ?"), paramCharacter, numbered, "ListCurrent"),
-		ListCurrentValSQL:       query.New(fmt.Sprintf(listValSQL, "AND name >= ?"), paramCharacter, numbered, "ListCurrentVal"),
-		ListRevisionStartSQL:    query.New(fmt.Sprintf(listSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStart"),
-		ListRevisionStartValSQL: query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStartVal"),
-		GetRevisionAfterSQL:     query.New(fmt.Sprintf(listSQL, "AND name >= ? AND id <= ?"), paramCharacter, numbered, "GetRevisionAfter"),
-		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND name >= ? AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
+		ListCurrentSQL:          query.New(fmt.Sprintf(listSQL, ""), paramCharacter, numbered, "ListCurrent"),
+		ListCurrentValSQL:       query.New(fmt.Sprintf(listValSQL, ""), paramCharacter, numbered, "ListCurrentVal"),
+		ListRevisionStartSQL:    query.New(fmt.Sprintf(getSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStart"),
+		ListRevisionStartValSQL: query.New(fmt.Sprintf(getValSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStartVal"),
+		GetRevisionAfterSQL:     query.New(fmt.Sprintf(listSQL, "AND id <= ?"), paramCharacter, numbered, "GetRevisionAfter"),
+		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
 		CurrentRevSQL:           query.New(CurrentRevSQL, paramCharacter, numbered, "CurrentRev"),
 		CompactRevSQL:           query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
 			FROM (%s) AS current, (%s) AS compact, kine
-			WHERE id = (SELECT MAX(id) FROM kine WHERE name = ?)
+			WHERE id = (%s)
 			AND (deleted = 0 OR ?)`,
-			Columns, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "GetSingle"),
+			Columns, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingle"),
 
 		GetSingleValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
 			FROM (%s) AS current, (%s) AS compact, kine
-			WHERE id = (SELECT MAX(id) FROM kine WHERE name = ?)
+			WHERE id = (%s)
 			AND (deleted = 0 OR ?)`,
-			WithVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "GetSingleVal"),
+			WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingleVal"),
 
 		CountCurrentSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
-			CurrentRevSQL, fmt.Sprintf(FiltersRevSQL, "AND name >= ?")), paramCharacter, numbered, "CountCurrent"),
+			CurrentRevSQL, fmt.Sprintf(BetweenNameSQL, "")), paramCharacter, numbered, "CountCurrent"),
 
 		CountRevisionSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
-			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevSQL, "AND name >= ? AND id <= ?")), paramCharacter, numbered, "CountRevision"),
+			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(BetweenNameSQL, "AND id <= ?")), paramCharacter, numbered, "CountRevision"),
 
 		AfterOldValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
 			FROM (%s) AS current, (%s) AS compact, kine
-			WHERE	name LIKE ? ESCAPE '^'
+			WHERE	name >= ? AND name < ?
 			AND	id > ?
 			ORDER BY id ASC`,
 			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterOldVal"),
+
+		AfterAllOldValSQL: query.New(fmt.Sprintf(`
+			SELECT current_rev, compact_rev, %s
+			FROM (%s) AS current, (%s) AS compact, kine
+			WHERE id > ?
+			ORDER BY id ASC`,
+			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterAllOldVal"),
+
+		AfterSingleOldValSQL: query.New(fmt.Sprintf(`
+			SELECT current_rev, compact_rev, %s
+			FROM (%s) AS current, (%s) AS compact, kine
+			WHERE name = ?
+			AND id > ?
+			ORDER BY id ASC`,
+			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterSingleOldVal"),
 
 		DeleteSQL: query.New(`
 			DELETE FROM kine
@@ -259,29 +279,6 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			paramCharacter, numbered, "Fill"),
 	}, err
-}
-
-func (d *Generic) prepare(ctx context.Context, sql *query.Named) (*query.Stmt, error) {
-	logrus.Tracef("PREPARE: %s", sql)
-	conn, err := d.DB.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	stmt, err := conn.PrepareContext(ctx, sql.Query)
-	if err != nil {
-		return nil, err
-	}
-	return &query.Stmt{Named: sql, Stmt: stmt}, nil
-}
-
-func (d *Generic) queryStatement(ctx context.Context, stmt *query.Stmt, args ...any) (result *sql.Rows, err error) {
-	query := stmt.Fill(args)
-	logrus.Tracef("QUERY PREPARED: %s", query)
-	startTime := time.Now()
-	defer func() {
-		metrics.ObserveSQL(startTime, d.ErrCode(err), 0, query)
-	}()
-	return stmt.Stmt.QueryContext(ctx, args...)
 }
 
 func (d *Generic) query(ctx context.Context, sql *query.Named, args ...any) (result *sql.Rows, err error) {
@@ -370,17 +367,16 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 	return err
 }
 
-func (d *Generic) ListCurrent(ctx context.Context, prefix, startKey string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
+func (d *Generic) ListCurrent(ctx context.Context, key, end string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
 	var sql *query.Named
-	if startKey == "" && !strings.HasSuffix(prefix, "%") {
+	if end == "" {
 		if keysOnly {
 			sql = d.GetSingleSQL
 		} else {
 			sql = d.GetSingleValSQL
 		}
-		return d.query(ctx, sql, prefix, includeDeleted)
+		return d.query(ctx, sql, key, includeDeleted)
 	}
-	prefix = strings.ReplaceAll(prefix, `_`, `^_`)
 	if keysOnly {
 		sql = d.ListCurrentSQL
 	} else {
@@ -389,13 +385,12 @@ func (d *Generic) ListCurrent(ctx context.Context, prefix, startKey string, limi
 	if limit > 0 {
 		sql = sql.Appendf("LIMIT %d", limit)
 	}
-	return d.query(ctx, sql, prefix, startKey, includeDeleted)
+	return d.query(ctx, sql, key, end, includeDeleted)
 }
 
-func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
-	prefix = strings.ReplaceAll(prefix, `_`, `^_`)
+func (d *Generic) List(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
 	var sql *query.Named
-	if startKey == "" {
+	if end == "" {
 		if keysOnly {
 			sql = d.ListRevisionStartSQL
 		} else {
@@ -404,7 +399,7 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 		if limit > 0 {
 			sql = sql.Appendf("LIMIT %d", limit)
 		}
-		return d.query(ctx, sql, prefix, revision, includeDeleted)
+		return d.query(ctx, sql, key, revision, includeDeleted)
 	}
 	if keysOnly {
 		sql = d.GetRevisionAfterSQL
@@ -414,28 +409,28 @@ func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revi
 	if limit > 0 {
 		sql = sql.Appendf("LIMIT %d", limit)
 	}
-	return d.query(ctx, sql, prefix, startKey, revision, includeDeleted)
+	return d.query(ctx, sql, key, end, revision, includeDeleted)
 }
 
-func (d *Generic) CountCurrent(ctx context.Context, prefix, startKey string) (int64, int64, error) {
+func (d *Generic) CountCurrent(ctx context.Context, key, end string) (int64, int64, error) {
 	var (
 		rev sql.NullInt64
 		id  int64
 	)
 
-	row := d.queryRow(ctx, d.CountCurrentSQL, prefix, startKey, false)
+	row := d.queryRow(ctx, d.CountCurrentSQL, key, end, false)
 	err := row.Scan(&rev, &id)
 	return rev.Int64, id, err
 }
 
-func (d *Generic) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, int64, error) {
+func (d *Generic) Count(ctx context.Context, key, end string, revision int64) (int64, int64, int64, error) {
 	var (
 		rev     sql.NullInt64
 		compact sql.NullInt64
 		id      int64
 	)
 
-	row := d.queryRow(ctx, d.CountRevisionSQL, prefix, startKey, revision, false)
+	row := d.queryRow(ctx, d.CountRevisionSQL, key, end, revision, false)
 	err := row.Scan(&rev, &compact, &id)
 	return rev.Int64, compact.Int64, id, err
 }
@@ -450,24 +445,27 @@ func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (d *Generic) After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error) {
-	sql := d.AfterOldValSQL
+func (d *Generic) After(ctx context.Context, key, end string, rev, limit int64) (*sql.Rows, error) {
+	var sql *query.Named
+	if key == "" {
+		sql = d.AfterAllOldValSQL
+		if limit > 0 {
+			sql = sql.Appendf("LIMIT %d", limit)
+		}
+		return d.query(ctx, sql, rev)
+	}
+	if end == "" {
+		sql = d.AfterSingleOldValSQL
+		if limit > 0 {
+			sql = sql.Appendf("LIMIT %d", limit)
+		}
+		return d.query(ctx, sql, key, rev)
+	}
+	sql = d.AfterOldValSQL
 	if limit > 0 {
 		sql = sql.Appendf("LIMIT %d", limit)
 	}
-	return d.query(ctx, sql, prefix, rev)
-}
-
-func (d *Generic) PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, error) {
-	sql := d.AfterOldValSQL
-	if limit > 0 {
-		sql = sql.Appendf("LIMIT %d", limit)
-	}
-	return d.prepare(ctx, sql)
-}
-
-func (d *Generic) QueryAfter(ctx context.Context, stmt *query.Stmt, prefix string, rev int64) (*sql.Rows, error) {
-	return d.queryStatement(ctx, stmt, prefix, rev)
+	return d.query(ctx, sql, key, end, rev)
 }
 
 func (d *Generic) Fill(ctx context.Context, revision int64) error {

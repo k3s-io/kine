@@ -47,7 +47,7 @@ func TestT4Backend_CreateGetUpdateDelete(t *testing.T) {
 		t.Fatalf("Create duplicate: want ErrKeyExists, got %v", err)
 	}
 
-	_, kv, err := b.Get(ctx, "/a", "", 0, 0, false)
+	_, kv, err := b.Get(ctx, "/a", 0, false)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestT4Backend_CreateGetUpdateDelete(t *testing.T) {
 		t.Fatalf("Update revision %d not greater than %d", rev2, rev)
 	}
 
-	_, kv, err = b.Get(ctx, "/a", "", 0, 0, false)
+	_, kv, err = b.Get(ctx, "/a", 0, false)
 	if err != nil {
 		t.Fatalf("Get after update: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestT4Backend_CreateGetUpdateDelete(t *testing.T) {
 		t.Fatal("Delete returned ok=false")
 	}
 
-	_, kv, err = b.Get(ctx, "/a", "", 0, 0, false)
+	_, kv, err = b.Get(ctx, "/a", 0, false)
 	if err != nil {
 		t.Fatalf("Get after delete: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestT4Backend_ListAndCount(t *testing.T) {
 		}
 	}
 
-	_, kvs, err := b.List(ctx, "/p/", "", 0, 0, false)
+	_, kvs, err := b.List(ctx, "/p/", "/p0", 0, 0, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestT4Backend_ListAndCount(t *testing.T) {
 		t.Fatalf("List under /p/ returned %d, want 3", len(kvs))
 	}
 
-	_, count, err := b.Count(ctx, "/p/", "", 0)
+	_, count, err := b.Count(ctx, "/p/", "p0", 0)
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestT4Backend_ListAndCount(t *testing.T) {
 		t.Fatalf("Count under /p/ = %d, want 3", count)
 	}
 
-	_, kvs, err = b.List(ctx, "/p/", "", 2, 0, false)
+	_, kvs, err = b.List(ctx, "/p/", "/p0", 2, 0, false)
 	if err != nil {
 		t.Fatalf("List limit=2: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestT4Backend_Watch(t *testing.T) {
 		t.Fatalf("CurrentRevision: %v", err)
 	}
 
-	wr := b.Watch(ctx, "/w/", startRev+1)
+	wr := b.Watch(ctx, "/w/", "/w0", startRev+1)
 
 	doneCh := make(chan struct{})
 	gotCreate, gotUpdate, gotDelete := false, false, false
@@ -230,7 +230,7 @@ func TestT4Backend_CompactAndCompactedWatch(t *testing.T) {
 		t.Fatalf("Compact: %v", err)
 	}
 
-	wr := b.Watch(ctx, "/c/", rev1)
+	wr := b.Watch(ctx, "/c/", "/c0", rev1)
 	select {
 	case err := <-wr.Errorc:
 		if !errors.Is(err, kserver.ErrCompacted) {
@@ -253,7 +253,7 @@ func TestT4Backend_FutureRevisionRejected(t *testing.T) {
 		t.Fatalf("CurrentRevision: %v", err)
 	}
 
-	_, _, err = b.Get(ctx, "/f/k", "", 0, cur+100, false)
+	_, _, err = b.Get(ctx, "/f/k", cur+100, false)
 	if !errors.Is(err, kserver.ErrFutureRev) {
 		t.Fatalf("Get future rev: want ErrFutureRev, got %v", err)
 	}

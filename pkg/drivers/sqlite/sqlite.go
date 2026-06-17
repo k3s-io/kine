@@ -26,7 +26,7 @@ var (
 		`CREATE TABLE IF NOT EXISTS kine
 			(
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				name INTEGER,
+				name TEXT,
 				created INTEGER,
 				deleted INTEGER,
 				create_revision INTEGER,

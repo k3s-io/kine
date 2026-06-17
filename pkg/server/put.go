@@ -24,7 +24,7 @@ func (l *LimitedServer) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*e
 
 	rev, err := l.backend.Create(ctx, key, r.Value, r.Lease)
 	if err == ErrKeyExists {
-		rev, kv, err = l.backend.Get(ctx, key, "", 1, rev, false)
+		rev, kv, err = l.backend.Get(ctx, key, rev, false)
 		if err != nil {
 			return nil, err
 		}

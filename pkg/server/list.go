@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -14,23 +13,20 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		return nil, errors.New("invalid range end length of 0")
 	}
 
-	prefix := string(append(r.RangeEnd[:len(r.RangeEnd)-1], r.RangeEnd[len(r.RangeEnd)-1]-1))
-	if !strings.HasSuffix(prefix, "/") {
-		prefix = prefix + "/"
-	}
-	start := string(r.Key)
+	key := string(r.Key)
+	end := string(r.RangeEnd)
 	revision := int64(0)
 	if r.Revision > 0 {
 		revision = r.Revision
 	}
 
 	if r.CountOnly {
-		rev, count, err := l.backend.Count(ctx, prefix, start, revision)
+		rev, count, err := l.backend.Count(ctx, key, end, revision)
 		resp := &RangeResponse{
 			Header: txnHeader(rev),
 			Count:  count,
 		}
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, count)
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, rev, count)
 		return resp, err
 	}
 
@@ -39,8 +35,8 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		limit++
 	}
 
-	rev, kvs, err := l.backend.List(ctx, prefix, start, limit, revision, r.KeysOnly)
-	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d, keysOnly=%v", r.Key, r.RangeEnd, revision, rev, len(kvs), r.Limit, r.KeysOnly)
+	rev, kvs, err := l.backend.List(ctx, key, end, limit, revision, r.KeysOnly)
+	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d, keysOnly=%v", key, end, revision, rev, len(kvs), r.Limit, r.KeysOnly)
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 		Count:  int64(len(kvs)),
@@ -56,8 +52,8 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 			revision = rev
 		}
 
-		rev, resp.Count, err = l.backend.Count(ctx, prefix, start, revision)
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", r.Key, r.RangeEnd, revision, rev, resp.Count)
+		rev, resp.Count, err = l.backend.Count(ctx, key, end, revision)
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, rev, resp.Count)
 		resp.Header = txnHeader(rev)
 	}
 

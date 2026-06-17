@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -183,8 +182,8 @@ func (m *Memory) logIndexAfter(rev int64) int {
 }
 
 // Get returns the current revision and the KeyValue for the given key.
-func (m *Memory) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
-	rev, kvs, err := m.List(ctx, key, rangeEnd, limit, revision, keysOnly)
+func (m *Memory) Get(ctx context.Context, key string, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
+	rev, kvs, err := m.List(ctx, key, "", 1, revision, keysOnly)
 	if err != nil {
 		return rev, nil, err
 	}
@@ -274,7 +273,7 @@ func (m *Memory) Delete(ctx context.Context, key string, revision int64) (int64,
 	return rev, latest.toKeyValue(), true, nil
 }
 
-func (m *Memory) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
+func (m *Memory) List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -289,19 +288,15 @@ func (m *Memory) List(ctx context.Context, prefix, startKey string, limit, revis
 		rev = revision
 	}
 
-	seek, exact := seekKey(prefix, startKey)
 	iter := m.keys.Iter()
-	if !iter.Seek(seek) {
+	if !iter.Seek(key) {
 		return rev, nil, nil
 	}
 
 	var kvs []*server.KeyValue
 	for {
 		k := iter.Key()
-		if exact && k != seek {
-			break
-		}
-		if !strings.HasPrefix(k, prefix) {
+		if (end == "" && k != key) || (end != "" && k >= end) {
 			break
 		}
 
@@ -331,15 +326,15 @@ func (m *Memory) List(ctx context.Context, prefix, startKey string, limit, revis
 	return rev, kvs, nil
 }
 
-func (m *Memory) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
-	rev, kvs, err := m.List(ctx, prefix, startKey, 0, revision, true)
+func (m *Memory) Count(ctx context.Context, key, end string, revision int64) (int64, int64, error) {
+	rev, kvs, err := m.List(ctx, key, end, 0, revision, true)
 	if err != nil {
 		return rev, 0, err
 	}
 	return rev, int64(len(kvs)), nil
 }
 
-func (m *Memory) Watch(ctx context.Context, prefix string, startRevision int64) server.WatchResult {
+func (m *Memory) Watch(ctx context.Context, key, end string, startRevision int64) server.WatchResult {
 	m.mu.RLock()
 	compactRev := m.compactRevision
 	m.mu.RUnlock()
@@ -375,22 +370,18 @@ func (m *Memory) Watch(ctx context.Context, prefix string, startRevision int64) 
 			var batch []*server.Event
 			for i := m.logIndexAfter(lastSeen); i < len(m.log); i++ {
 				e := m.log[i]
-				if !strings.HasPrefix(e.key, prefix) {
-					lastSeen = e.revision
-					continue
+				if key == "" || (end != "" && e.key >= key && e.key < end) || e.key == key {
+					event := &server.Event{
+						Create: e.created,
+						Delete: e.deleted,
+						KV:     e.toKeyValue(),
+						PrevKV: &server.KeyValue{ModRevision: e.prevRevision},
+					}
+					if e.prev != nil {
+						event.PrevKV = e.prev.toKeyValue()
+					}
+					batch = append(batch, event)
 				}
-
-				event := &server.Event{
-					Create: e.created,
-					Delete: e.deleted,
-					KV:     e.toKeyValue(),
-					PrevKV: &server.KeyValue{ModRevision: e.prevRevision},
-				}
-				if e.prev != nil {
-					event.PrevKV = e.prev.toKeyValue()
-				}
-
-				batch = append(batch, event)
 				lastSeen = e.revision
 			}
 			m.mu.RUnlock()
@@ -493,17 +484,4 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 
 	m.compactRevision = revision
 	return rev, nil
-}
-
-// seekKey returns the BTree seek target for a List/Range query and a flag
-// indicating whether the iteration should match the seek key exactly. When
-// startKey is empty (or equal to prefix), iteration begins at prefix; if
-// prefix has no trailing slash this is treated as an exact-key lookup.
-// Otherwise startKey is normalized into the prefix's namespace and used as
-// the resume point for paginated range scans.
-func seekKey(prefix, startKey string) (string, bool) {
-	if startKey == "" {
-		return prefix, true
-	}
-	return strings.TrimSuffix(startKey, "/"), false
 }

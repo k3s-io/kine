@@ -91,7 +91,7 @@ func TestCreate(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 
-	_, count, err := b.Count(ctx, "/test/", "/test/", 0)
+	_, count, err := b.Count(ctx, "/test/", "/test0", 0)
 	noErr(t, err)
 	expEqual(t, int64(3), count)
 }
@@ -110,7 +110,7 @@ func TestCreateAfterDelete(t *testing.T) {
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 
-	_, kv, err := b.Get(ctx, "/test/a", "", 0, 0, false)
+	_, kv, err := b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, "v2", string(kv.Value))
 	expEqual(t, int64(3), kv.CreateRevision)
@@ -123,7 +123,7 @@ func TestGet(t *testing.T) {
 	_, err := b.Create(ctx, "/test/a", []byte("b"), 5)
 	noErr(t, err)
 
-	rev, kv, err := b.Get(ctx, "/test/a", "", 0, 0, false)
+	rev, kv, err := b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, int64(1), rev)
 	expEqual(t, "/test/a", kv.Key)
@@ -132,13 +132,13 @@ func TestGet(t *testing.T) {
 	expEqual(t, int64(1), kv.ModRevision)
 	expEqual(t, int64(1), kv.CreateRevision)
 
-	_, kv, err = b.Get(ctx, "/test/nonexistent", "", 0, 0, false)
+	_, kv, err = b.Get(ctx, "/test/nonexistent", 0, false)
 	noErr(t, err)
 	if kv != nil {
 		t.Fatal("expected nil for nonexistent key")
 	}
 
-	_, _, err = b.Get(ctx, "/test/a", "", 0, 20, false)
+	_, _, err = b.Get(ctx, "/test/a", 20, false)
 	expEqualErr(t, server.ErrFutureRev, err)
 }
 
@@ -151,12 +151,12 @@ func TestGetAtRevision(t *testing.T) {
 	_, _, _, err = b.Update(ctx, "/test/a", []byte("v2"), rev1, 0)
 	noErr(t, err)
 
-	rev, kv, err := b.Get(ctx, "/test/a", "", 0, rev1, false)
+	rev, kv, err := b.Get(ctx, "/test/a", rev1, false)
 	noErr(t, err)
 	expEqual(t, rev1, rev)
 	expEqual(t, "v1", string(kv.Value))
 
-	rev, kv, err = b.Get(ctx, "/test/a", "", 0, 0, false)
+	rev, kv, err = b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, int64(2), rev)
 	expEqual(t, "v2", string(kv.Value))
@@ -251,28 +251,28 @@ func TestList(t *testing.T) {
 	b.Create(ctx, "/test/d/b", nil, 0)
 
 	// All keys under prefix.
-	rev, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
+	rev, ents, err := b.List(ctx, "/test/", "/test0", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
 	expEqual(t, 7, len(ents))
 	expSortedKeys(t, ents)
 
 	// Prefix sub-tree.
-	rev, ents, err = b.List(ctx, "/test/a", "/test/a", 0, 0, false)
+	rev, ents, err = b.List(ctx, "/test/a", "/test/b", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
 	expEqual(t, 3, len(ents))
 	expSortedKeys(t, ents)
 
 	// Start key.
-	rev, ents, err = b.List(ctx, "/test/", "/test/b", 0, 0, false)
+	rev, ents, err = b.List(ctx, "/test/b", "/test0", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
 	expEqual(t, 4, len(ents))
 	expSortedKeys(t, ents)
 
 	// At a revision.
-	rev, ents, err = b.List(ctx, "/test/", "/test/", 0, 3, false)
+	rev, ents, err = b.List(ctx, "/test/", "/test0", 0, 3, false)
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 	expEqual(t, 3, len(ents))
@@ -280,7 +280,7 @@ func TestList(t *testing.T) {
 	expEqualKeys(t, []string{"/test/a", "/test/a/b/c", "/test/b"}, ents)
 
 	// Full list with limit
-	rev, ents, err = b.List(ctx, "/test/", "/test/", 4, 0, false)
+	rev, ents, err = b.List(ctx, "/test/", "/test0", 4, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
 	expEqual(t, 4, len(ents))
@@ -288,7 +288,7 @@ func TestList(t *testing.T) {
 	expEqualKeys(t, []string{"/test/a", "/test/a/b", "/test/a/b/c", "/test/b"}, ents)
 
 	// Start key with range.
-	rev, ents, err = b.List(ctx, "/test/", "/test/c", 0, 0, false)
+	rev, ents, err = b.List(ctx, "/test/c", "/test0", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, int64(7), rev)
 	expEqual(t, 3, len(ents))
@@ -303,7 +303,7 @@ func TestListExcludesDeleted(t *testing.T) {
 	b.Create(ctx, "/test/b", []byte("val"), 0)
 	b.Delete(ctx, "/test/a", rev)
 
-	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
+	_, ents, err := b.List(ctx, "/test/", "/test0", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, 1, len(ents))
 	expEqual(t, "/test/b", ents[0].Key)
@@ -316,13 +316,13 @@ func TestCount(t *testing.T) {
 	b.Create(ctx, "/test/b", nil, 0)
 	b.Create(ctx, "/test/c", nil, 0)
 
-	rev, count, err := b.Count(ctx, "/test/", "/test/", 0)
+	rev, count, err := b.Count(ctx, "/test/", "/test0", 0)
 	noErr(t, err)
 	expEqual(t, int64(3), rev)
 	expEqual(t, int64(3), count)
 
 	// Count at an earlier revision.
-	_, count, err = b.Count(ctx, "/test/", "/test/", 2)
+	_, count, err = b.Count(ctx, "/test/", "/test0", 2)
 	noErr(t, err)
 	expEqual(t, int64(2), count)
 }
@@ -338,7 +338,7 @@ func TestWatch(t *testing.T) {
 
 	// Watch all events from the beginning.
 	wctx, cancel := context.WithCancel(ctx)
-	wr := b.Watch(wctx, "/", 1)
+	wr := b.Watch(wctx, "/", "0", 1)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
@@ -350,7 +350,7 @@ func TestWatch(t *testing.T) {
 
 	// Watch filtered by prefix.
 	wctx, cancel = context.WithCancel(ctx)
-	wr = b.Watch(wctx, "/test/a/", 1)
+	wr = b.Watch(wctx, "/test/a/", "/test/a0", 1)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
@@ -367,7 +367,7 @@ func TestWatchNewEvents(t *testing.T) {
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	wr := b.Watch(wctx, "/test/", 0)
+	wr := b.Watch(wctx, "/test/", "/test0", 0)
 
 	// Write after watch starts.
 	b.Create(ctx, "/test/a", []byte("hello"), 0)
@@ -390,7 +390,7 @@ func TestWatchPrevKV(t *testing.T) {
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	wr := b.Watch(wctx, "/test/", 0)
+	wr := b.Watch(wctx, "/test/", "/test0", 0)
 
 	b.Update(ctx, "/test/a", []byte("v2"), rev, 0)
 
@@ -417,16 +417,16 @@ func TestCompact(t *testing.T) {
 	expEqual(t, int64(3), rev)
 
 	// List at compacted revision should fail.
-	_, _, err = b.List(ctx, "/test/", "", 0, 1, false)
+	_, _, err = b.List(ctx, "/test/", "/test0", 0, 1, false)
 	expEqualErr(t, server.ErrCompacted, err)
 
 	// List at current revision should work.
-	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
+	_, ents, err := b.List(ctx, "/test/", "/test0", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, 3, len(ents))
 
 	// List at the compact boundary should work.
-	_, ents, err = b.List(ctx, "/test/", "/test/", 0, 2, false)
+	_, ents, err = b.List(ctx, "/test/", "/test0", 0, 2, false)
 	noErr(t, err)
 	expEqual(t, 2, len(ents))
 }
@@ -464,7 +464,7 @@ func TestCompactTrimsHistory(t *testing.T) {
 	}
 
 	// Latest values are still readable at the current revision.
-	_, kv, err := b.Get(ctx, "/test/a", "", 0, 0, false)
+	_, kv, err := b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, "v3", string(kv.Value))
 
@@ -555,7 +555,7 @@ func TestWatchCompacted(t *testing.T) {
 	b.Create(ctx, "/test/b", nil, 0)
 	b.Compact(ctx, 2)
 
-	wr := b.Watch(ctx, "/test/", 1)
+	wr := b.Watch(ctx, "/test/", "/test0", 1)
 	expEqual(t, int64(2), wr.CompactRevision)
 
 	// Events channel should be closed immediately.
@@ -599,7 +599,7 @@ func TestKeysOnly(t *testing.T) {
 	b.Create(ctx, "/test/a", []byte("value-a"), 0)
 	b.Create(ctx, "/test/b", []byte("value-b"), 0)
 
-	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, true)
+	_, ents, err := b.List(ctx, "/test/", "/test0", 0, 0, true)
 	noErr(t, err)
 	expEqual(t, 2, len(ents))
 	for _, kv := range ents {
@@ -614,17 +614,17 @@ func TestVersionIncrement(t *testing.T) {
 
 	rev, _ := b.Create(ctx, "/test/a", []byte("v1"), 0)
 
-	_, kv, err := b.Get(ctx, "/test/a", "", 0, 0, false)
+	_, kv, err := b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, int64(1), kv.Version)
 
 	rev, _, _, _ = b.Update(ctx, "/test/a", []byte("v2"), rev, 0)
-	_, kv, err = b.Get(ctx, "/test/a", "", 0, 0, false)
+	_, kv, err = b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, int64(2), kv.Version)
 
 	b.Update(ctx, "/test/a", []byte("v3"), rev, 0)
-	_, kv, err = b.Get(ctx, "/test/a", "", 0, 0, false)
+	_, kv, err = b.Get(ctx, "/test/a", 0, false)
 	noErr(t, err)
 	expEqual(t, int64(3), kv.Version)
 }
@@ -655,7 +655,7 @@ func TestTTLExpiration(t *testing.T) {
 	}
 
 	// All keys should be present immediately after creation.
-	_, ents, err := b.List(ctx, "/test/", "/test/", 0, 0, false)
+	_, ents, err := b.List(ctx, "/test/", "/test0", 0, 0, false)
 	noErr(t, err)
 	expEqual(t, len(leases), len(ents))
 
@@ -667,7 +667,7 @@ func TestTTLExpiration(t *testing.T) {
 	for i, k := range keys {
 		deadline := start.Add(time.Duration(k.lease)*time.Second + grace)
 		for {
-			_, kv, err := b.Get(ctx, k.key, "", 0, 0, false)
+			_, kv, err := b.Get(ctx, k.key, 0, false)
 			noErr(t, err)
 			if kv == nil {
 				break
@@ -687,7 +687,7 @@ func TestTTLExpiration(t *testing.T) {
 			if elapsed >= time.Duration(next.lease)*time.Second {
 				continue
 			}
-			_, kv, err := b.Get(ctx, next.key, "", 0, 0, false)
+			_, kv, err := b.Get(ctx, next.key, 0, false)
 			noErr(t, err)
 			if kv == nil {
 				t.Fatalf("key %s with lease=%ds removed prematurely at %v",
@@ -698,7 +698,7 @@ func TestTTLExpiration(t *testing.T) {
 
 	// After the longest lease has expired plus a grace period, nothing
 	// should remain under /test/.
-	_, ents, err = b.List(ctx, "/test/", "", 0, 0, false)
+	_, ents, err = b.List(ctx, "/test/", "/test0", 0, 0, false)
 	noErr(t, err)
 	if len(ents) != 0 {
 		t.Fatalf("expected /test/ to be empty after all leases expired, got %d keys", len(ents))
