@@ -6,14 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/metrics"
-	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/sirupsen/logrus"
 )
@@ -65,7 +63,7 @@ func (s *SQLLog) Start(ctx context.Context) error {
 func (s *SQLLog) compactStart(ctx context.Context) error {
 	logrus.Tracef("COMPACTSTART")
 
-	rows, err := s.d.After(ctx, "compact_rev_key", 0, 0)
+	rows, err := s.d.After(ctx, "compact_rev_key", "", 0, 0)
 	if err != nil {
 		return err
 	}
@@ -313,12 +311,8 @@ func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
 	return s.d.GetCompactRevision(ctx)
 }
 
-func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64) (int64, server.Events, error) {
-	if strings.HasSuffix(prefix, "/") {
-		prefix += "%"
-	}
-
-	rows, err := s.d.After(ctx, prefix, revision, limit)
+func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int64) (int64, server.Events, error) {
+	rows, err := s.d.After(ctx, key, end, revision, limit)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -344,18 +338,18 @@ func (s *SQLLog) After(ctx context.Context, prefix string, revision, limit int64
 	return rev, result, err
 }
 
-func (s *SQLLog) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (int64, server.Events, error) {
+func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) (int64, server.Events, error) {
 	var (
 		rows *sql.Rows
 		err  error
 	)
 
-	startKey = s.d.TranslateStartKey(startKey)
+	key = s.d.TranslateStartKey(key)
 
 	if revision == 0 {
-		rows, err = s.d.ListCurrent(ctx, prefix, startKey, limit, includeDeleted, keysOnly)
+		rows, err = s.d.ListCurrent(ctx, key, end, limit, includeDeleted, keysOnly)
 	} else {
-		rows, err = s.d.List(ctx, prefix, startKey, limit, revision, includeDeleted, keysOnly)
+		rows, err = s.d.List(ctx, key, end, limit, revision, includeDeleted, keysOnly)
 	}
 	if err != nil {
 		return 0, nil, err
@@ -416,19 +410,17 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, server.Events, 
 	return rev, compact, result, nil
 }
 
-func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan server.Events {
+func (s *SQLLog) Watch(ctx context.Context, key, end string) <-chan server.Events {
 	res := make(chan server.Events, 100)
 	values, err := s.broadcaster.Subscribe(ctx, s.startWatch)
 	if err != nil {
 		return nil
 	}
 
-	checkPrefix := strings.HasSuffix(prefix, "/")
-
 	go func() {
 		defer close(res)
 		for i := range values {
-			events, ok := filter(i, checkPrefix, prefix)
+			events, ok := filter(i, key, end)
 			if ok {
 				res <- events
 			}
@@ -438,11 +430,10 @@ func (s *SQLLog) Watch(ctx context.Context, prefix string) <-chan server.Events 
 	return res
 }
 
-func filter(eventList server.Events, checkPrefix bool, prefix string) (server.Events, bool) {
+func filter(eventList server.Events, key, end string) (server.Events, bool) {
 	filteredEventList := make(server.Events, 0, len(eventList))
-
 	for _, event := range eventList {
-		if (checkPrefix && strings.HasPrefix(event.KV.Key, prefix)) || event.KV.Key == prefix {
+		if key == "" || (end != "" && event.KV.Key >= key && event.KV.Key < end) || event.KV.Key == key {
 			filteredEventList = append(filteredEventList, event)
 		}
 	}
@@ -478,7 +469,6 @@ func (s *SQLLog) startWatch() (chan server.Events, error) {
 
 func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 	var (
-		stmt         *query.Stmt
 		skip         int64
 		skipTime     time.Time
 		waitForMore  = true
@@ -509,23 +499,10 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		s.polled.Broadcast()
 		s.Unlock()
 
-		if stmt == nil {
-			var err error
-			stmt, err = s.d.PrepareAfter(s.ctx, s.pollBatchSize)
-			if err != nil {
-				logrus.Errorf("Failed to prepare to list latest changes: %v", err)
-			}
-			continue
-		}
-
-		rows, err := s.d.QueryAfter(s.ctx, stmt, "%", pollRevision)
+		rows, err := s.d.After(s.ctx, "", "", pollRevision, s.pollBatchSize)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				logrus.Errorf("Failed to list latest changes: %v", err)
-			}
-			if stmt != nil {
-				stmt.Close()
-				stmt = nil
 			}
 			continue
 		}
@@ -619,18 +596,14 @@ func canSkipRevision(rev, skip int64, skipTime time.Time) bool {
 	return rev == skip && time.Since(skipTime) > time.Second
 }
 
-func (s *SQLLog) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
-	if strings.HasSuffix(prefix, "/") {
-		prefix += "%"
-	}
-
-	startKey = s.d.TranslateStartKey(startKey)
+func (s *SQLLog) Count(ctx context.Context, key, end string, revision int64) (int64, int64, error) {
+	key = s.d.TranslateStartKey(key)
 
 	if revision == 0 {
-		return s.d.CountCurrent(ctx, prefix, startKey)
+		return s.d.CountCurrent(ctx, key, end)
 	}
 
-	rev, compact, rows, err := s.d.Count(ctx, prefix, startKey, revision)
+	rev, compact, rows, err := s.d.Count(ctx, key, end, revision)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -664,15 +637,17 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	if err != nil {
 		return 0, err
 	}
-	// currentRev may have moved ahead due to other inserts between when Insert returned
-	// and now; ensure that we don't roll it back if it has changed elsewhere. If the
-	// swap succeeded, notify the polling loop of the new revision.
-	if s.currentRev.CompareAndSwap(currentRev, rev) {
-		select {
-		case s.notify <- rev:
-		default:
-		}
+
+	// notify the polling loop of the new revision.
+	select {
+	case s.notify <- rev:
+	default:
 	}
+
+	// currentRev may have moved ahead due to other inserts between when Insert returned
+	// and now; ensure that we don't roll it back if it has changed elsewhere.
+	s.currentRev.CompareAndSwap(currentRev, rev)
+
 	return rev, nil
 }
 

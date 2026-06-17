@@ -72,7 +72,7 @@ func (b *backend) CurrentRevision(_ context.Context) (int64, error) {
 	return b.node.CurrentRevision(), nil
 }
 
-func (b *backend) Get(ctx context.Context, key, _ string, _, revision int64, keysOnly bool) (int64, *kserver.KeyValue, error) {
+func (b *backend) Get(ctx context.Context, key string, revision int64, keysOnly bool) (int64, *kserver.KeyValue, error) {
 	curRev := b.node.CurrentRevision()
 	if revision > 0 && revision > curRev {
 		return curRev, nil, kserver.ErrFutureRev
@@ -130,7 +130,7 @@ func (b *backend) Delete(ctx context.Context, key string, revision int64) (int64
 	return newRev, toServerKV(oldKV, false), deleted, nil
 }
 
-func (b *backend) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) (int64, []*kserver.KeyValue, error) {
+func (b *backend) List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (int64, []*kserver.KeyValue, error) {
 	curRev := b.node.CurrentRevision()
 	if revision > 0 && revision > curRev {
 		return curRev, nil, kserver.ErrFutureRev
@@ -138,6 +138,7 @@ func (b *backend) List(ctx context.Context, prefix, startKey string, limit, revi
 	if revision > 0 && revision < b.node.CompactRevision() {
 		return curRev, nil, kserver.ErrCompacted
 	}
+	prefix, startKey := translateRange(key, end)
 	opts := readOpts(revision)
 	if startKey != "" {
 		opts = append(opts, t4.WithFromKey(startKey))
@@ -156,7 +157,7 @@ func (b *backend) List(ctx context.Context, prefix, startKey string, limit, revi
 	return curRev, out, nil
 }
 
-func (b *backend) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
+func (b *backend) Count(ctx context.Context, key, end string, revision int64) (int64, int64, error) {
 	curRev := b.node.CurrentRevision()
 	if revision > 0 && revision > curRev {
 		return curRev, 0, kserver.ErrFutureRev
@@ -164,8 +165,9 @@ func (b *backend) Count(ctx context.Context, prefix, startKey string, revision i
 	if revision > 0 && revision < b.node.CompactRevision() {
 		return curRev, 0, kserver.ErrCompacted
 	}
+	prefix, startKey := translateRange(key, end)
 	opts := readOpts(revision)
-	if startKey != "" {
+	if key != "" {
 		opts = append(opts, t4.WithFromKey(startKey))
 	}
 	count, err := b.node.LinearizableCount(ctx, prefix, opts...)
@@ -183,7 +185,7 @@ func (b *backend) Update(ctx context.Context, key string, value []byte, revision
 	return newRev, toServerKV(oldKV, false), updated, nil
 }
 
-func (b *backend) Watch(ctx context.Context, key string, revision int64) kserver.WatchResult {
+func (b *backend) Watch(ctx context.Context, key, end string, revision int64) kserver.WatchResult {
 	curRev := b.node.CurrentRevision()
 	compactRev := b.node.CompactRevision()
 
@@ -197,13 +199,14 @@ func (b *backend) Watch(ctx context.Context, key string, revision int64) kserver
 		return kserver.WatchResult{CurrentRevision: curRev, CompactRevision: compactRev, Events: eventCh, Errorc: errCh}
 	}
 
+	prefix, _ := translateRange(key, end)
 	go func() {
 		defer close(eventCh)
 		defer close(errCh)
 		// PrevKV is required: toServerEvent classifies an event as Create if
 		// ev.PrevKV == nil. Without it, every update is reported as a Create
 		// and apiserver's watchCache rejects them as duplicate/out-of-order.
-		ch, err := b.node.Watch(ctx, key, revision, t4.WithPrevKV())
+		ch, err := b.node.Watch(ctx, prefix, revision, t4.WithPrevKV())
 		if err != nil {
 			errCh <- translateErr(err)
 			return
@@ -291,4 +294,11 @@ func toServerEvent(ev *t4.Event) *kserver.Event {
 		se.PrevKV = toServerKV(ev.PrevKV, false)
 	}
 	return se
+}
+
+func translateRange(key, end string) (prefix, startKey string) {
+	if end != "" && len(key) > len(end) {
+		return key[:len(end)], key
+	}
+	return key, ""
 }

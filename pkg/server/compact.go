@@ -43,7 +43,7 @@ func isCompact(txn *etcdserverpb.TxnRequest) (int64, []byte, bool) {
 // to store the current compact rev to the compact_rev_key. Because kine
 // uses this key internally, we instead operate on a substitute key.
 func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value []byte) (*etcdserverpb.TxnResponse, error) {
-	rev, kv, err := l.backend.Get(ctx, compactRevAPI, "", 1, 0, false)
+	rev, kv, err := l.backend.Get(ctx, compactRevAPI, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 
 		if err != nil {
 			// create or update failed, get the version from the current value
-			rev, kv, err = l.backend.Get(ctx, compactRevAPI, "", 1, 0, false)
+			rev, kv, err = l.backend.Get(ctx, compactRevAPI, 0, false)
 			if err != nil {
 				return nil, err
 			}

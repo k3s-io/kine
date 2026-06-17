@@ -145,8 +145,8 @@ func (b *Backend) CurrentRevision(ctx context.Context) (int64, error) {
 }
 
 // Count returns an exact count of the number of matching keys and the current revision of the database.
-func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error) {
-	count, err := b.kv.Count(ctx, prefix, startKey, revision)
+func (b *Backend) Count(ctx context.Context, key, end string, revision int64) (int64, int64, error) {
+	count, err := b.kv.Count(ctx, key, end, revision)
 	if err != nil {
 		return b.kv.BucketRevision(), 0, err
 	}
@@ -163,8 +163,8 @@ func (b *Backend) Count(ctx context.Context, prefix, startKey string, revision i
 
 // Get returns the store's current revision, the associated server.KeyValue or an error.
 // Mirrors etcd and other drivers by being a list call with a single return
-func (b *Backend) Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
-	rev, kvs, err := b.List(ctx, key, rangeEnd, limit, revision, keysOnly)
+func (b *Backend) Get(ctx context.Context, key string, revision int64, keysOnly bool) (int64, *server.KeyValue, error) {
+	rev, kvs, err := b.List(ctx, key, "", 1, revision, keysOnly)
 	if err != nil {
 		return rev, nil, err
 	}
@@ -382,14 +382,14 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 	return int64(seq), nv.KV, true, nil
 }
 
-// List returns a range of keys starting with the prefix.
+// List returns a range of keys starting with the key.
 // This would translated to one or more tokens, e.g. `a.b.c`.
-// The startKey would be the next set of tokens that follow the prefix
+// The startKey would be the next set of tokens that follow the key
 // that are alphanumerically equal to or greater than the startKey.
 // If limit is provided, the maximum set of matches is limited.
 // If revision is provided, this indicates the maximum revision to return.
-func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxRevision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
-	matches, err := b.kv.List(ctx, prefix, startKey, limit, maxRevision, keysOnly)
+func (b *Backend) List(ctx context.Context, key, end string, limit, maxRevision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
+	matches, err := b.kv.List(ctx, key, end, limit, maxRevision, keysOnly)
 	if err != nil {
 		return b.kv.BucketRevision(), nil, err
 	}
@@ -415,7 +415,7 @@ func (b *Backend) List(ctx context.Context, prefix, startKey string, limit, maxR
 	return rev, kvs, nil
 }
 
-func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64) server.WatchResult {
+func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int64) server.WatchResult {
 	events := make(chan []*server.Event, 32)
 
 	if startRevision > 0 && startRevision <= b.kv.compactRev.Load() {
@@ -434,14 +434,14 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 	outer:
 		for {
 			var err error
-			w, err = b.kv.Watch(ctx, prefix, startRevision)
+			w, err = b.kv.Watch(ctx, key, end, startRevision)
 			if err == nil {
 				break
 			} else if errors.Is(err, context.Canceled) || errors.Is(err, nats.ErrConnectionClosed) {
 				return
 			}
 
-			b.l.Warnf("watch init: prefix=%s, err=%s", prefix, err)
+			b.l.Warnf("watch init: key=%s, err=%s", key, err)
 			time.Sleep(time.Second)
 		}
 		defer w.Stop()
@@ -453,18 +453,18 @@ func (b *Backend) Watch(ctx context.Context, prefix string, startRevision int64)
 				if err == nil || errors.Is(err, context.Canceled) {
 					return
 				}
-				b.l.Debugf("watch ctx: prefix=%s, err=%s", prefix, err)
+				b.l.Debugf("watch ctx: key=%s, err=%s", key, err)
 				err = w.Stop()
 				if err != nil {
-					b.l.Debugf("watch stop: prefix=%s, err=%s", prefix, err)
+					b.l.Debugf("watch stop: key=%s, err=%s", key, err)
 				}
 				goto outer
 
 			case err := <-w.Err():
-				b.l.Debugf("watch error: prefix=%s, err=%s", prefix, err)
+				b.l.Debugf("watch error: key=%s, err=%s", key, err)
 				err = w.Stop()
 				if err != nil {
-					b.l.Debugf("watch stop: prefix=%s, err=%s", prefix, err)
+					b.l.Debugf("watch stop: key=%s, err=%s", key, err)
 				}
 				goto outer
 
@@ -597,7 +597,7 @@ func (b *Backend) compactor() {
 func (b *Backend) compactWatcher() {
 	b.l.Infof("Starting compaction watcher")
 
-	w, err := b.kv.Watch(b.ctx, compactRevAPI, 0)
+	w, err := b.kv.Watch(b.ctx, compactRevAPI, "", 0)
 	if err != nil {
 		b.l.Errorf("Failed to configure watch for compact revision: %v", err)
 	}

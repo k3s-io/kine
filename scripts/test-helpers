@@ -237,7 +237,7 @@ build-apiserver-tests() {
   # fix test that expects only 1 revision to exist at startup - kine has 2, as we store compact revision in a key.
   sed -i 's|NewTooLargeResourceVersionError(uint64(102), 1, 0)|NewTooLargeResourceVersionError(uint64(102), 2, 0)|' pkg/storage/etcd3/watcher_test.go
   # fix too-short test helper timeout that fails under load
-  sed -i 's|waitTimeout = 100 * waitDelay|waitTimeout = 500 * waitDelay|' pkg/storage/etcd3/compact_test.go
+  sed -i 's|waitTimeout = 100 \* waitDelay|waitTimeout = 500 \* waitDelay|' pkg/storage/etcd3/compact_test.go
   go mod edit --replace github.com/k3s-io/kine=$KINEPATH
   go mod tidy
   go test -c -o $KINEPATH/bin/ -tags nats ./pkg/storage/etcd3/...

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/k3s-io/kine/pkg/query"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,13 +27,13 @@ const (
 
 type Backend interface {
 	Start(ctx context.Context) error
-	Get(ctx context.Context, key, rangeEnd string, limit, revision int64, keysOnly bool) (int64, *KeyValue, error)
+	Get(ctx context.Context, key string, revision int64, keysOnly bool) (int64, *KeyValue, error)
 	Create(ctx context.Context, key string, value []byte, lease int64) (int64, error)
 	Delete(ctx context.Context, key string, revision int64) (int64, *KeyValue, bool, error)
-	List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) (int64, []*KeyValue, error)
-	Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, error)
+	List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (int64, []*KeyValue, error)
+	Count(ctx context.Context, key, end string, revision int64) (int64, int64, error)
 	Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *KeyValue, bool, error)
-	Watch(ctx context.Context, key string, revision int64) WatchResult
+	Watch(ctx context.Context, key, end string, revision int64) WatchResult
 	DbSize(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
@@ -42,14 +41,12 @@ type Backend interface {
 }
 
 type Dialect interface {
-	ListCurrent(ctx context.Context, prefix, startKey string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error)
-	List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (*sql.Rows, error)
-	CountCurrent(ctx context.Context, prefix, startKey string) (int64, int64, error)
-	Count(ctx context.Context, prefix, startKey string, revision int64) (int64, int64, int64, error)
+	ListCurrent(ctx context.Context, key, end string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error)
+	List(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) (*sql.Rows, error)
+	CountCurrent(ctx context.Context, key, end string) (int64, int64, error)
+	Count(ctx context.Context, key, end string, revision int64) (int64, int64, int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
-	After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error)
-	PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, error)
-	QueryAfter(ctx context.Context, stmt *query.Stmt, prefix string, rev int64) (*sql.Rows, error)
+	After(ctx context.Context, key, end string, rev, limit int64) (*sql.Rows, error)
 	//nolint:revive
 	Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value []byte) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error

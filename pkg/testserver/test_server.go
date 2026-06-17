@@ -42,6 +42,10 @@ func NewTestConfig(t testing.TB) *embed.Config {
 func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	t.Helper()
 	logrus.SetLevel(logrus.TraceLevel)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC3339Nano,
+	})
 	logrus.SetOutput(t.Output())
 
 	if cfg == nil {

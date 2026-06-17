@@ -175,7 +175,9 @@ func (e *KeyValue) Start(ctx context.Context) {
 			var err error
 			select {
 			case err = <-errch:
-				logrus.Errorf("btree watcher: error: %v", err)
+				if !errors.Is(err, jetstream.ErrServerShutdown) && !errors.Is(err, jetstream.ErrConnectionClosed) {
+					logrus.Errorf("btree watcher: error: %v", err)
+				}
 
 			case <-ctx.Done():
 				logrus.Infof("%s: stopping key value store", e.name)
@@ -322,18 +324,17 @@ type KeyWatcher interface {
 	Err() <-chan error
 }
 
-func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyWatcher, error) {
+func (e *KeyValue) Watch(ctx context.Context, key, end string, startRev int64) (KeyWatcher, error) {
 	// Everything but the last token will be treated as a filter
 	// on the watcher. The last token will used as a deliver-time filter.
-
-	filter := keys
+	filter := key
 
 	if filter != "/" && strings.HasSuffix(filter, "/") {
-		filter = strings.TrimSuffix(keys, "/")
+		filter = strings.TrimSuffix(key, "/")
 	} else {
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
-			filter = keys[:idx+1]
+			filter = key[:idx+1]
 		} else {
 			// No '/' prefix in key and no '/' within key.
 			// We should subscribe on the meta subject
@@ -360,11 +361,10 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 			return
 		}
 
-		key := strings.TrimPrefix(msg.Subject(), subjectPrefix)
-
-		if keys != "" {
-			dkey, err := e.kc.Decode(strings.TrimPrefix(key, "."))
-			if err != nil || (keys != "/" && !strings.HasPrefix(dkey, keys)) {
+		skey := strings.TrimPrefix(msg.Subject(), subjectPrefix)
+		if skey != "" {
+			dkey, err := e.kc.Decode(strings.TrimPrefix(skey, "."))
+			if err != nil || (key == "" && dkey < key) || (end != "" && dkey >= end) {
 				return
 			}
 		}
@@ -384,7 +384,7 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 			kc: e.kc,
 			vc: e.vc,
 			entry: &kvEntry{
-				key:       key,
+				key:       skey,
 				bucket:    e.nkv.Bucket(),
 				value:     msg.Data(),
 				revision:  md.Sequence.Stream,
@@ -415,7 +415,7 @@ func (e *KeyValue) Watch(ctx context.Context, keys string, startRev int64) (KeyW
 	ci := con.CachedInfo()
 	cctx, err := con.Consume(handler,
 		jetstream.ConsumeErrHandler(func(cctx jetstream.ConsumeContext, err error) {
-			errch <- fmt.Errorf("watch: error consuming from %s: %v", ci.Name, err)
+			errch <- fmt.Errorf("watch: error consuming from %s: %w", ci.Name, err)
 		}),
 	)
 	if err != nil {
@@ -449,17 +449,15 @@ func (e *KeyValue) BucketRevision() int64 {
 	return int64(e.lastSeq.Load())
 }
 
-func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, revision int64, keysOnly bool) ([]jetstream.KeyValueEntry, error) {
+func (e *KeyValue) List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) ([]jetstream.KeyValueEntry, error) {
 	err := e.checkRevision("", revision)
 	if err != nil {
 		return nil, err
 	}
 
-	seekKey, exact := seekKey(prefix, startKey)
-
 	it := e.bt.Iter()
-	if seekKey != "" {
-		if ok := it.Seek(seekKey); !ok {
+	if key != "" {
+		if ok := it.Seek(key); !ok {
 			return nil, nil
 		}
 	}
@@ -469,11 +467,7 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 	e.btm.RLock()
 	for {
 		k := it.Key()
-		if exact && k != seekKey {
-			break
-		}
-
-		if !strings.HasPrefix(k, prefix) {
+		if (end == "" && k != key) || (end != "" && k >= end) {
 			break
 		}
 
@@ -510,8 +504,8 @@ func (e *KeyValue) List(ctx context.Context, prefix, startKey string, limit, rev
 	return entries, nil
 }
 
-func (e *KeyValue) Count(ctx context.Context, prefix, startKey string, revision int64) (int64, error) {
-	matches, err := e.getListOps(prefix, startKey, revision)
+func (e *KeyValue) Count(ctx context.Context, key, end string, revision int64) (int64, error) {
+	matches, err := e.getListOps(key, end, revision)
 	if err != nil {
 		return 0, err
 	}
@@ -663,7 +657,7 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	}
 
 	now := time.Now()
-	w, err := e.Watch(ctx, "/", br)
+	w, err := e.Watch(ctx, "/", "", br)
 	if err != nil {
 		return fmt.Errorf("init: %s after %s", err, time.Since(now))
 	}
@@ -672,7 +666,7 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	for {
 		select {
 		case err := <-w.Err():
-			return fmt.Errorf("error: %s", err)
+			return fmt.Errorf("error: %w", err)
 
 		case x := <-w.Updates():
 			if x == nil {
@@ -737,17 +731,15 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	}
 }
 
-func (e *KeyValue) getListOps(prefix, startKey string, revision int64) ([]*keySeq, error) {
+func (e *KeyValue) getListOps(key, end string, revision int64) ([]*keySeq, error) {
 	err := e.checkRevision("", revision)
 	if err != nil {
 		return nil, err
 	}
 
-	seekKey, exact := seekKey(prefix, startKey)
-
 	it := e.bt.Iter()
-	if seekKey != "" {
-		if ok := it.Seek(seekKey); !ok {
+	if key != "" {
+		if ok := it.Seek(key); !ok {
 			return nil, nil
 		}
 	}
@@ -757,12 +749,7 @@ func (e *KeyValue) getListOps(prefix, startKey string, revision int64) ([]*keySe
 	e.btm.RLock()
 	for {
 		k := it.Key()
-
-		if exact && k != seekKey {
-			break
-		}
-
-		if !strings.HasPrefix(k, prefix) {
+		if (end == "" && k != key) || (end != "" && k >= end) {
 			break
 		}
 
@@ -815,11 +802,4 @@ func getSeqOp(val []*seqOp, revision int64, allowDeleted bool) *seqOp {
 	}
 
 	return nil
-}
-
-func seekKey(prefix, startKey string) (string, bool) {
-	if startKey == "" {
-		return prefix, true
-	}
-	return strings.TrimSuffix(startKey, "/"), false
 }
