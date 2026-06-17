@@ -60,8 +60,6 @@ func translateDSN(dsn string) (string, error) {
 			addAll("_pragma", "journal_mode(%s)", vals)
 		case "_synchronous", "_sync":
 			addAll("_pragma", "synchronous(%s)", vals)
-		case "_case_sensitive_like", "_cslike":
-			addAll("_pragma", "case_sensitive_like(%s)", vals)
 		case "cache":
 			// shared cache mode is not supported
 		default:

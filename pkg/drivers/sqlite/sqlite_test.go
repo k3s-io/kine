@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	connector, err := newConnector("sqlite3", withCaseSensitiveLike(dbPath+"?"+DefaultParams))
+	connector, err := newConnector("sqlite3", dbPath+"?"+DefaultParams)
 	if err != nil {
 		t.Fatalf("Failed to create connector: %v", err)
 	}
@@ -141,7 +142,54 @@ func TestSetupCreatesTextNameColumn(t *testing.T) {
 	t.Fatal("kine.name column not found")
 }
 
-func TestSetupEnablesCaseSensitiveLike(t *testing.T) {
+func TestPrefixRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		low     string
+		high    string
+		ok      bool
+	}{
+		{
+			name:    "resource prefix",
+			pattern: "/registry/pods/%",
+			low:     "/registry/pods/",
+			high:    "/registry/pods0",
+			ok:      true,
+		},
+		{
+			name:    "escaped underscore",
+			pattern: "/registry/foo^_/%",
+			low:     "/registry/foo_/",
+			high:    "/registry/foo_0",
+			ok:      true,
+		},
+		{
+			name:    "single key",
+			pattern: "/registry/pods/default",
+			ok:      false,
+		},
+		{
+			name:    "unsupported internal wildcard",
+			pattern: "/registry/%/pods/%",
+			ok:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			low, high, ok := prefixRange(tt.pattern)
+			if ok != tt.ok {
+				t.Fatalf("expected ok=%v, got %v", tt.ok, ok)
+			}
+			if low != tt.low || high != tt.high {
+				t.Fatalf("expected range [%q, %q), got [%q, %q)", tt.low, tt.high, low, high)
+			}
+		})
+	}
+}
+
+func TestPrefixRangeQueryLimitsResults(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
@@ -149,12 +197,48 @@ func TestSetupEnablesCaseSensitiveLike(t *testing.T) {
 		t.Fatalf("setup() failed: %v", err)
 	}
 
-	var matches bool
-	if err := db.QueryRow(`SELECT 'a' LIKE 'A'`).Scan(&matches); err != nil {
-		t.Fatalf("failed to query LIKE behavior: %v", err)
+	names := []string{
+		"/registry/pods/template-0001",
+		"/registry/pods/template-0002",
+		"/registry/pods/template-0003",
+		"/registry/pods0/out",
+		"/registry/podr/out",
 	}
-	if matches {
-		t.Fatal("expected LIKE to be case-sensitive after setup")
+	for i, name := range names {
+		if _, err := db.Exec(`INSERT INTO kine (name, created, deleted, create_revision, prev_revision, lease) VALUES (?, 1, 0, ?, 0, 0)`, name, i+1); err != nil {
+			t.Fatalf("failed to insert %q: %v", name, err)
+		}
+	}
+
+	low, high, ok := prefixRange("/registry/pods/%")
+	if !ok {
+		t.Fatal("expected prefix range")
+	}
+	rows, err := db.Query(`SELECT name FROM kine WHERE name >= ? AND name < ? ORDER BY name ASC`, low, high)
+	if err != nil {
+		t.Fatalf("failed to query range: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("failed to scan name: %v", err)
+		}
+		got = append(got, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("failed to read names: %v", err)
+	}
+
+	want := []string{
+		"/registry/pods/template-0001",
+		"/registry/pods/template-0002",
+		"/registry/pods/template-0003",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected names %v, got %v", want, got)
 	}
 }
 

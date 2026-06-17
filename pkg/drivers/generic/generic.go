@@ -38,9 +38,10 @@ var (
 		WHERE (deleted = 0 OR ?)
 		ORDER BY name ASC
 		`
-	CurrentRevSQL = `SELECT MAX(id) AS current_rev FROM kine`
-	CompactRevSQL = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
-	FiltersRevSQL = `SELECT MAX(id) AS id FROM kine WHERE name LIKE ? ESCAPE '^' %s GROUP BY name`
+	CurrentRevSQL      = `SELECT MAX(id) AS current_rev FROM kine`
+	CompactRevSQL      = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
+	FiltersRevSQL      = `SELECT MAX(id) AS id FROM kine WHERE name LIKE ? ESCAPE '^' %s GROUP BY name`
+	FiltersRevRangeSQL = `SELECT MAX(id) AS id FROM kine WHERE name >= ? AND name < ? %s GROUP BY name`
 
 	listSQL    = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, FiltersRevSQL)
 	listValSQL = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, FiltersRevSQL)
@@ -50,6 +51,7 @@ type ErrRetry func(error) bool
 type TranslateErr func(error) error
 type ErrCode func(error) string
 type SubstituteFunc func(string) string
+type PrefixRangeFunc func(string) (string, string, bool)
 
 type ConnectionPoolConfig struct {
 	MaxIdle     int           // zero means defaultMaxIdleConns; negative means 0
@@ -61,36 +63,46 @@ type ConnectionPoolConfig struct {
 type Generic struct {
 	sync.Mutex
 
-	LockWrites              bool
-	LastInsertID            bool
-	DB                      *sql.DB
-	GetSingleSQL            *query.Named
-	GetSingleValSQL         *query.Named
-	ListCurrentSQL          *query.Named
-	ListCurrentValSQL       *query.Named
-	ListRevisionStartSQL    *query.Named
-	ListRevisionStartValSQL *query.Named
-	GetRevisionAfterSQL     *query.Named
-	GetRevisionAfterValSQL  *query.Named
-	CountCurrentSQL         *query.Named
-	CountRevisionSQL        *query.Named
-	AfterOldValSQL          *query.Named
-	CurrentRevSQL           *query.Named
-	CompactRevSQL           *query.Named
-	DeleteSQL               *query.Named
-	CompactSQL              *query.Named
-	UpdateCompactSQL        *query.Named
-	PostCompactSQL          *query.Named
-	InsertSQL               *query.Named
-	FillSQL                 *query.Named
-	InsertLastInsertIDSQL   *query.Named
-	GetSizeSQL              *query.Named
-	Retry                   ErrRetry
-	InsertRetry             ErrRetry
-	TranslateErr            TranslateErr
-	TranslateStartKeyFunc   SubstituteFunc
-	ErrCode                 ErrCode
-	FillRetryDuration       time.Duration
+	LockWrites                   bool
+	LastInsertID                 bool
+	DB                           *sql.DB
+	GetSingleSQL                 *query.Named
+	GetSingleValSQL              *query.Named
+	ListCurrentSQL               *query.Named
+	ListCurrentValSQL            *query.Named
+	ListRevisionStartSQL         *query.Named
+	ListRevisionStartValSQL      *query.Named
+	GetRevisionAfterSQL          *query.Named
+	GetRevisionAfterValSQL       *query.Named
+	CountCurrentSQL              *query.Named
+	CountRevisionSQL             *query.Named
+	ListCurrentRangeSQL          *query.Named
+	ListCurrentRangeValSQL       *query.Named
+	ListRevisionStartRangeSQL    *query.Named
+	ListRevisionStartRangeValSQL *query.Named
+	GetRevisionAfterRangeSQL     *query.Named
+	GetRevisionAfterRangeValSQL  *query.Named
+	CountCurrentRangeSQL         *query.Named
+	CountRevisionRangeSQL        *query.Named
+	AfterOldValRangeSQL          *query.Named
+	AfterOldValSQL               *query.Named
+	CurrentRevSQL                *query.Named
+	CompactRevSQL                *query.Named
+	DeleteSQL                    *query.Named
+	CompactSQL                   *query.Named
+	UpdateCompactSQL             *query.Named
+	PostCompactSQL               *query.Named
+	InsertSQL                    *query.Named
+	FillSQL                      *query.Named
+	InsertLastInsertIDSQL        *query.Named
+	GetSizeSQL                   *query.Named
+	Retry                        ErrRetry
+	InsertRetry                  ErrRetry
+	TranslateErr                 TranslateErr
+	TranslateStartKeyFunc        SubstituteFunc
+	PrefixRange                  PrefixRangeFunc
+	ErrCode                      ErrCode
+	FillRetryDuration            time.Duration
 }
 
 func (d *Generic) Migrate(ctx context.Context) {
@@ -188,14 +200,20 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 	return &Generic{
 		DB: db,
 
-		ListCurrentSQL:          query.New(fmt.Sprintf(listSQL, "AND name >= ?"), paramCharacter, numbered, "ListCurrent"),
-		ListCurrentValSQL:       query.New(fmt.Sprintf(listValSQL, "AND name >= ?"), paramCharacter, numbered, "ListCurrentVal"),
-		ListRevisionStartSQL:    query.New(fmt.Sprintf(listSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStart"),
-		ListRevisionStartValSQL: query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStartVal"),
-		GetRevisionAfterSQL:     query.New(fmt.Sprintf(listSQL, "AND name >= ? AND id <= ?"), paramCharacter, numbered, "GetRevisionAfter"),
-		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND name >= ? AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
-		CurrentRevSQL:           query.New(CurrentRevSQL, paramCharacter, numbered, "CurrentRev"),
-		CompactRevSQL:           query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
+		ListCurrentSQL:               query.New(fmt.Sprintf(listSQL, "AND name >= ?"), paramCharacter, numbered, "ListCurrent"),
+		ListCurrentValSQL:            query.New(fmt.Sprintf(listValSQL, "AND name >= ?"), paramCharacter, numbered, "ListCurrentVal"),
+		ListRevisionStartSQL:         query.New(fmt.Sprintf(listSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStart"),
+		ListRevisionStartValSQL:      query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStartVal"),
+		GetRevisionAfterSQL:          query.New(fmt.Sprintf(listSQL, "AND name >= ? AND id <= ?"), paramCharacter, numbered, "GetRevisionAfter"),
+		GetRevisionAfterValSQL:       query.New(fmt.Sprintf(listValSQL, "AND name >= ? AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
+		ListCurrentRangeSQL:          query.New(fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND name >= ?")), paramCharacter, numbered, "ListCurrentRange"),
+		ListCurrentRangeValSQL:       query.New(fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND name >= ?")), paramCharacter, numbered, "ListCurrentRangeVal"),
+		ListRevisionStartRangeSQL:    query.New(fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND id <= ?")), paramCharacter, numbered, "ListRevisionStartRange"),
+		ListRevisionStartRangeValSQL: query.New(fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND id <= ?")), paramCharacter, numbered, "ListRevisionStartRangeVal"),
+		GetRevisionAfterRangeSQL:     query.New(fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND name >= ? AND id <= ?")), paramCharacter, numbered, "GetRevisionAfterRange"),
+		GetRevisionAfterRangeValSQL:  query.New(fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND name >= ? AND id <= ?")), paramCharacter, numbered, "GetRevisionAfterRangeVal"),
+		CurrentRevSQL:                query.New(CurrentRevSQL, paramCharacter, numbered, "CurrentRev"),
+		CompactRevSQL:                query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
@@ -225,6 +243,20 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			WHERE (deleted = 0 OR ?)`,
 			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevSQL, "AND name >= ? AND id <= ?")), paramCharacter, numbered, "CountRevision"),
 
+		CountCurrentRangeSQL: query.New(fmt.Sprintf(`
+			SELECT (%s), COUNT(id)
+			FROM kine
+			INNER JOIN (%s) AS mkv USING (id)
+			WHERE (deleted = 0 OR ?)`,
+			CurrentRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND name >= ?")), paramCharacter, numbered, "CountCurrentRange"),
+
+		CountRevisionRangeSQL: query.New(fmt.Sprintf(`
+			SELECT (%s), (%s), COUNT(id)
+			FROM kine
+			INNER JOIN (%s) AS mkv USING (id)
+			WHERE (deleted = 0 OR ?)`,
+			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(FiltersRevRangeSQL, "AND name >= ? AND id <= ?")), paramCharacter, numbered, "CountRevisionRange"),
+
 		AfterOldValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
 			FROM (%s) AS current, (%s) AS compact, kine
@@ -232,6 +264,15 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			AND	id > ?
 			ORDER BY id ASC`,
 			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterOldVal"),
+
+		AfterOldValRangeSQL: query.New(fmt.Sprintf(`
+			SELECT current_rev, compact_rev, %s
+			FROM (%s) AS current, (%s) AS compact, kine
+			WHERE	name >= ?
+			AND	name < ?
+			AND	id > ?
+			ORDER BY id ASC`,
+			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterOldValRange"),
 
 		DeleteSQL: query.New(`
 			DELETE FROM kine
@@ -380,6 +421,19 @@ func (d *Generic) ListCurrent(ctx context.Context, prefix, startKey string, limi
 		}
 		return d.query(ctx, sql, prefix, includeDeleted)
 	}
+	if d.PrefixRange != nil {
+		if low, high, ok := d.PrefixRange(prefix); ok {
+			if keysOnly {
+				sql = d.ListCurrentRangeSQL
+			} else {
+				sql = d.ListCurrentRangeValSQL
+			}
+			if limit > 0 {
+				sql = sql.Appendf("LIMIT %d", limit)
+			}
+			return d.query(ctx, sql, low, high, startKey, includeDeleted)
+		}
+	}
 	prefix = strings.ReplaceAll(prefix, `_`, `^_`)
 	if keysOnly {
 		sql = d.ListCurrentSQL
@@ -393,8 +447,32 @@ func (d *Generic) ListCurrent(ctx context.Context, prefix, startKey string, limi
 }
 
 func (d *Generic) List(ctx context.Context, prefix, startKey string, limit, revision int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
-	prefix = strings.ReplaceAll(prefix, `_`, `^_`)
 	var sql *query.Named
+	if d.PrefixRange != nil {
+		if low, high, ok := d.PrefixRange(prefix); ok {
+			if startKey == "" {
+				if keysOnly {
+					sql = d.ListRevisionStartRangeSQL
+				} else {
+					sql = d.ListRevisionStartRangeValSQL
+				}
+				if limit > 0 {
+					sql = sql.Appendf("LIMIT %d", limit)
+				}
+				return d.query(ctx, sql, low, high, revision, includeDeleted)
+			}
+			if keysOnly {
+				sql = d.GetRevisionAfterRangeSQL
+			} else {
+				sql = d.GetRevisionAfterRangeValSQL
+			}
+			if limit > 0 {
+				sql = sql.Appendf("LIMIT %d", limit)
+			}
+			return d.query(ctx, sql, low, high, startKey, revision, includeDeleted)
+		}
+	}
+	prefix = strings.ReplaceAll(prefix, `_`, `^_`)
 	if startKey == "" {
 		if keysOnly {
 			sql = d.ListRevisionStartSQL
@@ -423,7 +501,15 @@ func (d *Generic) CountCurrent(ctx context.Context, prefix, startKey string) (in
 		id  int64
 	)
 
-	row := d.queryRow(ctx, d.CountCurrentSQL, prefix, startKey, false)
+	sql := d.CountCurrentSQL
+	args := []interface{}{prefix, startKey, false}
+	if d.PrefixRange != nil {
+		if low, high, ok := d.PrefixRange(prefix); ok {
+			sql = d.CountCurrentRangeSQL
+			args = []interface{}{low, high, startKey, false}
+		}
+	}
+	row := d.queryRow(ctx, sql, args...)
 	err := row.Scan(&rev, &id)
 	return rev.Int64, id, err
 }
@@ -435,7 +521,15 @@ func (d *Generic) Count(ctx context.Context, prefix, startKey string, revision i
 		id      int64
 	)
 
-	row := d.queryRow(ctx, d.CountRevisionSQL, prefix, startKey, revision, false)
+	sql := d.CountRevisionSQL
+	args := []interface{}{prefix, startKey, revision, false}
+	if d.PrefixRange != nil {
+		if low, high, ok := d.PrefixRange(prefix); ok {
+			sql = d.CountRevisionRangeSQL
+			args = []interface{}{low, high, startKey, revision, false}
+		}
+	}
+	row := d.queryRow(ctx, sql, args...)
 	err := row.Scan(&rev, &compact, &id)
 	return rev.Int64, compact.Int64, id, err
 }
@@ -452,14 +546,24 @@ func (d *Generic) CurrentRevision(ctx context.Context) (int64, error) {
 
 func (d *Generic) After(ctx context.Context, prefix string, rev, limit int64) (*sql.Rows, error) {
 	sql := d.AfterOldValSQL
+	args := []interface{}{prefix, rev}
+	if d.PrefixRange != nil {
+		if low, high, ok := d.PrefixRange(prefix); ok {
+			sql = d.AfterOldValRangeSQL
+			args = []interface{}{low, high, rev}
+		}
+	}
 	if limit > 0 {
 		sql = sql.Appendf("LIMIT %d", limit)
 	}
-	return d.query(ctx, sql, prefix, rev)
+	return d.query(ctx, sql, args...)
 }
 
 func (d *Generic) PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, error) {
 	sql := d.AfterOldValSQL
+	if d.PrefixRange != nil {
+		sql = d.AfterOldValRangeSQL
+	}
 	if limit > 0 {
 		sql = sql.Appendf("LIMIT %d", limit)
 	}
@@ -467,6 +571,12 @@ func (d *Generic) PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, e
 }
 
 func (d *Generic) QueryAfter(ctx context.Context, stmt *query.Stmt, prefix string, rev int64) (*sql.Rows, error) {
+	if d.PrefixRange != nil {
+		if low, high, ok := d.PrefixRange(prefix); ok {
+			return d.queryStatement(ctx, stmt, low, high, rev)
+		}
+		return nil, fmt.Errorf("invalid prefix range: %q", prefix)
+	}
 	return d.queryStatement(ctx, stmt, prefix, rev)
 }
 

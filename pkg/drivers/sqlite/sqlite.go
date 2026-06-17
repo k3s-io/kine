@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -74,7 +73,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		noStartupVacuum = true
 	}
 
-	connector, err := newConnector(driverName, withCaseSensitiveLike(cfg.DataSourceName))
+	connector, err := newConnector(driverName, cfg.DataSourceName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -112,6 +111,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	}
 	dialect.TranslateErr = translateErr
 	dialect.ErrCode = errCode
+	dialect.PrefixRange = prefixRange
 
 	if err := setup(dialect.DB, noCompactCheckpoint, noAutoCheckpoint, noStartupVacuum); err != nil {
 		return nil, nil, fmt.Errorf("setup db: %w", err)
@@ -133,7 +133,6 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 		logrus.Infof("WAL auto-checkpoint is disabled")
 		schema = append(schema, `PRAGMA wal_autocheckpoint = 0`)
 	}
-	schema = append(schema, `PRAGMA case_sensitive_like = ON`)
 
 	for _, stmt := range schema {
 		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
@@ -160,14 +159,53 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 	return nil
 }
 
-func withCaseSensitiveLike(dsn string) string {
-	path, params, _ := strings.Cut(dsn, "?")
-	values, err := url.ParseQuery(params)
-	if err != nil {
-		return dsn
+func prefixRange(pattern string) (string, string, bool) {
+	prefix, ok := strings.CutSuffix(pattern, "%")
+	if !ok {
+		return "", "", false
 	}
-	values.Set("_case_sensitive_like", "ON")
-	return path + "?" + values.Encode()
+
+	low, ok := unescapeLikePrefix(prefix)
+	if !ok || low == "" {
+		return "", "", false
+	}
+
+	high := []byte(low)
+	for i := len(high) - 1; i >= 0; i-- {
+		if high[i] != 0xff {
+			high[i]++
+			return low, string(high[:i+1]), true
+		}
+	}
+
+	return "", "", false
+}
+
+func unescapeLikePrefix(pattern string) (string, bool) {
+	var b strings.Builder
+	b.Grow(len(pattern))
+
+	escaped := false
+	for _, r := range pattern {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		switch r {
+		case '^':
+			escaped = true
+		case '%':
+			return "", false
+		default:
+			b.WriteRune(r)
+		}
+	}
+	if escaped {
+		b.WriteRune('^')
+	}
+
+	return b.String(), true
 }
 
 func init() {
