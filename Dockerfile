@@ -62,25 +62,24 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx AS xx
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine3.23 AS multi-arch-build
 COPY --from=xx / /
-ARG TAG
-ARG DIRTY
 ARG TARGETOS
 ARG TARGETARCH
-ARG CGO_ENABLED=1
-ENV TAG=${TAG} DIRTY=${DIRTY} CGO_ENABLED=${CGO_ENABLED}
 RUN apk -U add bash coreutils git vim less curl wget ca-certificates clang lld
 RUN xx-apk add musl-dev gcc
 # go imports version gopls/v0.15.3
 # https://github.com/golang/tools/releases/latest
 RUN xx-go install golang.org/x/tools/cmd/goimports@cd70d50baa6daa949efa12e295e10829f3a7bd46
 RUN rm -rf /go/src /go/pkg
+ARG TAG
+ARG DIRTY
+ARG CGO_ENABLED=1
 WORKDIR /go/src/github.com/k3s-io/kine
 COPY ./scripts/buildx ./scripts/version ./scripts/
 COPY ./go.mod ./go.sum ./main.go ./
 COPY ./pkg ./pkg
 COPY ./.git ./.git
 COPY ./.golangci.yml ./.golangci.yml
-
+ENV TAG=${TAG} DIRTY=${DIRTY} CGO_ENABLED=${CGO_ENABLED}
 RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
     ./scripts/buildx
 
