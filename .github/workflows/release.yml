@@ -40,7 +40,7 @@ jobs:
           done
           
       - name: Attest binaries
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         with:
           subject-path: dist/artifacts/kine-*
 
@@ -101,7 +101,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}
 
       - name: Attest images
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         id: attest
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/kine
@@ -126,7 +126,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/kine:${{ github.ref_name }}-nocgo
 
       - name: Attest images (nocgo)
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4
         id: attest-nocgo
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/kine
