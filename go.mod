@@ -24,7 +24,7 @@ require (
 	go.etcd.io/etcd/client/v3 v3.6.13
 	go.etcd.io/etcd/server/v3 v3.6.13
 	go.uber.org/zap v1.27.1
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 	k8s.io/apiserver v0.35.4
 	k8s.io/client-go v0.35.4
 	modernc.org/sqlite v1.53.0
