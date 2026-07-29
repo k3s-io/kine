@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/klauspost/compress/s2"
 	"github.com/nats-io/nats.go/jetstream"
@@ -11,10 +12,18 @@ import (
 )
 
 const (
-	noRootPrefix = "meta"
+	noRootPrefix              = "meta"
+	valueDecoderAllocBlock    = 1024
+	valueDecoderPoolMaxRetain = 65_536
 )
 
 var keyAlphabet = base58.BitcoinAlphabet
+
+var valueDecoderPool = sync.Pool{
+	New: func() any {
+		return s2.NewReader(nil, s2.ReaderAllocBlock(valueDecoderAllocBlock))
+	},
+}
 
 // keyCodec turns keys like /this/is/a.test.key into Base58 encoded values
 // split on `.` This is because NATS keys are split on . rather than /.
@@ -124,7 +133,21 @@ func (*valueCodec) Encode(src []byte, dst io.Writer) error {
 }
 
 func (*valueCodec) Decode(src io.Reader, dst io.Writer) error {
-	dec := s2.NewReader(src)
-	_, err := io.Copy(dst, dec)
+	pooled := valueDecoderPool.Get()
+	dec, ok := pooled.(*s2.Reader)
+	if !ok {
+		return fmt.Errorf("unexpected value decoder type %T", pooled)
+	}
+	dec.Reset(src)
+
+	written, err := io.Copy(dst, dec)
+
+	dec.Reset(nil)
+	if err == nil &&
+		written <= valueDecoderPoolMaxRetain &&
+		dec.GetBufferCapacity() <= valueDecoderPoolMaxRetain {
+		valueDecoderPool.Put(dec)
+	}
+
 	return err
 }
