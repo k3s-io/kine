@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
@@ -15,13 +16,13 @@ func (l *LimitedServer) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*e
 	}
 
 	var kv *KeyValue
-	key := string(r.Key)
 	// redirect apiserver get to the substitute compact revision key
 	// response is fixed up in toKV()
-	if key == compactRevKey {
-		key = compactRevAPI
+	if bytes.Equal(r.Key, compactRevKey) {
+		r.Key = compactRevAPI
 	}
 
+	key := string(r.Key)
 	rev, err := l.backend.Create(ctx, key, r.Value, r.Lease)
 	if err == ErrKeyExists {
 		rev, kv, err = l.backend.Get(ctx, key, rev, false)

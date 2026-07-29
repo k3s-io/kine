@@ -400,8 +400,8 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, server.Events, 
 	defer rows.Close()
 
 	for rows.Next() {
-		event := &server.Event{}
-		if err := scan(rows, &rev, &compact, event, val, prev); err != nil {
+		event, err := scan(rows, &rev, &compact, val, prev)
+		if err != nil {
 			return 0, 0, nil, err
 		}
 		result = append(result, event)
@@ -420,8 +420,7 @@ func (s *SQLLog) Watch(ctx context.Context, key, end string) <-chan server.Event
 	go func() {
 		defer close(res)
 		for i := range values {
-			events, ok := filter(i, key, end)
-			if ok {
+			if events, ok := filter(i, key, end); ok {
 				res <- events
 			}
 		}
@@ -430,15 +429,23 @@ func (s *SQLLog) Watch(ctx context.Context, key, end string) <-chan server.Event
 	return res
 }
 
-func filter(eventList server.Events, key, end string) (server.Events, bool) {
-	filteredEventList := make(server.Events, 0, len(eventList))
-	for _, event := range eventList {
-		if key == "" || (end != "" && event.KV.Key >= key && event.KV.Key < end) || event.KV.Key == key {
-			filteredEventList = append(filteredEventList, event)
+func filter(events server.Events, key, end string) (server.Events, bool) {
+	// optimization: do not allocate a new Events slice to filter into if there is only a single entry
+	if len(events) == 1 {
+		if events[0].InRange(key, end) {
+			return events, true
+		}
+		return nil, false
+	}
+
+	filteredEvents := make(server.Events, 0, len(events))
+	for _, event := range events {
+		if event.InRange(key, end) {
+			filteredEvents = append(filteredEvents, event)
 		}
 	}
 
-	return filteredEventList, len(filteredEventList) > 0
+	return filteredEvents, len(filteredEvents) > 0
 }
 
 func (s *SQLLog) startWatch() (chan server.Events, error) {
@@ -473,6 +480,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		skipTime     time.Time
 		waitForMore  = true
 		pollRevision = pollStart
+		trace        = logrus.IsLevelEnabled(logrus.TraceLevel)
 	)
 
 	wait := time.NewTicker(time.Second)
@@ -513,7 +521,9 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			continue
 		}
 
-		logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", pollRevision, s.pollBatchSize, len(events))
+		if trace {
+			logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", pollRevision, s.pollBatchSize, len(events))
+		}
 
 		if len(events) == 0 {
 			continue
@@ -521,18 +531,20 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 
 		waitForMore = len(events) < 100
 
-		rev := pollRevision
 		var (
-			sequential server.Events
-			saveLast   bool
+			rev        = pollRevision
+			saveLast   = false
+			sequential = make(server.Events, len(events))
 		)
 
-		for _, event := range events {
+		for i, event := range events {
 			next := rev + 1
 			// Ensure that we are notifying events in a sequential fashion. For example if we find row 4 before 3
 			// we don't want to notify row 4 because 3 is essentially dropped forever.
 			if event.KV.ModRevision != next {
-				logrus.Tracef("MODREVISION GAP: expected %v, got %v", next, event.KV.ModRevision)
+				if trace {
+					logrus.Tracef("MODREVISION GAP: expected %v, got %v", next, event.KV.ModRevision)
+				}
 				if canSkipRevision(next, skip, skipTime) {
 					// This situation should never happen, but we have it here as a fallback just for unknown reasons
 					// we don't want to pause all watches forever
@@ -555,13 +567,17 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 					break
 				} else {
 					if err := s.d.Fill(s.ctx, next); err == nil {
-						logrus.Tracef("FILL, revision=%d, err=%v", next, err)
+						if trace {
+							logrus.Tracef("FILL, revision=%d, err=%v", next, err)
+						}
 						select {
 						case s.notify <- next:
 						default:
 						}
 					} else {
-						logrus.Tracef("FILL FAILED, revision=%d, err=%v", next, err)
+						if trace {
+							logrus.Tracef("FILL FAILED, revision=%d, err=%v", next, err)
+						}
 					}
 					break
 				}
@@ -575,19 +591,21 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			saveLast = true
 			rev = event.KV.ModRevision
 			if s.d.IsFill(event.KV.Key) {
-				logrus.Tracef("NOT TRIGGER FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				if trace {
+					logrus.Tracef("BROADCAST SKIPPED FOR FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				}
 			} else {
-				sequential = append(sequential, event)
-				logrus.Tracef("TRIGGERED %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				sequential[i] = event
+				if trace {
+					logrus.Tracef("BROADCAST %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
+				}
 			}
 		}
 
 		if saveLast {
 			s.currentRev.CompareAndSwap(pollRevision, rev)
 			pollRevision = rev
-			if len(sequential) > 0 {
-				result <- sequential
-			}
+			result <- sequential
 		}
 	}
 }
@@ -651,33 +669,43 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	return rev, nil
 }
 
-func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event, val, prev bool) error {
-	event.KV = &server.KeyValue{}
-	event.PrevKV = &server.KeyValue{}
-
-	c := &sql.NullInt64{}
-	dests := []any{
-		rev,
-		c,
-		&event.KV.ModRevision,
-		&event.KV.Key,
-		&event.Create,
-		&event.Delete,
-		&event.KV.CreateRevision,
-		&event.PrevKV.ModRevision,
-		&event.KV.Lease,
+// scan scans the current row's columns into a server.Event struct.
+// If a valid event is scanned, the passed rev and compact vars are also updated.
+func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.Event, error) {
+	event := &server.Event{
+		KV:     &server.KeyValue{},
+		PrevKV: &server.KeyValue{},
+	}
+	currentRev := &sql.NullInt64{}
+	compactRev := &sql.NullInt64{}
+	colCount := 9
+	if val {
+		colCount++
+		if prev {
+			colCount++
+		}
 	}
 
+	dests := make([]any, colCount)
+	dests[0] = currentRev
+	dests[1] = compactRev
+	dests[2] = &event.KV.ModRevision
+	dests[3] = &event.KV.Key
+	dests[4] = &event.Create
+	dests[5] = &event.Delete
+	dests[6] = &event.KV.CreateRevision
+	dests[7] = &event.PrevKV.ModRevision
+	dests[8] = &event.KV.Lease
 	if val {
-		dests = append(dests, &event.KV.Value)
+		dests[9] = &event.KV.Value
 		if prev {
-			dests = append(dests, &event.PrevKV.Value)
+			dests[10] = &event.PrevKV.Value
 		}
 	}
 
 	err := rows.Scan(dests...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if event.Create {
@@ -689,8 +717,9 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, event *server.Event, val, 
 		event.PrevKV.Key = event.KV.Key
 	}
 
-	*compact = c.Int64
-	return nil
+	*rev = currentRev.Int64
+	*compact = compactRev.Int64
+	return event, nil
 }
 
 // safeCompactRev ensures that we never compact the most recent 1000 revisions.
