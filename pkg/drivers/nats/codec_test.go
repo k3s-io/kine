@@ -100,7 +100,7 @@ func TestKeyEncodeRange(t *testing.T) {
 }
 
 func TestValueCodecRoundTrip(t *testing.T) {
-	for _, size := range []int{0, 1, 1_024, 4_096, 65_536, 1_048_577} {
+	for _, size := range []int{0, 1, 1024, 4096, 65536, 1048577} {
 		t.Run(fmt.Sprintf("%d", size), func(t *testing.T) {
 			value := testValue(size)
 
@@ -122,7 +122,7 @@ func TestValueCodecRoundTrip(t *testing.T) {
 }
 
 func TestValueCodecConcurrentDecode(t *testing.T) {
-	value := testValue(4_096)
+	value := testValue(4096)
 
 	var encoded bytes.Buffer
 	if err := (&valueCodec{}).Encode(value, &encoded); err != nil {
@@ -165,7 +165,7 @@ func TestValueCodecConcurrentDecode(t *testing.T) {
 }
 
 func BenchmarkValueCodecDecode(b *testing.B) {
-	for _, size := range []int{4_096, 65_536} {
+	for _, size := range []int{4096, 65536} {
 		b.Run(fmt.Sprintf("%d", size), func(b *testing.B) {
 			value := testValue(size)
 			var encoded bytes.Buffer

@@ -14,7 +14,7 @@ import (
 const (
 	noRootPrefix              = "meta"
 	valueDecoderAllocBlock    = 1024
-	valueDecoderPoolMaxRetain = 65_536
+	valueDecoderPoolMaxRetain = 65536
 )
 
 var keyAlphabet = base58.BitcoinAlphabet
