@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/sirupsen/logrus"
@@ -12,15 +13,16 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		return nil, unsupported("limit")
 	}
 
-	key := string(r.Key)
 	// redirect apiserver get to the substitute compact revision key
 	// response is fixed up in toKV()
-	if key == compactRevKey {
-		key = compactRevAPI
+	if bytes.Equal(r.Key, compactRevKey) {
+		r.Key = compactRevAPI
 	}
 
-	rev, kv, err := l.backend.Get(ctx, key, r.Revision, r.KeysOnly)
-	logrus.Tracef("GET key=%s, revision=%d, currentRev=%d, keysOnly=%v", key, r.Revision, rev, r.KeysOnly)
+	rev, kv, err := l.backend.Get(ctx, string(r.Key), r.Revision, r.KeysOnly)
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		logrus.Tracef("GET key=%s, revision=%d, currentRev=%d, keysOnly=%v", r.Key, r.Revision, rev, r.KeysOnly)
+	}
 	resp := &RangeResponse{
 		Header: txnHeader(rev),
 	}

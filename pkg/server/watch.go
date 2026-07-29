@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"math/rand"
 	"sync"
@@ -132,15 +133,15 @@ func (w *watcher) Create(ctx context.Context, r *etcdserverpb.WatchCreateRequest
 	id := atomic.AddInt64(&watchID, 1)
 	w.watches[id] = cancel
 
+	// redirect apiserver watches to the substitute compact revision key
+	// response is fixed up in toKV()
+	if bytes.Equal(r.Key, compactRevKey) {
+		r.Key = compactRevAPI
+	}
+
 	key := string(r.Key)
 	end := string(r.RangeEnd)
 	startRevision := r.StartRevision
-
-	// redirect apiserver watches to the substitute compact revision key
-	// response is fixed up in toKV()
-	if key == compactRevKey {
-		key = compactRevAPI
-	}
 
 	var progressCh chan int64
 	if r.ProgressNotify {

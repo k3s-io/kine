@@ -32,7 +32,6 @@ const (
 )
 
 type entry struct {
-	key         string
 	modRevision int64
 	expiredAt   time.Time
 }
@@ -143,16 +142,16 @@ func handle(ctx context.Context, b server.Backend, mu *sync.RWMutex, queue workq
 		return true
 	}
 
-	logrus.Tracef("TTL delete key=%v modRev=%v", e.key, e.modRevision)
-	if _, _, _, err := b.Delete(ctx, e.key, e.modRevision); err != nil && !errors.Is(err, context.Canceled) {
-		logrus.Errorf("TTL delete trigger failed for key=%v: %v, requeuing", e.key, err)
-		queue.AddAfter(e.key, retryInterval)
+	logrus.Tracef("TTL delete key=%v modRev=%v", key, e.modRevision)
+	if _, _, _, err := b.Delete(ctx, key, e.modRevision); err != nil && !errors.Is(err, context.Canceled) {
+		logrus.Errorf("TTL delete trigger failed for key=%v: %v, requeuing", key, err)
+		queue.AddAfter(key, retryInterval)
 		return true
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	delete(store, e.key)
+	delete(store, key)
 	return true
 }
 
@@ -166,10 +165,14 @@ func save(mu *sync.RWMutex, store map[string]*entry, kv *server.KeyValue) time.D
 	mu.Lock()
 	defer mu.Unlock()
 	expires := time.Duration(kv.Lease) * time.Second
-	store[kv.Key] = &entry{
-		key:         kv.Key,
-		modRevision: kv.ModRevision,
-		expiredAt:   time.Now().Add(expires),
+	if e, ok := store[kv.Key]; ok {
+		e.modRevision = kv.ModRevision
+		e.expiredAt = time.Now().Add(expires)
+	} else {
+		store[kv.Key] = &entry{
+			modRevision: kv.ModRevision,
+			expiredAt:   time.Now().Add(expires),
+		}
 	}
 	return expires
 }

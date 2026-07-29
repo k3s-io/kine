@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -92,8 +93,8 @@ func toKV(kv *KeyValue) *mvccpb.KeyValue {
 	}
 	// fix up apiserver watch with correct compact revision key,
 	// version, and value
-	if kv.Key == compactRevAPI {
-		ret.Key = []byte(compactRevKey)
+	if bytes.Equal(ret.Key, compactRevAPI) {
+		ret.Key = compactRevKey
 		ret.Version, ret.Value = DecodeVersion(kv.Value)
 	}
 	return ret
