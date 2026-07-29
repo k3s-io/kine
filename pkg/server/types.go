@@ -92,6 +92,10 @@ type Event struct {
 	PrevKV *KeyValue
 }
 
+func (e *Event) InRange(key, end string) bool {
+	return e != nil && e.KV != nil && (key == "" || (end != "" && e.KV.Key >= key && e.KV.Key < end) || e.KV.Key == key)
+}
+
 type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64

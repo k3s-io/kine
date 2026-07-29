@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	compactRevKey = "compact_rev_key"           // key used by apiserver to track compaction, and also used internally by kine for the same purpose
-	compactRevAPI = "compact_rev_key_apiserver" // key used by kine to store the apiserver's compact_rev_key value
+	compactRevKey = []byte("compact_rev_key")           // key used by apiserver to track compaction, and also used internally by kine for the same purpose
+	compactRevAPI = []byte("compact_rev_key_apiserver") // key used by kine to store the apiserver's compact_rev_key value
 )
 
 func (l *LimitedServer) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
@@ -33,7 +33,7 @@ func isCompact(txn *etcdserverpb.TxnRequest) (int64, []byte, bool) {
 		txn.Success[0].GetRequestPut() != nil &&
 		len(txn.Failure) == 1 &&
 		txn.Failure[0].GetRequestRange() != nil &&
-		string(txn.Compare[0].Key) == compactRevKey {
+		bytes.Equal(txn.Compare[0].Key, compactRevKey) {
 		return txn.Compare[0].GetVersion(), txn.Success[0].GetRequestPut().Value, true
 	}
 	return 0, nil, false
@@ -43,7 +43,7 @@ func isCompact(txn *etcdserverpb.TxnRequest) (int64, []byte, bool) {
 // to store the current compact rev to the compact_rev_key. Because kine
 // uses this key internally, we instead operate on a substitute key.
 func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value []byte) (*etcdserverpb.TxnResponse, error) {
-	rev, kv, err := l.backend.Get(ctx, compactRevAPI, 0, false)
+	rev, kv, err := l.backend.Get(ctx, string(compactRevAPI), 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -62,14 +62,14 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 	if compareVersion == version {
 		value := EncodeVersion(version+1, value)
 		if version == 0 {
-			rev, err = l.backend.Create(ctx, compactRevAPI, value, 0)
+			rev, err = l.backend.Create(ctx, string(compactRevAPI), value, 0)
 		} else {
-			rev, _, _, err = l.backend.Update(ctx, compactRevAPI, value, modRev, 0)
+			rev, _, _, err = l.backend.Update(ctx, string(compactRevAPI), value, modRev, 0)
 		}
 
 		if err != nil {
 			// create or update failed, get the version from the current value
-			rev, kv, err = l.backend.Get(ctx, compactRevAPI, 0, false)
+			rev, kv, err = l.backend.Get(ctx, string(compactRevAPI), 0, false)
 			if err != nil {
 				return nil, err
 			}
@@ -100,7 +100,7 @@ func (l *LimitedServer) compact(ctx context.Context, compareVersion int64, value
 						Header: &etcdserverpb.ResponseHeader{},
 						Kvs: []*mvccpb.KeyValue{
 							{
-								Key:     []byte(compactRevKey),
+								Key:     compactRevKey,
 								Value:   curValue,
 								Version: version,
 							},

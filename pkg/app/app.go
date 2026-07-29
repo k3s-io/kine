@@ -309,14 +309,15 @@ func run(c *cli.Context) (rerr error) {
 		return fmt.Errorf("invalid log format: %s", config.LogFormat)
 	}
 
-	if c.Bool("debug") {
-		logrus.SetLevel(logrus.TraceLevel)
-	}
-
-	// send info/error/warning to stderr, debug/trace to stdout
+	// send info/error/warning to stderr
 	logrus.SetOutput(ioutil.Discard)
 	logrus.AddHook(&writer.Hook{Writer: os.Stderr, LogLevels: []logrus.Level{logrus.PanicLevel, logrus.FatalLevel, logrus.ErrorLevel, logrus.WarnLevel, logrus.InfoLevel}})
-	logrus.AddHook(&writer.Hook{Writer: os.Stdout, LogLevels: []logrus.Level{logrus.DebugLevel, logrus.TraceLevel}})
+
+	if c.Bool("debug") {
+		// send debug/trace to stdout
+		logrus.SetLevel(logrus.TraceLevel)
+		logrus.AddHook(&writer.Hook{Writer: os.Stdout, LogLevels: []logrus.Level{logrus.DebugLevel, logrus.TraceLevel}})
+	}
 
 	ctx := signals.SetupSignalContext()
 
