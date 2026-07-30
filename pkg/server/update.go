@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
 
@@ -23,14 +24,15 @@ func isUpdate(txn *etcdserverpb.TxnRequest) (int64, string, []byte, int64, bool)
 	return 0, "", nil, 0, false
 }
 
-func (l *LimitedServer) update(ctx context.Context, rev int64, key string, value []byte, lease int64) (*etcdserverpb.TxnResponse, error) {
+func (l *LimitedServer) update(ctx context.Context, revision int64, key string, value []byte, lease int64) (*etcdserverpb.TxnResponse, error) {
 	var (
 		kv  *KeyValue
+		rev int64
 		ok  bool
 		err error
 	)
 
-	if rev == 0 {
+	if revision == 0 {
 		rev, err = l.backend.Create(ctx, key, value, lease)
 		if err == ErrKeyExists {
 			rev, kv, err = l.backend.Get(ctx, key, rev, false)
@@ -38,8 +40,13 @@ func (l *LimitedServer) update(ctx context.Context, rev int64, key string, value
 			ok = true
 		}
 	} else {
-		rev, kv, ok, err = l.backend.Update(ctx, key, value, rev, lease)
+		rev, kv, ok, err = l.backend.Update(ctx, key, value, revision, lease)
 	}
+
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		logrus.Tracef("UPDATE key=%s, revision=%d, currentRev=%d", key, revision, rev)
+	}
+
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
 
@@ -29,6 +30,10 @@ func (l *LimitedServer) create(ctx context.Context, put *etcdserverpb.PutRequest
 	}
 
 	rev, err := l.backend.Create(ctx, string(put.Key), put.Value, put.Lease)
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		logrus.Tracef("CREATE key=%s, currentRev=%d", put.Key, rev)
+	}
+
 	if err == ErrKeyExists {
 		return &etcdserverpb.TxnResponse{
 			Header:    txnHeader(rev),
