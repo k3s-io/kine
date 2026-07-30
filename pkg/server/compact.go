@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 )
@@ -17,6 +18,10 @@ var (
 
 func (l *LimitedServer) Compact(ctx context.Context, r *etcdserverpb.CompactionRequest) (*etcdserverpb.CompactionResponse, error) {
 	rev, err := l.backend.Compact(ctx, r.Revision)
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		logrus.Tracef("COMPACT revision=%d", r.Revision)
+	}
+
 	return &etcdserverpb.CompactionResponse{
 		Header: &etcdserverpb.ResponseHeader{
 			Revision: rev,
