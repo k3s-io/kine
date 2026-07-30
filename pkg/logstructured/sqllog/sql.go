@@ -488,6 +488,12 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 	defer close(result)
 
 	for {
+		// broadcast polled revision to reflect what rows have already been sent to event channel
+		s.Lock()
+		s.polledRev.Store(pollRevision)
+		s.polled.Broadcast()
+		s.Unlock()
+
 		if waitForMore {
 			select {
 			case <-s.ctx.Done():
@@ -499,13 +505,6 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			case <-wait.C:
 			}
 		}
-		waitForMore = true
-
-		//  update polled revision to reflect what rows have already been seen
-		s.Lock()
-		s.polledRev.Store(pollRevision)
-		s.polled.Broadcast()
-		s.Unlock()
 
 		rows, err := s.d.After(s.ctx, "", "", pollRevision, s.pollBatchSize)
 		if err != nil {
@@ -516,6 +515,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		}
 
 		_, _, events, err := RowsToEvents(rows, true, true)
+		waitForMore = len(events) < 100
 		if err != nil {
 			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
@@ -528,8 +528,6 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		if len(events) == 0 {
 			continue
 		}
-
-		waitForMore = len(events) < 100
 
 		var (
 			rev        = pollRevision

@@ -15,13 +15,9 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-const (
-	// progressResponsePeriod determines how often broadcast watch progress responses will be sent
-	progressResponsePeriod = 100 * time.Millisecond
-)
-
 var serverID int64
 var watchID int64
+var invalidWatchID int64 = clientv3.InvalidWatchID
 
 // explicit interface check
 var _ etcdserverpb.WatchServer = (*KVServerBridge)(nil)
@@ -39,7 +35,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 	id := atomic.AddInt64(&serverID, 1)
 	w := watcher{
 		id:       id,
-		server:   &server{ws: ws},
+		server:   &server{ws: ws, maxRev: map[int64]int64{}},
 		backend:  s.limited.backend,
 		watches:  map[int64]func(){},
 		progress: map[int64]chan<- int64{},
@@ -49,7 +45,6 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 	logrus.Tracef("WATCH SERVER CREATE server=%d", w.id)
 
 	go util.UntilWithContext(ws.Context(), s.getProgressReportInterval(), w.ProgressIfSynced, false)
-	go util.UntilWithContext(ws.Context(), progressResponsePeriod, w.ProgressAll, false)
 
 	for {
 		msg, err := ws.Recv()
@@ -78,7 +73,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 // and watch progress notifications.
 type server struct {
 	sync.Mutex
-	maxRevision int64
+	maxRev map[int64]int64
 
 	ws etcdserverpb.Watch_WatchServer
 }
@@ -86,11 +81,25 @@ type server struct {
 func (s *server) Send(wr *etcdserverpb.WatchResponse) error {
 	s.Lock()
 	defer s.Unlock()
-	if wr != nil && wr.Header != nil && wr.Header.Revision > 0 {
-		if wr.Header.Revision > s.maxRevision {
-			s.maxRevision = wr.Header.Revision
+	if wr != nil && wr.Header != nil {
+		if wr.WatchId != invalidWatchID && wr.Created {
+			s.maxRev[wr.WatchId] = wr.Header.Revision
+		} else if wr.WatchId != invalidWatchID && wr.Canceled {
+			delete(s.maxRev, wr.WatchId)
 		} else {
-			wr.Header.Revision = s.maxRevision
+			for id, rev := range s.maxRev {
+				if wr.WatchId == invalidWatchID || wr.WatchId == id {
+					if wr.Header.Revision > rev {
+						s.maxRev[id] = wr.Header.Revision
+					} else if len(wr.Events) > 0 {
+						// Only progress notifications should ever re-send an already-seen revision; if we try to
+						// send events with an old revision the apiserver watch cache will ignore the event and
+						// become permanently desynced. Even if we return an error here and close the watch, the
+						// watcher will resume AFTER the already-seen revision, and remain desynced.
+						logrus.Fatalf("WATCH SEND EVENTS FOR PAST REVISION id=%d, events=%d, revision=%d, maxRevision=%d", wr.WatchId, len(wr.Events), wr.Header.Revision, rev)
+					}
+				}
+			}
 		}
 	}
 	return s.ws.Send(wr)
@@ -294,7 +303,7 @@ func (w *watcher) CancelEarly(ctx context.Context, earlyErr error) {
 
 	err = w.server.Send(&etcdserverpb.WatchResponse{
 		Header:       txnHeader(rev),
-		WatchId:      clientv3.InvalidWatchID,
+		WatchId:      invalidWatchID,
 		Canceled:     true,
 		Created:      true,
 		CancelReason: earlyErr.Error(),
@@ -346,16 +355,18 @@ func (w *watcher) Close() {
 
 // Progress requests a progress report if all watchers are synced.
 // The apiserver may spam progress requests every 100ms while waiting for caches to sync.
-// This handler just sets a flag indicating that notification has been requested;
-// a polling goroutine periodically checks the flag and sends a notification if all
-// watchers are synced.
+// This handler sets a flag indicating that notification has been requested and
+// starts a goroutine to check the flag and send a notification if all watchers
+// are synced.
 // Ref: https://github.com/etcd-io/etcd/blob/v3.5.27/server/mvcc/watchable_store.go#L519-L523
 // Ref: https://github.com/kubernetes/kubernetes/blob/v1.35.1/staging/src/k8s.io/apiserver/pkg/storage/cacher/progress/watch_progress.go#L34-L36
 func (w *watcher) Progress(ctx context.Context) {
 	logrus.Tracef("WATCH REQUEST PROGRESS server=%d", w.id)
 	w.RLock()
 	defer w.RUnlock()
-	w.notify.Store(true)
+	if w.notify.CompareAndSwap(false, true) {
+		go w.ProgressAll(ctx)
+	}
 }
 
 // ProgressAll sends a broadcast watch progress notification if all
@@ -366,7 +377,6 @@ func (w *watcher) ProgressAll(ctx context.Context) {
 	}
 
 	// If all watchers are synced, send a broadcast progress notification with the latest revision.
-	id := int64(clientv3.InvalidWatchID)
 	rev, err := w.backend.CurrentRevision(ctx)
 	if err != nil {
 		logrus.Errorf("Failed to get current revision for ProgressNotify: %v", err)
@@ -392,8 +402,8 @@ func (w *watcher) ProgressAll(ctx context.Context) {
 		}
 	}
 
-	logrus.Tracef("WATCH SEND PROGRESS server=%d, id=%d, revision=%d", w.id, id, rev)
-	go w.server.Send(&etcdserverpb.WatchResponse{Header: txnHeader(rev), WatchId: id})
+	logrus.Tracef("WATCH SEND PROGRESS server=%d, id=%d, revision=%d", w.id, invalidWatchID, rev)
+	go w.server.Send(&etcdserverpb.WatchResponse{Header: txnHeader(rev), WatchId: invalidWatchID})
 }
 
 // ProgressIfSynced sends a progress report on any channels that are synced.
@@ -405,13 +415,13 @@ func (w *watcher) ProgressIfSynced(ctx context.Context) {
 		return
 	}
 
-	revision, err := w.backend.CurrentRevision(ctx)
+	rev, err := w.backend.CurrentRevision(ctx)
 	if err != nil {
 		logrus.Errorf("Failed to get current revision for ProgressNotify: %v", err)
 		return
 	}
 
-	w.backend.WaitForSyncTo(revision)
+	w.backend.WaitForSyncTo(rev)
 
 	w.RLock()
 	defer w.RUnlock()
@@ -419,7 +429,7 @@ func (w *watcher) ProgressIfSynced(ctx context.Context) {
 	// Send revision to all synced channels
 	for _, progressCh := range w.progress {
 		select {
-		case progressCh <- revision:
+		case progressCh <- rev:
 		default:
 		}
 	}
