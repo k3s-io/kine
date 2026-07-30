@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
 
@@ -29,6 +30,10 @@ func isDelete(txn *etcdserverpb.TxnRequest) (int64, string, bool) {
 
 func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) (*etcdserverpb.TxnResponse, error) {
 	rev, kv, ok, err := l.backend.Delete(ctx, key, revision)
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		logrus.Tracef("DELETE key=%s, revision=%d, currentRev=%d", key, revision, rev)
+	}
+
 	if err != nil {
 		return nil, err
 	}
