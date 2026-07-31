@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -56,13 +57,14 @@ func (d *natsData) Decode(e jetstream.KeyValueEntry) error {
 }
 
 // Ensure Backend implements server.Backend.
-var _ server.Backend = (&Backend{})
+var _ server.Backend = &Backend{}
 
 type Backend struct {
 	kv               *KeyValue
 	l                *logrus.Logger
 	compactInterval  time.Duration
 	compactMinRetain int64
+	polledRev        *broadcaster.Cond
 	ctx              context.Context
 }
 
@@ -416,7 +418,7 @@ func (b *Backend) List(ctx context.Context, key, end string, limit, maxRevision 
 }
 
 func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int64) server.WatchResult {
-	events := make(chan []*server.Event, 32)
+	events := make(chan server.Events, 32)
 
 	if startRevision > 0 && startRevision <= b.kv.compactRev.Load() {
 		return server.WatchResult{
@@ -482,7 +484,7 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 					continue
 				}
 
-				event := server.Event{
+				event := &server.Event{
 					Create: nd.Create,
 					Delete: nd.Delete,
 					KV:     nd.KV,
@@ -498,7 +500,10 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 					}
 				}
 
-				events <- []*server.Event{&event}
+				events <- server.Events{event}
+				if key == "" {
+					b.polledRev.Broadcast(event.KV.ModRevision)
+				}
 			}
 		}
 	}()
@@ -566,8 +571,8 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	return currRev, nil
 }
 
-func (b *Backend) WaitForSyncTo(revision int64) {
-	// no-op
+func (b *Backend) WaitForSyncTo(ctx context.Context, revision int64) {
+	b.polledRev.Wait(ctx, revision)
 }
 
 // compactor runs periodic automatic compaction in the background.

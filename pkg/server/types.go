@@ -37,7 +37,7 @@ type Backend interface {
 	DbSize(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
-	WaitForSyncTo(revision int64)
+	WaitForSyncTo(ctx context.Context, revision int64)
 }
 
 type Dialect interface {
@@ -99,7 +99,7 @@ func (e *Event) InRange(key, end string) bool {
 type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64
-	Events          <-chan []*Event
+	Events          <-chan Events
 	Errorc          <-chan error
 }
 

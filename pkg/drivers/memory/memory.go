@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/ttl"
@@ -20,8 +21,9 @@ func init() {
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
 	logrus.Info("using in-memory backend")
 	return false, &Memory{
-		keys:     btree.NewMap[string, []*entry](0),
-		notifyCh: make(chan struct{}),
+		keys:      btree.NewMap[string, []*entry](0),
+		notifyCh:  make(chan struct{}),
+		polledRev: broadcaster.NewCond(),
 	}, nil
 }
 
@@ -53,6 +55,7 @@ type Memory struct {
 	mu              sync.RWMutex
 	currentRevision atomic.Int64
 	compactRevision int64
+	polledRev       *broadcaster.Cond
 
 	log  []*entry
 	keys *btree.Map[string, []*entry]
@@ -91,7 +94,9 @@ func (m *Memory) DbSize(ctx context.Context) (int64, error) {
 	return size, nil
 }
 
-func (m *Memory) WaitForSyncTo(revision int64) {}
+func (m *Memory) WaitForSyncTo(ctx context.Context, revision int64) {
+	m.polledRev.Wait(ctx, revision)
+}
 
 // nextRevision allocates and returns the next revision. Increment is
 // atomic; callers still need m.mu (write) when pairing the new revision
@@ -110,18 +115,19 @@ func (m *Memory) appendEntry(e *entry) {
 		e.prev = hist[len(hist)-1]
 	}
 	m.keys.Set(e.key, append(hist, e))
-	m.broadcast()
+	m.broadcast(e.revision)
 }
 
 // broadcast wakes every goroutine currently blocked on getNotifyCh.
 // Implemented as close-and-replace rather than sync.Cond.Broadcast so that
 // waiters can select on ctx.Done() alongside the wake — sync.Cond.Wait()
 // can't be combined with context cancellation without a helper goroutine.
-func (m *Memory) broadcast() {
+func (m *Memory) broadcast(revision int64) {
 	m.notifyMu.Lock()
 	close(m.notifyCh)
 	m.notifyCh = make(chan struct{})
 	m.notifyMu.Unlock()
+	m.polledRev.Broadcast(revision)
 }
 
 // getNotifyCh returns a channel that will be closed on the next broadcast.
@@ -340,7 +346,7 @@ func (m *Memory) Watch(ctx context.Context, key, end string, startRevision int64
 	m.mu.RUnlock()
 	rev := m.currentRevision.Load()
 
-	events := make(chan []*server.Event, 100)
+	events := make(chan server.Events, 100)
 
 	if startRevision > 0 && startRevision <= compactRev {
 		close(events)
@@ -367,7 +373,7 @@ func (m *Memory) Watch(ctx context.Context, key, end string, startRevision int64
 			notifyCh := m.getNotifyCh()
 
 			m.mu.RLock()
-			var batch []*server.Event
+			var batch server.Events
 			for i := m.logIndexAfter(lastSeen); i < len(m.log); i++ {
 				e := m.log[i]
 				if key == "" || (end != "" && e.key >= key && e.key < end) || e.key == key {

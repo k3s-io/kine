@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	kserver "github.com/k3s-io/kine/pkg/server"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats-server/v2/test"
@@ -38,8 +39,9 @@ func setupBackend(ctx context.Context, wg *sync.WaitGroup, t *testing.T) (*serve
 	l := logrus.New()
 	l.SetOutput(io.Discard)
 
-	b := Backend{
-		l: l,
+	b := &Backend{
+		l:         l,
+		polledRev: broadcaster.NewCond(),
 	}
 
 	ekv := NewKeyValue("local", wg, bkt, js, 10, b.Delete)
@@ -49,7 +51,7 @@ func setupBackend(ctx context.Context, wg *sync.WaitGroup, t *testing.T) (*serve
 	err = b.Start(ctx)
 	noErr(t, err)
 
-	return ns, nc, &b
+	return ns, nc, b
 }
 
 func TestBackend_Create(t *testing.T) {

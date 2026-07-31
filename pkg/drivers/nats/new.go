@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/drivers"
 	natsserver "github.com/k3s-io/kine/pkg/drivers/nats/server"
 	"github.com/k3s-io/kine/pkg/server"
@@ -209,10 +210,11 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 		name = "embedded"
 	}
 
-	b := Backend{
+	b := &Backend{
 		l:                l,
 		compactInterval:  compactInterval,
 		compactMinRetain: compactMinRetain,
+		polledRev:        broadcaster.NewCond(),
 	}
 
 	kv := NewKeyValue(name, wg, bucket, js, int(config.revHistory), b.Delete)
@@ -223,7 +225,7 @@ func newBackend(ctx context.Context, wg *sync.WaitGroup, connection string, tlsI
 
 	return &BackendLogger{
 		logger:    l,
-		backend:   &b,
+		backend:   b,
 		threshold: config.slowThreshold,
 	}, nil
 }

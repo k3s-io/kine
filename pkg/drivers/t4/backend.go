@@ -190,7 +190,7 @@ func (b *backend) Watch(ctx context.Context, key, end string, revision int64) ks
 	compactRev := b.node.CompactRevision()
 
 	errCh := make(chan error, 1)
-	eventCh := make(chan []*kserver.Event, 64)
+	eventCh := make(chan kserver.Events, 64)
 
 	if revision > 0 && revision <= compactRev {
 		errCh <- kserver.ErrCompacted
@@ -218,7 +218,7 @@ func (b *backend) Watch(ctx context.Context, key, end string, revision int64) ks
 		// loop only takes immediately available events.
 		const maxBatch = 64
 		for ev := range ch {
-			batch := []*kserver.Event{toServerEvent(&ev)}
+			batch := kserver.Events{toServerEvent(&ev)}
 		drain:
 			for len(batch) < maxBatch {
 				select {
@@ -262,8 +262,13 @@ func (b *backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	return revision, nil
 }
 
-func (b *backend) WaitForSyncTo(revision int64) {
-	_ = b.node.WaitForRevision(context.Background(), revision)
+func (b *backend) WaitForSyncTo(ctx context.Context, revision int64) {
+	if err := b.node.WaitForRevision(ctx, revision); err == nil {
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Millisecond):
+		}
+	}
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

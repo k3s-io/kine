@@ -21,7 +21,7 @@ type Log interface {
 	Append(ctx context.Context, event *server.Event) (int64, error)
 	DbSize(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
-	WaitForSyncTo(revision int64)
+	WaitForSyncTo(ctx context.Context, revision int64)
 }
 
 type LogStructured struct {
@@ -226,7 +226,7 @@ func (l *LogStructured) Watch(ctx context.Context, key, end string, revision int
 	ctx, cancel := context.WithCancel(ctx)
 	readChan := l.log.Watch(ctx, key, end)
 
-	result := make(chan []*server.Event, 100)
+	result := make(chan server.Events, 100)
 	errc := make(chan error, 1)
 	wr := server.WatchResult{Events: result, Errorc: errc}
 
@@ -293,6 +293,6 @@ func (l *LogStructured) Compact(ctx context.Context, revision int64) (int64, err
 	return l.log.Compact(ctx, revision)
 }
 
-func (l *LogStructured) WaitForSyncTo(revision int64) {
-	l.log.WaitForSyncTo(revision)
+func (l *LogStructured) WaitForSyncTo(ctx context.Context, revision int64) {
+	l.log.WaitForSyncTo(ctx, revision)
 }

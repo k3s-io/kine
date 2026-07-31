@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/ttl"
 	"github.com/sirupsen/logrus"
@@ -61,8 +62,9 @@ func setupBackend(t *testing.T) (*Memory, context.Context) {
 	logrus.SetLevel(logrus.TraceLevel)
 	logrus.SetOutput(t.Output())
 	b := &Memory{
-		keys:     btree.NewMap[string, []*entry](0),
-		notifyCh: make(chan struct{}),
+		keys:      btree.NewMap[string, []*entry](0),
+		notifyCh:  make(chan struct{}),
+		polledRev: broadcaster.NewCond(),
 	}
 	ctx := t.Context()
 	t.Cleanup(func() { logrus.SetOutput(os.Stdout) })

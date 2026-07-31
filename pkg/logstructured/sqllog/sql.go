@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -19,15 +18,12 @@ import (
 const minCompactBatchSize = 100
 
 type SQLLog struct {
-	sync.RWMutex
-
 	d                     server.Dialect
-	broadcaster           broadcaster.Broadcaster
+	broadcaster           *broadcaster.Broadcaster
+	polledRev             *broadcaster.Cond
 	ctx                   context.Context
 	notify                chan int64
 	currentRev            atomic.Int64
-	polledRev             atomic.Int64
-	polled                *sync.Cond
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -39,6 +35,8 @@ type SQLLog struct {
 func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter int, compactTimeout time.Duration, compactMinRetain int64, compactBatchSize int64, pollBatchSize int64) *SQLLog {
 	l := &SQLLog{
 		d:                     d,
+		broadcaster:           &broadcaster.Broadcaster{},
+		polledRev:             broadcaster.NewCond(),
 		notify:                make(chan int64, 1024),
 		compactInterval:       compactInterval,
 		compactIntervalJitter: compactIntervalJitter,
@@ -47,7 +45,6 @@ func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter 
 		compactBatchSize:      compactBatchSize,
 		pollBatchSize:         pollBatchSize,
 	}
-	l.polled = sync.NewCond(l.RLocker())
 	return l
 }
 
@@ -489,10 +486,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 
 	for {
 		// broadcast polled revision to reflect what rows have already been sent to event channel
-		s.Lock()
-		s.polledRev.Store(pollRevision)
-		s.polled.Broadcast()
-		s.Unlock()
+		s.polledRev.Broadcast(pollRevision)
 
 		if waitForMore {
 			select {
@@ -753,10 +747,6 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 	return currentRev, nil
 }
 
-func (s *SQLLog) WaitForSyncTo(revision int64) {
-	s.polled.L.Lock()
-	for s.polledRev.Load() < revision {
-		s.polled.Wait()
-	}
-	s.polled.L.Unlock()
+func (s *SQLLog) WaitForSyncTo(ctx context.Context, revision int64) {
+	s.polledRev.Wait(ctx, revision)
 }

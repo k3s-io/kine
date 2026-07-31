@@ -384,7 +384,7 @@ func (w *watcher) ProgressAll(ctx context.Context) {
 	}
 
 	// ensure that poll loop is caught up with current revision before checking for sync
-	w.backend.WaitForSyncTo(rev)
+	w.backend.WaitForSyncTo(ctx, rev)
 
 	w.RLock()
 	defer w.RUnlock()
@@ -421,7 +421,7 @@ func (w *watcher) ProgressIfSynced(ctx context.Context) {
 		return
 	}
 
-	w.backend.WaitForSyncTo(rev)
+	w.backend.WaitForSyncTo(ctx, rev)
 
 	w.RLock()
 	defer w.RUnlock()
