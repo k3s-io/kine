@@ -35,7 +35,7 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 	id := atomic.AddInt64(&serverID, 1)
 	w := watcher{
 		id:       id,
-		server:   &server{ws: ws, maxRev: map[int64]int64{}},
+		server:   &server{ws: ws, maxRev: map[int64]*revAt{}},
 		backend:  s.limited.backend,
 		watches:  map[int64]func(){},
 		progress: map[int64]chan<- int64{},
@@ -73,9 +73,14 @@ func (s *KVServerBridge) Watch(ws etcdserverpb.Watch_WatchServer) error {
 // and watch progress notifications.
 type server struct {
 	sync.Mutex
-	maxRev map[int64]int64
+	maxRev map[int64]*revAt
 
 	ws etcdserverpb.Watch_WatchServer
+}
+
+type revAt struct {
+	r int64
+	t time.Time
 }
 
 func (s *server) Send(wr *etcdserverpb.WatchResponse) error {
@@ -83,20 +88,21 @@ func (s *server) Send(wr *etcdserverpb.WatchResponse) error {
 	defer s.Unlock()
 	if wr != nil && wr.Header != nil {
 		if wr.WatchId != invalidWatchID && wr.Created {
-			s.maxRev[wr.WatchId] = wr.Header.Revision
+			s.maxRev[wr.WatchId] = &revAt{r: wr.Header.Revision, t: time.Now()}
 		} else if wr.WatchId != invalidWatchID && wr.Canceled {
 			delete(s.maxRev, wr.WatchId)
 		} else {
 			for id, rev := range s.maxRev {
 				if wr.WatchId == invalidWatchID || wr.WatchId == id {
-					if wr.Header.Revision > rev {
-						s.maxRev[id] = wr.Header.Revision
+					if wr.Header.Revision > rev.r {
+						rev.r = wr.Header.Revision
+						rev.t = time.Now()
 					} else if len(wr.Events) > 0 {
 						// Only progress notifications should ever re-send an already-seen revision; if we try to
 						// send events with an old revision the apiserver watch cache will ignore the event and
 						// become permanently desynced. Even if we return an error here and close the watch, the
 						// watcher will resume AFTER the already-seen revision, and remain desynced.
-						logrus.Fatalf("WATCH SEND EVENTS FOR PAST REVISION id=%d, events=%d, revision=%d, maxRevision=%d", wr.WatchId, len(wr.Events), wr.Header.Revision, rev)
+						logrus.Fatalf("WATCH SEND EVENTS FOR PAST REVISION id=%d, events=%d, revision=%d, maxRevision=%d, age=%s", wr.WatchId, len(wr.Events), wr.Header.Revision, rev.r, time.Since(rev.t))
 					}
 				}
 			}
