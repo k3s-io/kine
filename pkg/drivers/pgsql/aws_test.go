@@ -10,14 +10,15 @@ import (
 
 // awsIAMConnOptions is only ever called by prepareConfig once it has already
 // established that the DSN carries no password, so these tests exercise its
-// remaining job: probe the AWS default credential chain and decide between
-// engaging RDS IAM and skipping all AWS work for a non-AWS environment.
+// remaining job: resolve the AWS region, probe the minio-go credential chain,
+// and decide between engaging RDS IAM and skipping all AWS work for a non-AWS
+// environment.
 
-// cleanAWSEnv makes the AWS default credential/region chain deterministic for
-// tests: it disables IMDS (so resolution never reaches the network), points the
-// shared config/credentials files at a nonexistent path, and clears any AWS_*
-// variables that could otherwise leak the developer's real credentials or region
-// into the test. Individual tests then set only the variables they need.
+// cleanAWSEnv makes the region resolution and minio-go credential chain
+// deterministic for tests: it disables IMDS (so the chain never reaches the
+// network), points the shared credentials file at a nonexistent path, and clears
+// any AWS_* variables that could otherwise leak the developer's real credentials
+// or region into the test. Individual tests then set only the variables they need.
 func cleanAWSEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
@@ -25,8 +26,9 @@ func cleanAWSEnv(t *testing.T) {
 	t.Setenv("AWS_CONFIG_FILE", missing)
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", missing)
 	for _, k := range []string{
-		"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+		"AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY", "AWS_SESSION_TOKEN",
 		"AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE",
+		"AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_CREDENTIALS_FULL_URI",
 	} {
 		t.Setenv(k, "")
 	}
@@ -41,9 +43,8 @@ func mustParseConfig(t *testing.T, dsn string) *pgx.ConnConfig {
 	return config
 }
 
-// In a non-AWS environment neither credentials nor a region resolve, so
-// LoadDefaultConfig fails and the function must skip AWS entirely rather than
-// error — leaving normal passwordless auth in place.
+// In a non-AWS environment no region resolves, so the function must skip AWS
+// entirely rather than error — leaving normal passwordless auth in place.
 func TestAWSIAMConnOptions_NoAWSConfig_SkipsAWS(t *testing.T) {
 	cleanAWSEnv(t)
 
