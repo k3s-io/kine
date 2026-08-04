@@ -162,7 +162,7 @@ func New() *cli.App {
 		},
 		&cli.StringFlag{
 			Name:        "emulated-etcd-version",
-			Usage:       "The emulated etcd version to return on a call to the status endpoint. Defaults to 3.5.13, in order to indicate support for watch progress notifications.",
+			Usage:       "The emulated etcd version to return on a call to the status endpoint. Defaults to 3.6.11, in order to indicate support for watch progress notifications.",
 			Destination: &config.EmulatedETCDVersion,
 			Value:       "3.6.11",
 			EnvVars:     []string{"KINE_EMULATED_ETCD_VERSION"},
