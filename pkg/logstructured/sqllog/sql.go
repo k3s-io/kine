@@ -407,6 +407,16 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, server.Events, 
 		result = append(result, event)
 	}
 
+	// rows.Next() returns false both at the end of the result set and when
+	// the query dies mid-flight (killed session, cancelled statement, broken
+	// connection). Without surfacing rows.Err(), an interrupted query is
+	// indistinguishable from an empty result, which callers interpret as "key
+	// does not exist" — turning transient failures into silent lost updates
+	// (e.g. Delete reporting success without appending a tombstone).
+	if err := rows.Err(); err != nil {
+		return 0, 0, nil, err
+	}
+
 	return rev, compact, result, nil
 }
 
