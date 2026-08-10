@@ -16,7 +16,7 @@ const (
 
 	// imdsDefaultEndpoint is the link-local base URL of the EC2 instance
 	// metadata service (IMDS).
-	imdsDefaultEndpoint = "http://169.254.169.254"
+	imdsDefaultEndpoint = "http://169.254.169.254" //nolint:revive // HTTPS is not supported by IMDS.
 	imdsTokenPath       = "/latest/api/token"
 	imdsRegionPath      = "/latest/meta-data/placement/region"
 	imdsTokenTTLHeader  = "X-aws-ec2-metadata-token-ttl-seconds"

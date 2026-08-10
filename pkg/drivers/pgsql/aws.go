@@ -20,7 +20,6 @@ import (
 // Returns nil if no AWS region is configured, i.e. we are not in an AWS
 // environment and RDS IAM was not intended.
 func awsIAMConnOptions(_ context.Context, config *pgx.ConnConfig) ([]stdlib.OptionOpenDB, error) {
-
 	// A configured region is the signal for whether we are in an AWS environment.
 	// The AWS credential chain does not resolve a region, so it is read from the
 	// standard AWS environment variables. When none is set, treat this as a
