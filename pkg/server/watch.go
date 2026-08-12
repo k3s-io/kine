@@ -12,6 +12,7 @@ import (
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -231,7 +232,7 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 				for i, event := range wr.Events {
 					keys[i] = string(event.Kv.Key)
 				}
-				logrus.Tracef("WATCH SEND server=%d, id=%d, key=%s, revision=%d, events=%d, size=%d, reads=%d, keys=%s", w.id, id, key, revision, len(wr.Events), wr.Size(), reads, keys)
+				logrus.Tracef("WATCH SEND server=%d, id=%d, key=%s, revision=%d, events=%d, size=%d, reads=%d, keys=%s", w.id, id, key, revision, len(wr.Events), proto.Size(wr), reads, keys)
 			}
 			if err := w.server.Send(wr); err != nil {
 				w.Cancel(id, 0, 0, err)

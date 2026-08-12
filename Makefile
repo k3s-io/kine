@@ -53,3 +53,6 @@ apiserver-tests: bin/etcd3.test bin/metrics.test bin/preflight.test
 bin/etcd3.test bin/metrics.test bin/preflight.test: $(PKGSRC)
 	. ./scripts/test-helpers && build-apiserver-tests
 
+.PHONY: run-apiserver-tests
+run-apiserver-tests: apiserver-tests
+	. ./scripts/test-helpers && run-apiserver-tests
