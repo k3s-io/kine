@@ -13,6 +13,13 @@ import (
 type KVServerBridge struct {
 	emulatedETCDVersion string
 	limited             *LimitedServer
+
+	// we want compile errors if new methods are added
+	etcdserverpb.UnsafeLeaseServer
+	etcdserverpb.UnsafeWatchServer
+	etcdserverpb.UnsafeKVServer
+	etcdserverpb.UnsafeClusterServer
+	etcdserverpb.UnsafeMaintenanceServer
 }
 
 func New(backend Backend, scheme string, notifyInterval time.Duration, emulatedETCDVersion string) *KVServerBridge {

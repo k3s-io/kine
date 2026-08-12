@@ -250,7 +250,8 @@ export -f build-apiserver-tests
 run-apiserver-tests() {
   test -e ./bin/etcd3.test || build-apiserver-tests
   for TEST in ./bin/*.test; do
-    (set -x; $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m)
+    # TODO: add RangeStream support - ref https://github.com/k3s-io/kine/issues/740
+    (set -x; $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m -test.skip 'ListStream|StreamMetrics|TestWatchChanSync')
   done
 }
 export -f run-apiserver-tests

@@ -308,7 +308,8 @@ func (l *loggingServerStream) SendMsg(m any) error {
 	start := time.Now()
 	defer func() {
 		if wr, ok := m.(*etcdserverpb.WatchResponse); ok {
-			logrus.Tracef("STREAM STATS WATCH SEND DONE client=%s, id=%d, revision=%d, events=%d, size=%d, reason=%q, time=%s", l.clientAddr, wr.WatchId, wr.Header.Revision, len(wr.Events), wr.Size(), wr.CancelReason, time.Since(start).Truncate(time.Microsecond))
+			logrus.Tracef("STREAM STATS WATCH SEND DONE client=%s, id=%d, revision=%d, events=%d, size=%d, created=%v, canceled=%v, reason=%q, time=%s",
+				l.clientAddr, wr.WatchId, wr.Header.Revision, len(wr.Events), proto.Size(wr), wr.Created, wr.Canceled, wr.CancelReason, time.Since(start).Truncate(time.Microsecond))
 			return
 		}
 		if p, ok := m.(proto.Message); ok {
