@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 // imdsServer is a fake EC2 instance metadata service. It serves the region from
@@ -17,18 +19,18 @@ func imdsServer(t *testing.T, region string, requireToken bool) (*httptest.Serve
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.Method+" "+r.URL.Path)
 		switch {
-		case r.Method == http.MethodPut && r.URL.Path == imdsTokenPath:
+		case r.Method == http.MethodPut && r.URL.Path == credentials.TokenPath:
 			if !requireToken {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
-			if r.Header.Get(imdsTokenTTLHeader) == "" {
+			if r.Header.Get(credentials.TokenRequestTTLHeader) == "" {
 				http.Error(w, "missing ttl header", http.StatusBadRequest)
 				return
 			}
 			_, _ = w.Write([]byte(token))
 		case r.Method == http.MethodGet && r.URL.Path == imdsRegionPath:
-			if requireToken && r.Header.Get(imdsTokenHeader) != token {
+			if requireToken && r.Header.Get(credentials.TokenRequestHeader) != token {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -53,7 +55,7 @@ func TestRegion_FromIMDSv2(t *testing.T) {
 	if got := Region(); got != "eu-west-1" {
 		t.Fatalf("Region() = %q, want %q", got, "eu-west-1")
 	}
-	if len(*seen) != 2 || (*seen)[0] != "PUT "+imdsTokenPath {
+	if len(*seen) != 2 || (*seen)[0] != "PUT "+credentials.TokenPath {
 		t.Fatalf("expected IMDSv2 token then region request, got %v", *seen)
 	}
 }

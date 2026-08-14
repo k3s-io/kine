@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 const (
@@ -14,14 +16,10 @@ const (
 	// link-local address.
 	imdsTimeout = 5 * time.Second
 
-	// imdsDefaultEndpoint is the link-local base URL of the EC2 instance
-	// metadata service (IMDS).
-	imdsDefaultEndpoint = "http://169.254.169.254" //nolint:revive // HTTPS is not supported by IMDS.
-	imdsTokenPath       = "/latest/api/token"
-	imdsRegionPath      = "/latest/meta-data/placement/region"
-	imdsTokenTTLHeader  = "X-aws-ec2-metadata-token-ttl-seconds"
-	imdsTokenHeader     = "X-aws-ec2-metadata-token"
-	imdsTokenTTL        = "21600"
+	// imdsRegionPath is the IMDS path holding the instance's region. The
+	// remaining IMDS endpoint, path and header values are taken from minio-go's
+	// credentials package, which uses the same metadata service.
+	imdsRegionPath = "/latest/meta-data/placement/region"
 )
 
 // regionFromIMDS fetches the region from the EC2 instance metadata service.
@@ -41,7 +39,7 @@ func regionFromIMDS() string {
 		return ""
 	}
 	if token != "" {
-		req.Header.Set(imdsTokenHeader, token)
+		req.Header.Set(credentials.TokenRequestHeader, token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -61,11 +59,11 @@ func regionFromIMDS() string {
 // imdsToken fetches an IMDSv2 session token. It returns an empty string on any
 // failure, so callers can fall back to token-less IMDSv1.
 func imdsToken(client *http.Client, endpoint string) string {
-	req, err := http.NewRequest(http.MethodPut, endpoint+imdsTokenPath, nil)
+	req, err := http.NewRequest(http.MethodPut, endpoint+credentials.TokenPath, nil)
 	if err != nil {
 		return ""
 	}
-	req.Header.Set(imdsTokenTTLHeader, imdsTokenTTL)
+	req.Header.Set(credentials.TokenRequestTTLHeader, credentials.TokenTTL)
 	resp, err := client.Do(req)
 	if err != nil {
 		return ""
@@ -87,7 +85,7 @@ func imdsEndpoint() string {
 	if e := os.Getenv("AWS_EC2_METADATA_SERVICE_ENDPOINT"); e != "" {
 		return strings.TrimRight(e, "/")
 	}
-	return imdsDefaultEndpoint
+	return credentials.DefaultIAMRoleEndpoint
 }
 
 // imdsDisabled reports whether EC2 instance metadata lookups have been disabled
