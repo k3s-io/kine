@@ -21,7 +21,11 @@ func newConnector(driverName, dsn string) (*sqliteConnector, error) {
 		return nil, err
 	}
 
-	driver := &sqlite3.Driver{}
+	connector, err := sqlite3.NewConnector(dsn)
+	if err != nil {
+		return nil, err
+	}
+	driver := connector.Driver().(*sqlite3.Driver)
 	if driverName == "litestream" {
 		driver.RegisterConnectionHook(func(conn sqlite3.ExecQuerierContext, dsn string) error {
 			var err error
