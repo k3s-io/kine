@@ -15,7 +15,7 @@ require (
 	github.com/nats-io/nats.go v1.52.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/shengdoushi/base58 v1.0.0
-	github.com/sirupsen/logrus v1.9.4
+	github.com/sirupsen/logrus v1.10.0
 	github.com/t4db/t4 v1.0.5
 	github.com/tidwall/btree v1.8.1
 	github.com/urfave/cli/v2 v2.27.7
