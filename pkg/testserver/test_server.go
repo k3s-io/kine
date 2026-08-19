@@ -33,7 +33,7 @@ func NewTestConfig(t testing.TB) *embed.Config {
 	clientURL := url.URL{Scheme: "unix", Path: "/tmp/kine.sock"}
 
 	cfg.ListenClientUrls = []url.URL{clientURL}
-	cfg.ExperimentalWatchProgressNotifyInterval = 5 * time.Second
+	cfg.WatchProgressNotifyInterval = 5 * time.Second
 	cfg.Dir = t.TempDir()
 	os.Chmod(cfg.Dir, 0700)
 	return cfg
@@ -62,7 +62,7 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	config := app.Config(nil)
 	config.WaitGroup = wg
 	config.Listener = cfg.ListenClientUrls[0].String()
-	config.NotifyInterval = cfg.ExperimentalWatchProgressNotifyInterval
+	config.NotifyInterval = cfg.WatchProgressNotifyInterval
 	config.CompactInterval = 0
 	config.CompactMinRetain = 0
 
@@ -97,8 +97,9 @@ func RunEtcd(t testing.TB, cfg *embed.Config) *kubernetes.Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.KV = storagetesting.NewKVRecorder(client.KV)
-	client.Kubernetes = storagetesting.NewKubernetesRecorder(client.Kubernetes)
+	kubernetesRecorder := storagetesting.NewKubernetesRecorder(client.Kubernetes)
+	client.KV = storagetesting.NewKVRecorder(client.KV, kubernetesRecorder)
+	client.Kubernetes = kubernetesRecorder
 	return client
 }
 
