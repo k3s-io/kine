@@ -105,8 +105,8 @@ func (b *BackendLogger) Update(ctx context.Context, key string, value []byte, re
 	return b.backend.Update(ctx, key, value, revision, lease)
 }
 
-func (b *BackendLogger) Watch(ctx context.Context, key, end string, revision int64) server.WatchResult {
-	return b.backend.Watch(ctx, key, end, revision)
+func (b *BackendLogger) Watch(ctx context.Context, revision int64) server.WatchResult {
+	return b.backend.Watch(ctx, revision)
 }
 
 // DbSize get the kineBucket size from JetStream.
@@ -121,8 +121,4 @@ func (b *BackendLogger) CurrentRevision(ctx context.Context) (int64, error) {
 
 func (b *BackendLogger) Compact(ctx context.Context, revision int64) (int64, error) {
 	return b.backend.Compact(ctx, revision)
-}
-
-func (b *BackendLogger) WaitForSyncTo(revision int64) {
-	b.backend.WaitForSyncTo(revision)
 }

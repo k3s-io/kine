@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"google.golang.org/grpc/codes"
@@ -33,11 +34,10 @@ type Backend interface {
 	List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (int64, []*KeyValue, error)
 	Count(ctx context.Context, key, end string, revision int64) (int64, int64, error)
 	Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *KeyValue, bool, error)
-	Watch(ctx context.Context, key, end string, revision int64) WatchResult
+	Watch(ctx context.Context, revision int64) WatchResult
 	DbSize(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
-	WaitForSyncTo(revision int64)
 }
 
 type Dialect interface {
@@ -85,6 +85,13 @@ type KeyValue struct {
 
 type Events []*Event
 
+func (e Events) After(rev int64) Events {
+	for len(e) > 0 && e[0] != nil && e[0].KV.ModRevision <= rev {
+		e = e[1:]
+	}
+	return e
+}
+
 type Event struct {
 	Delete bool
 	Create bool
@@ -96,10 +103,20 @@ func (e *Event) InRange(key, end string) bool {
 	return e != nil && e.KV != nil && (key == "" || (end != "" && e.KV.Key >= key && e.KV.Key < end) || e.KV.Key == key)
 }
 
+func (e *Event) String() string {
+	op := "="
+	if e.Create {
+		op = "+"
+	} else if e.Delete {
+		op = "-"
+	}
+	return fmt.Sprintf("%s%s@%d", op, e.KV.Key, e.KV.ModRevision)
+}
+
 type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64
-	Events          <-chan []*Event
+	Events          <-chan Events
 	Errorc          <-chan error
 }
 

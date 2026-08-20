@@ -2,10 +2,12 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"sync"
 	"sync/atomic"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/ttl"
@@ -49,10 +51,18 @@ func (e *entry) toKeyValue() *server.KeyValue {
 	}
 }
 
+type keyString string
+
+func (k keyString) InRange(key, end string) bool {
+	return key == "" || (end != "" && string(k) >= key && string(k) < end) || string(k) == key
+}
+
 type Memory struct {
 	mu              sync.RWMutex
 	currentRevision atomic.Int64
 	compactRevision int64
+	broadcaster     broadcaster.Broadcaster
+	ctx             context.Context
 
 	log  []*entry
 	keys *btree.Map[string, []*entry]
@@ -73,6 +83,7 @@ func (m *Memory) Start(ctx context.Context) error {
 	if _, _, _, err := m.Update(ctx, server.HealthKey, []byte(server.HealthVal), 1, 0); err != nil {
 		logrus.Errorf("Failed to update health check key: %v", err)
 	}
+	m.ctx = ctx
 	go ttl.Run(ctx, m)
 	return nil
 }
@@ -90,8 +101,6 @@ func (m *Memory) DbSize(ctx context.Context) (int64, error) {
 	}
 	return size, nil
 }
-
-func (m *Memory) WaitForSyncTo(revision int64) {}
 
 // nextRevision allocates and returns the next revision. Increment is
 // atomic; callers still need m.mu (write) when pairing the new revision
@@ -296,7 +305,11 @@ func (m *Memory) List(ctx context.Context, key, end string, limit, revision int6
 	var kvs []*server.KeyValue
 	for {
 		k := iter.Key()
-		if (end == "" && k != key) || (end != "" && k >= end) {
+		if k == "" {
+			iter.Next()
+			continue
+		}
+		if !keyString(k).InRange(key, end) {
 			break
 		}
 
@@ -334,83 +347,119 @@ func (m *Memory) Count(ctx context.Context, key, end string, revision int64) (in
 	return rev, int64(len(kvs)), nil
 }
 
-func (m *Memory) Watch(ctx context.Context, key, end string, startRevision int64) server.WatchResult {
-	m.mu.RLock()
-	compactRev := m.compactRevision
-	m.mu.RUnlock()
-	rev := m.currentRevision.Load()
+func (m *Memory) Watch(ctx context.Context, revision int64) server.WatchResult {
+	logrus.Tracef("WATCH revision=%d", revision)
+	// starting watching right away so we don't miss anything
+	ctx, cancel := context.WithCancel(ctx)
+	readChan := m.broadcaster.Watch(ctx, m.startWatch)
 
-	events := make(chan []*server.Event, 100)
+	result := make(chan server.Events, 100)
+	errc := make(chan error, 1)
+	wr := server.WatchResult{Events: result, Errorc: errc}
 
-	if startRevision > 0 && startRevision <= compactRev {
-		close(events)
-		return server.WatchResult{
-			CurrentRevision: rev,
-			CompactRevision: compactRev,
-			Events:          events,
+	// include the current revision in list
+	if revision > 1 {
+		revision--
+	}
+
+	var rev int64
+	var kvs server.Events
+	var err error
+
+	if revision != 0 {
+		rev, kvs, err = m.after(ctx, revision)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				logrus.Errorf("Failed to list for revision %d: %v", revision, err)
+				if err == server.ErrCompacted {
+					m.mu.RLock()
+					wr.CompactRevision = m.compactRevision
+					wr.CurrentRevision = rev
+					m.mu.RUnlock()
+				} else {
+					errc <- server.ErrGRPCUnhealthy
+				}
+			}
+			cancel()
 		}
+		logrus.Tracef("WATCH LIST rev=%d => rev=%d kvs=%d", revision, rev, len(kvs))
 	}
 
 	go func() {
-		defer close(events)
-
-		// lastSeen is the highest revision already delivered to the caller.
-		// Subsequent passes start from the first log entry whose revision is
-		// greater than lastSeen, looked up via logIndexAfter — direct array
-		// indexing by revision no longer holds once compaction trims m.log.
-		lastSeen := startRevision - 1
-		if lastSeen < 0 {
-			lastSeen = rev
+		if len(kvs) > 0 {
+			revision = rev
 		}
 
+		if len(kvs) > 0 {
+			result <- kvs
+			kvs = nil
+		}
+
+		// always ensure we fully read the channel
+		for i := range readChan {
+			result <- i.After(revision)
+		}
+		close(result)
+		cancel()
+	}()
+
+	return wr
+}
+
+func (m *Memory) startWatch() (chan server.Events, error) {
+	events := make(chan server.Events)
+	go func() {
+		defer close(events)
+		var lastSeen int64
+		var batch server.Events
 		for {
 			notifyCh := m.getNotifyCh()
-
-			m.mu.RLock()
-			var batch []*server.Event
-			for i := m.logIndexAfter(lastSeen); i < len(m.log); i++ {
-				e := m.log[i]
-				if key == "" || (end != "" && e.key >= key && e.key < end) || e.key == key {
-					event := &server.Event{
-						Create: e.created,
-						Delete: e.deleted,
-						KV:     e.toKeyValue(),
-						PrevKV: &server.KeyValue{ModRevision: e.prevRevision},
-					}
-					if e.prev != nil {
-						event.PrevKV = e.prev.toKeyValue()
-					}
-					batch = append(batch, event)
-				}
-				lastSeen = e.revision
-			}
-			m.mu.RUnlock()
+			lastSeen, batch, _ = m.after(m.ctx, lastSeen)
 
 			if len(batch) > 0 {
 				select {
 				case events <- batch:
-				case <-ctx.Done():
+				case <-m.ctx.Done():
 					return
 				}
 			}
 
 			select {
 			case <-notifyCh:
-			case <-ctx.Done():
+			case <-m.ctx.Done():
 				return
 			}
 		}
 	}()
+	return events, nil
+}
 
-	watchRev := startRevision
-	if watchRev <= 0 {
-		watchRev = rev
+func (m *Memory) after(ctx context.Context, revision int64) (int64, server.Events, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	currentRev := m.currentRevision.Load()
+	if revision > currentRev {
+		return currentRev, nil, nil
+	} else if revision < m.compactRevision {
+		return currentRev, nil, server.ErrCompacted
 	}
 
-	return server.WatchResult{
-		CurrentRevision: watchRev,
-		Events:          events,
+	var batch server.Events
+	for i := m.logIndexAfter(revision); i < len(m.log); i++ {
+		e := m.log[i]
+		event := &server.Event{
+			Create: e.created,
+			Delete: e.deleted,
+			KV:     e.toKeyValue(),
+			PrevKV: &server.KeyValue{ModRevision: e.prevRevision},
+		}
+		if e.prev != nil {
+			event.PrevKV = e.prev.toKeyValue()
+		}
+		batch = append(batch, event)
+		revision = e.revision
 	}
+	return revision, batch, nil
 }
 
 // Compact discards events below the given revision. The log slice is trimmed

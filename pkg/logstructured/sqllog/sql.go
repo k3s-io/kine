@@ -26,8 +26,6 @@ type SQLLog struct {
 	ctx                   context.Context
 	notify                chan int64
 	currentRev            atomic.Int64
-	polledRev             atomic.Int64
-	polled                *sync.Cond
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -47,7 +45,6 @@ func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter 
 		compactBatchSize:      compactBatchSize,
 		pollBatchSize:         pollBatchSize,
 	}
-	l.polled = sync.NewCond(l.RLocker())
 	return l
 }
 
@@ -414,42 +411,8 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, server.Events, 
 	return rev, compact, result, nil
 }
 
-func (s *SQLLog) Watch(ctx context.Context, key, end string) <-chan server.Events {
-	res := make(chan server.Events, 100)
-	values, err := s.broadcaster.Subscribe(ctx, s.startWatch)
-	if err != nil {
-		return nil
-	}
-
-	go func() {
-		defer close(res)
-		for i := range values {
-			if events, ok := filter(i, key, end); ok {
-				res <- events
-			}
-		}
-	}()
-
-	return res
-}
-
-func filter(events server.Events, key, end string) (server.Events, bool) {
-	// optimization: do not allocate a new Events slice to filter into if there is only a single entry
-	if len(events) == 1 {
-		if events[0].InRange(key, end) {
-			return events, true
-		}
-		return nil, false
-	}
-
-	filteredEvents := make(server.Events, 0, len(events))
-	for _, event := range events {
-		if event.InRange(key, end) {
-			filteredEvents = append(filteredEvents, event)
-		}
-	}
-
-	return filteredEvents, len(filteredEvents) > 0
+func (s *SQLLog) Watch(ctx context.Context) <-chan server.Events {
+	return s.broadcaster.Watch(ctx, s.startWatch)
 }
 
 func (s *SQLLog) startWatch() (chan server.Events, error) {
@@ -503,13 +466,6 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			case <-wait.C:
 			}
 		}
-		waitForMore = true
-
-		//  update polled revision to reflect what rows have already been seen
-		s.Lock()
-		s.polledRev.Store(pollRevision)
-		s.polled.Broadcast()
-		s.Unlock()
 
 		rows, err := s.d.After(s.ctx, "", "", pollRevision, s.pollBatchSize)
 		if err != nil {
@@ -520,6 +476,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		}
 
 		_, _, events, err := RowsToEvents(rows, true, true)
+		waitForMore = len(events) < 100
 		if err != nil {
 			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
@@ -533,15 +490,13 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			continue
 		}
 
-		waitForMore = len(events) < 100
-
 		var (
 			rev        = pollRevision
 			saveLast   = false
-			sequential = make(server.Events, len(events))
+			sequential = make(server.Events, 0, len(events))
 		)
 
-		for i, event := range events {
+		for _, event := range events {
 			next := rev + 1
 			// Ensure that we are notifying events in a sequential fashion. For example if we find row 4 before 3
 			// we don't want to notify row 4 because 3 is essentially dropped forever.
@@ -599,7 +554,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 					logrus.Tracef("BROADCAST SKIPPED FOR FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 				}
 			} else {
-				sequential[i] = event
+				sequential = append(sequential, event)
 				if trace {
 					logrus.Tracef("BROADCAST %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 				}
@@ -609,7 +564,9 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		if saveLast {
 			s.currentRev.CompareAndSwap(pollRevision, rev)
 			pollRevision = rev
-			result <- sequential
+			if len(sequential) > 0 {
+				result <- sequential
+			}
 		}
 	}
 }
@@ -757,12 +714,4 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 		return s.CurrentRevision(ctx)
 	}
 	return currentRev, nil
-}
-
-func (s *SQLLog) WaitForSyncTo(revision int64) {
-	s.polled.L.Lock()
-	for s.polledRev.Load() < revision {
-		s.polled.Wait()
-	}
-	s.polled.L.Unlock()
 }
