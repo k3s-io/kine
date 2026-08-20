@@ -19,6 +19,10 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	if r.Revision > 0 {
 		revision = r.Revision
 	}
+	if key == "\x00" && end == "\x00" {
+		key = ""
+		end = ""
+	}
 
 	if r.CountOnly {
 		rev, count, err := l.backend.Count(ctx, key, end, revision)

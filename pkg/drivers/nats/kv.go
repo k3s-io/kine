@@ -39,7 +39,7 @@ func (e *entry) Key() string {
 		return ""
 	}
 
-	return dk
+	return string(dk)
 }
 
 func (e *entry) Bucket() string { return e.entry.Bucket() }
@@ -331,7 +331,7 @@ func (e *KeyValue) Watch(ctx context.Context, key, end string, startRev int64) (
 
 	if filter != "/" && strings.HasSuffix(filter, "/") {
 		filter = strings.TrimSuffix(key, "/")
-	} else {
+	} else if filter != "" {
 		idx := strings.LastIndexByte(filter, '/')
 		if idx > -1 {
 			filter = key[:idx+1]
@@ -347,7 +347,6 @@ func (e *KeyValue) Watch(ctx context.Context, key, end string, startRev int64) (
 		if err != nil {
 			return nil, err
 		}
-
 		filter = fmt.Sprintf("$KV.%s.%s", e.nkv.Bucket(), p)
 	}
 
@@ -364,7 +363,7 @@ func (e *KeyValue) Watch(ctx context.Context, key, end string, startRev int64) (
 		skey := strings.TrimPrefix(msg.Subject(), subjectPrefix)
 		if skey != "" {
 			dkey, err := e.kc.Decode(strings.TrimPrefix(skey, "."))
-			if err != nil || (key == "" && dkey < key) || (end != "" && dkey >= end) {
+			if err != nil || !dkey.InRange(key, end) {
 				return
 			}
 		}
@@ -404,7 +403,9 @@ func (e *KeyValue) Watch(ctx context.Context, key, end string, startRev int64) (
 		cfg.OptStartSeq = uint64(startRev)
 	}
 	cfg.DeliverPolicy = dp
-	cfg.FilterSubjects = append(cfg.FilterSubjects, filter)
+	if filter != "" {
+		cfg.FilterSubjects = append(cfg.FilterSubjects, filter)
+	}
 
 	con, err := e.js.OrderedConsumer(ctx, fmt.Sprintf("KV_%s", e.nkv.Bucket()), cfg)
 	if err != nil {
@@ -456,10 +457,8 @@ func (e *KeyValue) List(ctx context.Context, key, end string, limit, revision in
 	}
 
 	it := e.bt.Iter()
-	if key != "" {
-		if ok := it.Seek(key); !ok {
-			return nil, nil
-		}
+	if !it.Seek(key) {
+		return nil, nil
 	}
 
 	var matches []*keySeq
@@ -467,7 +466,11 @@ func (e *KeyValue) List(ctx context.Context, key, end string, limit, revision in
 	e.btm.RLock()
 	for {
 		k := it.Key()
-		if (end == "" && k != key) || (end != "" && k >= end) {
+		if k == "" {
+			it.Next()
+			continue
+		}
+		if !keyString(k).InRange(key, end) {
 			break
 		}
 
@@ -657,7 +660,7 @@ func (e *KeyValue) btreeWatcher(ctx context.Context, hsize int) error {
 	}
 
 	now := time.Now()
-	w, err := e.Watch(ctx, "/", "", br)
+	w, err := e.Watch(ctx, "", "", br)
 	if err != nil {
 		return fmt.Errorf("init: %s after %s", err, time.Since(now))
 	}
