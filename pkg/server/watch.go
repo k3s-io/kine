@@ -142,6 +142,10 @@ func (w *watcher) Create(ctx context.Context, r *etcdserverpb.WatchCreateRequest
 	key := string(r.Key)
 	end := string(r.RangeEnd)
 	startRevision := r.StartRevision
+	if key == "\x00" && end == "\x00" {
+		key = ""
+		end = ""
+	}
 
 	var progressCh chan int64
 	if r.ProgressNotify {
@@ -149,7 +153,7 @@ func (w *watcher) Create(ctx context.Context, r *etcdserverpb.WatchCreateRequest
 		w.progress[id] = progressCh
 	}
 
-	logrus.Tracef("WATCH CREATE server=%d, id=%d, key=%s, end=%s revision=%d, progressNotify=%v, watchCount=%d", w.id, id, key, end, startRevision, r.ProgressNotify, len(w.watches))
+	logrus.Tracef("WATCH CREATE server=%d, id=%d, key=%s, end=%s, revision=%d, progressNotify=%v, watchCount=%d", w.id, id, key, end, startRevision, r.ProgressNotify, len(w.watches))
 
 	w.wg.Add(1)
 	go w.watch(ctx, key, end, id, startRevision, progressCh)
@@ -168,7 +172,7 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 		return
 	}
 
-	wr := w.backend.Watch(ctx, key, end, startRevision)
+	wr := w.backend.Watch(ctx, startRevision)
 
 	// If the watch result has a non-zero CompactRevision, then the watch request failed due to
 	// the requested start revision having been compacted.  Pass the current and and compact
@@ -206,8 +210,8 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 				}
 			}
 			// get max revision from collected events
-			if len(events) > 0 {
-				revision = events[len(events)-1].KV.ModRevision
+			if i := len(events) - 1; i >= 0 && events[i] != nil {
+				revision = events[i].KV.ModRevision
 			}
 		case progressRev := <-progressCh:
 			// have been requested to send progress with no events;
@@ -225,7 +229,7 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 			wr := &etcdserverpb.WatchResponse{
 				Header:  txnHeader(revision),
 				WatchId: id,
-				Events:  toEvents(events...),
+				Events:  toEvents(key, end, events...),
 			}
 			if trace {
 				keys := make([]string, len(wr.Events))
@@ -249,10 +253,12 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 	logrus.Tracef("WATCH CLOSE server=%d, id=%d, key=%s", w.id, id, key)
 }
 
-func toEvents(events ...*Event) []*mvccpb.Event {
+func toEvents(key, end string, events ...*Event) []*mvccpb.Event {
 	ret := make([]*mvccpb.Event, 0, len(events))
 	for _, e := range events {
-		ret = append(ret, toEvent(e))
+		if e.InRange(key, end) {
+			ret = append(ret, toEvent(e))
+		}
 	}
 	return ret
 }

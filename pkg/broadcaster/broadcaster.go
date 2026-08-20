@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/k3s-io/kine/pkg/server"
+	"github.com/sirupsen/logrus"
 )
 
 type ConnectFunc func() (chan server.Events, error)
@@ -15,7 +16,16 @@ type Broadcaster struct {
 	subs    map[chan server.Events]struct{}
 }
 
-func (b *Broadcaster) Subscribe(ctx context.Context, connect ConnectFunc) (<-chan server.Events, error) {
+func (b *Broadcaster) Watch(ctx context.Context, connect ConnectFunc) <-chan server.Events {
+	eventCh, err := b.subscribe(ctx, connect)
+	if err != nil {
+		logrus.Errorf("Failed to subscribe to broadcaster: %v", err)
+		return nil
+	}
+	return eventCh
+}
+
+func (b *Broadcaster) subscribe(ctx context.Context, connect ConnectFunc) (<-chan server.Events, error) {
 	b.Lock()
 	defer b.Unlock()
 
