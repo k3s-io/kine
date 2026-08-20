@@ -62,7 +62,7 @@ func TestKeyDecode(t *testing.T) {
 			}
 			continue
 		}
-		if out != test.Out {
+		if string(out) != test.Out {
 			t.Errorf("Expected %q for %q, got %q", test.Out, test.In, out)
 		}
 	}
@@ -93,7 +93,7 @@ func TestKeyEncodeRange(t *testing.T) {
 			}
 			continue
 		}
-		if out != test.Out {
+		if string(out) != test.Out {
 			t.Errorf("Expected %q for %q, got %q", test.Out, test.In, out)
 		}
 	}

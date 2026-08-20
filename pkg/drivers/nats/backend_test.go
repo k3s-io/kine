@@ -435,11 +435,11 @@ func TestBackend_Watch(t *testing.T) {
 	_, _, _, _ = b.Delete(ctx, prefix("/a"), rev1)
 	_, _, _, _ = b.Update(ctx, prefix("/a/1"), nil, rev2, 0)
 
-	wr := b.Watch(cctx, "/", "0", baseRev+1)
+	wr := b.Watch(cctx, baseRev+1)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
-	var events []*kserver.Event
+	var events kserver.Events
 	for es := range wr.Events {
 		events = append(events, es...)
 	}
@@ -447,11 +447,11 @@ func TestBackend_Watch(t *testing.T) {
 	expEqual(t, 5, len(events))
 
 	cctx, cancel = context.WithCancel(ctx)
-	wr = b.Watch(cctx, prefix("/a/"), prefix("/a0"), baseRev)
+	wr = b.Watch(cctx, baseRev)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
-	events = make([]*kserver.Event, 0)
+	events = make(kserver.Events, 0)
 
 	for es := range wr.Events {
 		events = append(events, es...)
