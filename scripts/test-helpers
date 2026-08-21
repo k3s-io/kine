@@ -18,7 +18,7 @@ dump-logs() {
         for log in $node/logs/*.log; do
             echo
             echo "#- Tail: $log"
-            tail -5 $log
+            tail -15 $log
             echo "#- Done: $log"
             echo
         done
@@ -318,6 +318,7 @@ provision-kine() {
         -d --name $name \
         $KINE_ENV \
         $KINE_IMAGE \
+        --debug \
         --compact-interval=0 \
         --watch-progress-notify-interval=5s \
         --endpoint=$KINE_ENDPOINT
