@@ -265,18 +265,22 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	logrus.Infof("COMPACT compactRev=%d targetCompactRev=%d currentRev=%d", compactRev, targetCompactRev, currentRev)
 
 	start := time.Now()
+
+	// Set compact revision before compacting - if the compact transaction times
+	// out this will get rolled back. Otherwise it is possible for Compact to
+	// succeed within the time limit, but SetCompactRevision occurs too late, and
+	// the work is wasted.
+	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
+		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
+	}
+
 	deletedRows, err := t.Compact(s.ctx, targetCompactRev)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
 
-	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
-		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
-	}
-
-	// only commit the transaction if we make it all the way through deleting and
-	// updating the compact revision without any errors. The deferred rollback
-	// becomes a no-op if the transaction is committed.
+	// Commit the transaction if we make it all the way through deleting without any
+	// errors. The deferred rollback becomes a no-op if the transaction is committed.
 	t.MustCommit()
 	logrus.Infof("COMPACT deleted %d rows from %d revisions in %s - compacted to %d/%d", deletedRows, (targetCompactRev - compactRev), time.Since(start), targetCompactRev, currentRev)
 
