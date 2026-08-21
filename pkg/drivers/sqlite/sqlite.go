@@ -97,7 +97,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 					kp.name != 'compact_rev_key' AND
 					kp.prev_revision != 0 AND
 					kp.id <= ?
-				UNION
+				UNION ALL
 				SELECT kd.id AS id
 				FROM kine AS kd
 				WHERE
