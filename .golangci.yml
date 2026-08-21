@@ -31,6 +31,7 @@ linters:
         - {name: line-length-limit, disabled: true}
         - {name: max-control-nesting, disabled: true}
         - {name: max-public-structs, disabled: true}
+        - {name: package-naming, disabled: true}
         - {name: unused-parameter, disabled: true}
         - {name: unused-receiver, disabled: true}
         - {name: use-waitgroup-go, disabled: true}
