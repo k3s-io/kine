@@ -149,6 +149,9 @@ func setDatabasePath(endpoint, dir string) (string, error) {
 		//  mysql DSNs are not valid URLs, so just insert the hash before the query string, if any
 		path, query, _ := strings.Cut(endpoint, "?")
 		return path + hash + "?" + query, nil
+	case "t4":
+		hash = dir
+		fallthrough
 	default:
 		ep, err := url.Parse(endpoint)
 		if err != nil {
