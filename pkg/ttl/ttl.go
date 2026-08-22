@@ -69,6 +69,10 @@ func Run(ctx context.Context, b server.Backend) {
 
 	for {
 		select {
+		case err := <-wr.Errorc:
+			logrus.Errorf("TTL event watch error: %v", err)
+			queue.ShutDown()
+			return
 		case <-ctx.Done():
 			queue.ShutDown()
 			return
