@@ -29,12 +29,9 @@ import (
 
 func NewTestConfig(t testing.TB) *embed.Config {
 	cfg := embed.NewConfig()
-
-	clientURL := url.URL{Scheme: "unix", Path: "/tmp/kine.sock"}
-
-	cfg.ListenClientUrls = []url.URL{clientURL}
-	cfg.ExperimentalWatchProgressNotifyInterval = 5 * time.Second
 	cfg.Dir = t.TempDir()
+	cfg.ListenClientUrls = []url.URL{{Scheme: "unix", Path: cfg.Dir + "/kine.sock"}}
+	cfg.ExperimentalWatchProgressNotifyInterval = 5 * time.Second
 	os.Chmod(cfg.Dir, 0700)
 	return cfg
 }
