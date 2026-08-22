@@ -17,11 +17,10 @@ type Log interface {
 	List(ctx context.Context, key, end string, limit, revision int64, includeDeletes, keysOnly bool) (int64, server.Events, error)
 	Count(ctx context.Context, key, end string, revision int64) (int64, int64, error)
 	After(ctx context.Context, key, end string, revision, limit int64) (int64, server.Events, error)
-	Watch(ctx context.Context, key, end string) <-chan server.Events
+	Watch(ctx context.Context) <-chan server.Events
 	Append(ctx context.Context, event *server.Event) (int64, error)
 	DbSize(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
-	WaitForSyncTo(revision int64)
 }
 
 type LogStructured struct {
@@ -219,14 +218,13 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 	return rev, updateEvent.KV, true, err
 }
 
-func (l *LogStructured) Watch(ctx context.Context, key, end string, revision int64) server.WatchResult {
-	logrus.Tracef("WATCH %s, end=%s, revision=%d", key, end, revision)
-
+func (l *LogStructured) Watch(ctx context.Context, revision int64) server.WatchResult {
+	logrus.Tracef("WATCH revision=%d", revision)
 	// starting watching right away so we don't miss anything
 	ctx, cancel := context.WithCancel(ctx)
-	readChan := l.log.Watch(ctx, key, end)
+	readChan := l.log.Watch(ctx)
 
-	result := make(chan []*server.Event, 100)
+	result := make(chan server.Events, 100)
 	errc := make(chan error, 1)
 	wr := server.WatchResult{Events: result, Errorc: errc}
 
@@ -235,50 +233,47 @@ func (l *LogStructured) Watch(ctx context.Context, key, end string, revision int
 		revision--
 	}
 
-	rev, kvs, err := l.log.After(ctx, key, end, revision, 0)
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			logrus.Errorf("Failed to list %s for revision %d: %v", key, revision, err)
-			if err == server.ErrCompacted {
-				compact, _ := l.log.CompactRevision(ctx)
-				wr.CompactRevision = compact
-				wr.CurrentRevision = rev
-			} else {
-				errc <- server.ErrGRPCUnhealthy
+	var rev int64
+	var kvs server.Events
+	var err error
+
+	if revision != 0 {
+		rev, kvs, err = l.log.After(ctx, "", "", revision, 0)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				logrus.Errorf("Failed to list for revision %d: %v", revision, err)
+				if err == server.ErrCompacted {
+					compact, _ := l.log.CompactRevision(ctx)
+					wr.CompactRevision = compact
+					wr.CurrentRevision = rev
+				} else {
+					errc <- server.ErrGRPCUnhealthy
+				}
 			}
+			cancel()
 		}
-		cancel()
+		logrus.Tracef("WATCH LIST rev=%d => rev=%d kvs=%d", revision, rev, len(kvs))
 	}
 
-	logrus.Tracef("WATCH LIST key=%s rev=%d => rev=%d kvs=%d", key, revision, rev, len(kvs))
-
 	go func() {
-		lastRevision := revision
 		if len(kvs) > 0 {
-			lastRevision = rev
+			revision = rev
 		}
 
 		if len(kvs) > 0 {
 			result <- kvs
+			kvs = nil
 		}
 
 		// always ensure we fully read the channel
 		for i := range readChan {
-			result <- filter(i, lastRevision)
+			result <- i.After(revision)
 		}
 		close(result)
 		cancel()
 	}()
 
 	return wr
-}
-
-func filter(events []*server.Event, rev int64) []*server.Event {
-	for len(events) > 0 && events[0].KV.ModRevision <= rev {
-		events = events[1:]
-	}
-
-	return events
 }
 
 func (l *LogStructured) DbSize(ctx context.Context) (int64, error) {
@@ -291,8 +286,4 @@ func (l *LogStructured) CurrentRevision(ctx context.Context) (int64, error) {
 
 func (l *LogStructured) Compact(ctx context.Context, revision int64) (int64, error) {
 	return l.log.Compact(ctx, revision)
-}
-
-func (l *LogStructured) WaitForSyncTo(revision int64) {
-	l.log.WaitForSyncTo(revision)
 }

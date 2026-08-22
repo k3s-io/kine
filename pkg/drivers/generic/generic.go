@@ -42,7 +42,10 @@ var (
 	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
 	BetweenNameSQL = `SELECT MAX(id) AS id FROM kine WHERE name >= ? AND name < ? %s GROUP BY name`
 	EqualsNameSQL  = `SELECT MAX(id) AS id FROM kine WHERE name = ? %s`
+	AnyNameSQL     = `SELECT MAX(id) AS id FROM kine %s GROUP BY name`
 
+	allSQL     = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, AnyNameSQL)
+	allValSQL  = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, AnyNameSQL)
 	listSQL    = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, BetweenNameSQL)
 	listValSQL = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, BetweenNameSQL)
 	getSQL     = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, EqualsNameSQL)
@@ -69,13 +72,17 @@ type Generic struct {
 	DB                      *sql.DB
 	GetSingleSQL            *query.Named
 	GetSingleValSQL         *query.Named
+	AllCurrentSQL           *query.Named
+	AllCurrentValSQL        *query.Named
 	ListCurrentSQL          *query.Named
 	ListCurrentValSQL       *query.Named
 	ListRevisionStartSQL    *query.Named
 	ListRevisionStartValSQL *query.Named
 	GetRevisionAfterSQL     *query.Named
 	GetRevisionAfterValSQL  *query.Named
+	CountAllCurrentSQL      *query.Named
 	CountCurrentSQL         *query.Named
+	CountAllRevisionSQL     *query.Named
 	CountRevisionSQL        *query.Named
 	AfterOldValSQL          *query.Named
 	AfterAllOldValSQL       *query.Named
@@ -193,6 +200,8 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 	return &Generic{
 		DB: db,
 
+		AllCurrentSQL:           query.New(fmt.Sprintf(allSQL, ""), paramCharacter, numbered, "AllCurrent"),
+		AllCurrentValSQL:        query.New(fmt.Sprintf(allValSQL, ""), paramCharacter, numbered, "AllCurrentVal"),
 		ListCurrentSQL:          query.New(fmt.Sprintf(listSQL, ""), paramCharacter, numbered, "ListCurrent"),
 		ListCurrentValSQL:       query.New(fmt.Sprintf(listValSQL, ""), paramCharacter, numbered, "ListCurrentVal"),
 		ListRevisionStartSQL:    query.New(fmt.Sprintf(getSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStart"),
@@ -216,12 +225,26 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			AND (deleted = 0 OR ?)`,
 			WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingleVal"),
 
+		CountAllCurrentSQL: query.New(fmt.Sprintf(`
+			SELECT (%s), COUNT(id)
+			FROM kine
+			INNER JOIN (%s) AS mkv USING (id)
+			WHERE (deleted = 0 OR ?)`,
+			CurrentRevSQL, fmt.Sprintf(AnyNameSQL, "")), paramCharacter, numbered, "CountAllCurrent"),
+
 		CountCurrentSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
 			CurrentRevSQL, fmt.Sprintf(BetweenNameSQL, "")), paramCharacter, numbered, "CountCurrent"),
+
+		CountAllRevisionSQL: query.New(fmt.Sprintf(`
+			SELECT (%s), (%s), COUNT(id)
+			FROM kine
+			INNER JOIN (%s) AS mkv USING (id)
+			WHERE (deleted = 0 OR ?)`,
+			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(AnyNameSQL, "WHERE id <= ?")), paramCharacter, numbered, "CountAllRevision"),
 
 		CountRevisionSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), (%s), COUNT(id)
@@ -369,7 +392,14 @@ func (d *Generic) DeleteRevision(ctx context.Context, revision int64) error {
 
 func (d *Generic) ListCurrent(ctx context.Context, key, end string, limit int64, includeDeleted, keysOnly bool) (*sql.Rows, error) {
 	var sql *query.Named
-	if end == "" {
+	if key == "" {
+		if keysOnly {
+			sql = d.AllCurrentSQL
+		} else {
+			sql = d.AllCurrentValSQL
+		}
+		return d.query(ctx, sql, includeDeleted)
+	} else if end == "" {
 		if keysOnly {
 			sql = d.GetSingleSQL
 		} else {
@@ -418,7 +448,13 @@ func (d *Generic) CountCurrent(ctx context.Context, key, end string) (int64, int
 		id  int64
 	)
 
-	row := d.queryRow(ctx, d.CountCurrentSQL, key, end, false)
+	var row *sql.Row
+	if key != "" {
+		row = d.queryRow(ctx, d.CountCurrentSQL, key, end, false)
+	} else {
+		row = d.queryRow(ctx, d.CountAllCurrentSQL, false)
+	}
+
 	err := row.Scan(&rev, &id)
 	return rev.Int64, id, err
 }
@@ -430,7 +466,12 @@ func (d *Generic) Count(ctx context.Context, key, end string, revision int64) (i
 		id      int64
 	)
 
-	row := d.queryRow(ctx, d.CountRevisionSQL, key, end, revision, false)
+	var row *sql.Row
+	if key != "" {
+		row = d.queryRow(ctx, d.CountRevisionSQL, key, end, revision, false)
+	} else {
+		row = d.queryRow(ctx, d.CountAllRevisionSQL, revision, false)
+	}
 	err := row.Scan(&rev, &compact, &id)
 	return rev.Int64, compact.Int64, id, err
 }

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -63,6 +64,7 @@ type Backend struct {
 	l                *logrus.Logger
 	compactInterval  time.Duration
 	compactMinRetain int64
+	broadcaster      broadcaster.Broadcaster
 	ctx              context.Context
 }
 
@@ -415,15 +417,67 @@ func (b *Backend) List(ctx context.Context, key, end string, limit, maxRevision 
 	return rev, kvs, nil
 }
 
-func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int64) server.WatchResult {
-	events := make(chan []*server.Event, 32)
+func (b *Backend) Watch(ctx context.Context, revision int64) server.WatchResult {
+	logrus.Tracef("WATCH revision=%d", revision)
+	// starting watching right away so we don't miss anything
+	ctx, cancel := context.WithCancel(ctx)
+	readChan := b.broadcaster.Watch(ctx, b.startWatch)
 
-	if startRevision > 0 && startRevision <= b.kv.compactRev.Load() {
-		return server.WatchResult{
-			Events:          events,
-			CurrentRevision: b.kv.BucketRevision(),
-			CompactRevision: b.kv.compactRev.Load(),
+	result := make(chan server.Events, 100)
+	errc := make(chan error, 1)
+	wr := server.WatchResult{Events: result, Errorc: errc}
+
+	// include the current revision in list
+	if revision > 1 {
+		revision--
+	}
+
+	var rev int64
+	var kvs server.Events
+	var err error
+
+	if revision != 0 {
+		rev, kvs, err = b.after(ctx, revision)
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				logrus.Errorf("Failed to list for revision %d: %v", revision, err)
+				if err == server.ErrCompacted {
+					wr.CompactRevision = b.kv.compactRev.Load()
+					wr.CurrentRevision = rev
+				} else {
+					errc <- server.ErrGRPCUnhealthy
+				}
+			}
+			cancel()
 		}
+		logrus.Tracef("WATCH LIST rev=%d => rev=%d kvs=%d", revision, rev, len(kvs))
+	}
+
+	go func() {
+		if len(kvs) > 0 {
+			revision = rev
+		}
+
+		if len(kvs) > 0 {
+			result <- kvs
+			kvs = nil
+		}
+
+		// always ensure we fully read the channel
+		for i := range readChan {
+			result <- i.After(revision)
+		}
+		close(result)
+		cancel()
+	}()
+
+	return wr
+}
+func (b *Backend) startWatch() (chan server.Events, error) {
+	events := make(chan server.Events)
+	rev := b.kv.compactRev.Load()
+	if rev == 0 {
+		rev++
 	}
 
 	go func() {
@@ -434,37 +488,37 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 	outer:
 		for {
 			var err error
-			w, err = b.kv.Watch(ctx, key, end, startRevision)
+			w, err = b.kv.Watch(b.ctx, "", "", rev)
 			if err == nil {
 				break
 			} else if errors.Is(err, context.Canceled) || errors.Is(err, nats.ErrConnectionClosed) {
 				return
 			}
 
-			b.l.Warnf("watch init: key=%s, err=%s", key, err)
+			b.l.Warnf("watch init: err=%s", err)
 			time.Sleep(time.Second)
 		}
 		defer w.Stop()
 
 		for {
 			select {
-			case <-ctx.Done():
-				err := ctx.Err()
+			case <-b.ctx.Done():
+				err := b.ctx.Err()
 				if err == nil || errors.Is(err, context.Canceled) {
 					return
 				}
-				b.l.Debugf("watch ctx: key=%s, err=%s", key, err)
+				b.l.Debugf("watch ctx: err=%s", err)
 				err = w.Stop()
 				if err != nil {
-					b.l.Debugf("watch stop: key=%s, err=%s", key, err)
+					b.l.Debugf("watch stop: err=%s", err)
 				}
 				goto outer
 
 			case err := <-w.Err():
-				b.l.Debugf("watch error: key=%s, err=%s", key, err)
+				b.l.Debugf("watch error: err=%s", err)
 				err = w.Stop()
 				if err != nil {
-					b.l.Debugf("watch stop: key=%s, err=%s", key, err)
+					b.l.Debugf("watch stop: err=%s", err)
 				}
 				goto outer
 
@@ -478,11 +532,11 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 				var nd natsData
 				err := nd.Decode(e)
 				if err != nil {
-					b.l.Debugf("watch decode: key=%s, err=%s", key, err)
+					b.l.Debugf("watch decode: err=%s", err)
 					continue
 				}
 
-				event := server.Event{
+				event := &server.Event{
 					Create: nd.Create,
 					Delete: nd.Delete,
 					KV:     nd.KV,
@@ -492,25 +546,78 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 				}
 
 				if nd.PrevRevision > 0 {
-					_, pnd, err := b.get(ctx, key, nd.PrevRevision, false, false)
+					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
 					if err == nil && pnd != nil {
 						event.PrevKV = pnd.KV
 					}
 				}
 
-				events <- []*server.Event{&event}
+				events <- server.Events{event}
 			}
 		}
 	}()
+	return events, nil
+}
 
-	rev := startRevision
-	if rev == 0 {
-		rev = b.kv.BucketRevision()
+func (b *Backend) after(ctx context.Context, revision int64) (int64, server.Events, error) {
+	// watch is inclusive, so start at the next revision
+	revision++
+	currentRev := b.kv.BucketRevision()
+	if revision > currentRev {
+		return currentRev, nil, nil
+	} else if revision < b.kv.compactRev.Load() {
+		return currentRev, nil, server.ErrCompacted
 	}
 
-	return server.WatchResult{
-		Events:          events,
-		CurrentRevision: rev,
+	w, err := b.kv.Watch(b.ctx, "", "", revision)
+	if err != nil {
+		return currentRev, nil, err
+	}
+	defer w.Stop()
+
+	var batch server.Events
+	for {
+		select {
+		case e, ok := <-w.Updates():
+			if ok {
+				if e.Operation() != jetstream.KeyValuePut {
+					continue
+				}
+
+				key := e.Key()
+
+				var nd natsData
+				err := nd.Decode(e)
+				if err != nil {
+					b.l.Debugf("watch decode: err=%s", err)
+					continue
+				}
+
+				event := &server.Event{
+					Create: nd.Create,
+					Delete: nd.Delete,
+					KV:     nd.KV,
+					PrevKV: &server.KeyValue{
+						ModRevision: nd.PrevRevision,
+					},
+				}
+
+				if nd.PrevRevision > 0 {
+					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
+					if err == nil && pnd != nil {
+						event.PrevKV = pnd.KV
+					}
+				}
+				batch = append(batch, event)
+				if event.KV.ModRevision >= currentRev {
+					return currentRev, batch, nil
+				}
+			}
+		case err := <-w.Err():
+			return currentRev, nil, err
+		case <-ctx.Done():
+			return currentRev, nil, ctx.Err()
+		}
 	}
 }
 
@@ -564,10 +671,6 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	}
 
 	return currRev, nil
-}
-
-func (b *Backend) WaitForSyncTo(revision int64) {
-	// no-op
 }
 
 // compactor runs periodic automatic compaction in the background.

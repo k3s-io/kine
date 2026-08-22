@@ -89,7 +89,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
 				kp.id <= $1
-			UNION
+			UNION ALL
 			SELECT kd.id AS id
 			FROM kine AS kd
 			WHERE

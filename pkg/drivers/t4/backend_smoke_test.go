@@ -172,7 +172,7 @@ func TestT4Backend_Watch(t *testing.T) {
 		t.Fatalf("CurrentRevision: %v", err)
 	}
 
-	wr := b.Watch(ctx, "/w/", "/w0", startRev+1)
+	wr := b.Watch(ctx, startRev+1)
 
 	doneCh := make(chan struct{})
 	gotCreate, gotUpdate, gotDelete := false, false, false
@@ -230,7 +230,7 @@ func TestT4Backend_CompactAndCompactedWatch(t *testing.T) {
 		t.Fatalf("Compact: %v", err)
 	}
 
-	wr := b.Watch(ctx, "/c/", "/c0", rev1)
+	wr := b.Watch(ctx, rev1)
 	select {
 	case err := <-wr.Errorc:
 		if !errors.Is(err, kserver.ErrCompacted) {

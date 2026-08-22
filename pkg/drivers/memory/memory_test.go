@@ -338,11 +338,11 @@ func TestWatch(t *testing.T) {
 
 	// Watch all events from the beginning.
 	wctx, cancel := context.WithCancel(ctx)
-	wr := b.Watch(wctx, "/", "0", 1)
+	wr := b.Watch(wctx, 1)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
-	var events []*server.Event
+	var events server.Events
 	for es := range wr.Events {
 		events = append(events, es...)
 	}
@@ -350,7 +350,7 @@ func TestWatch(t *testing.T) {
 
 	// Watch filtered by prefix.
 	wctx, cancel = context.WithCancel(ctx)
-	wr = b.Watch(wctx, "/test/a/", "/test/a0", 1)
+	wr = b.Watch(wctx, 1)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
@@ -367,7 +367,7 @@ func TestWatchNewEvents(t *testing.T) {
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	wr := b.Watch(wctx, "/test/", "/test0", 0)
+	wr := b.Watch(wctx, 0)
 
 	// Write after watch starts.
 	b.Create(ctx, "/test/a", []byte("hello"), 0)
@@ -390,7 +390,7 @@ func TestWatchPrevKV(t *testing.T) {
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	wr := b.Watch(wctx, "/test/", "/test0", 0)
+	wr := b.Watch(wctx, 0)
 
 	b.Update(ctx, "/test/a", []byte("v2"), rev, 0)
 
@@ -555,7 +555,7 @@ func TestWatchCompacted(t *testing.T) {
 	b.Create(ctx, "/test/b", nil, 0)
 	b.Compact(ctx, 2)
 
-	wr := b.Watch(ctx, "/test/", "/test0", 1)
+	wr := b.Watch(ctx, 1)
 	expEqual(t, int64(2), wr.CompactRevision)
 
 	// Events channel should be closed immediately.
