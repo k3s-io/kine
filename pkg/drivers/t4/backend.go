@@ -192,7 +192,7 @@ func (b *backend) Watch(ctx context.Context, key, end string, revision int64) ks
 	errCh := make(chan error, 1)
 	eventCh := make(chan []*kserver.Event, 64)
 
-	if revision > 0 && revision <= compactRev {
+	if revision > 0 && revision < compactRev {
 		errCh <- kserver.ErrCompacted
 		close(errCh)
 		close(eventCh)

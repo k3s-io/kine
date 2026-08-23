@@ -241,6 +241,43 @@ func TestT4Backend_CompactAndCompactedWatch(t *testing.T) {
 	}
 }
 
+func TestT4Backend_WatchAtCompactRevision(t *testing.T) {
+	b, ctx := newLocalBackend(t)
+
+	rev1, err := b.Create(ctx, "/cw/k", []byte("v1"), 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	rev2, _, _, err := b.Update(ctx, "/cw/k", []byte("v2"), rev1, 0)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if _, err := b.Compact(ctx, rev2); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+
+	// Watching at the compact revision is required to work and to replay the
+	// event recorded at that revision.
+	wr := b.Watch(ctx, "/cw/", "/cw0", rev2)
+	select {
+	case err, ok := <-wr.Errorc:
+		t.Fatalf("Watch at compact revision: unexpected error %v (chan open: %v)", err, ok)
+	case evs, ok := <-wr.Events:
+		if !ok {
+			t.Fatal("Watch at compact revision: event channel closed")
+		}
+		if len(evs) == 0 {
+			t.Fatal("Watch at compact revision: empty event batch")
+		}
+		if got := evs[0].KV.ModRevision; got != rev2 {
+			t.Errorf("replayed event: want ModRevision %d, got %d", rev2, got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Watch at compact revision: timeout waiting for replay")
+	}
+}
+
 func TestT4Backend_FutureRevisionRejected(t *testing.T) {
 	b, ctx := newLocalBackend(t)
 
