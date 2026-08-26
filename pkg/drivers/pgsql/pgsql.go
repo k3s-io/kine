@@ -3,7 +3,6 @@ package pgsql
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"fmt"
 	"net/url"
 	"os"
@@ -64,13 +63,13 @@ var (
 )
 
 func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, server.Backend, error) {
-	config, err := prepareConfig(cfg.DataSourceName, cfg.BackendTLSConfig)
+	config, connOpts, err := prepareConfig(ctx, cfg.DataSourceName, cfg.BackendTLSConfig)
 	if err != nil {
 		return false, nil, err
 	}
 
-	connector := stdlib.GetConnector(*config)
-	if err := createDBIfNotExist(ctx, config, connector); err != nil {
+	connector := stdlib.GetConnector(*config, connOpts...)
+	if err := createDBIfNotExist(ctx, config, connOpts); err != nil {
 		return false, nil, err
 	}
 
@@ -179,10 +178,10 @@ func setup(db *sql.DB) error {
 	return nil
 }
 
-func createDBIfNotExist(ctx context.Context, config *pgx.ConnConfig, connector driver.Connector) error {
+func createDBIfNotExist(ctx context.Context, config *pgx.ConnConfig, connOpts []stdlib.OptionOpenDB) error {
 	createConfig := config.Copy()
 	createConfig.Database = "postgres"
-	connector = stdlib.GetConnector(*createConfig)
+	connector := stdlib.GetConnector(*createConfig, connOpts...)
 	conn, err := connector.Connect(ctx)
 	if err != nil {
 		logrus.Warnf("failed to ensure existence of database %s: unable to connect to default postgres database: %v", createConfig.Database, err)
@@ -211,7 +210,7 @@ func createDBIfNotExist(ctx context.Context, config *pgx.ConnConfig, connector d
 	return nil
 }
 
-func prepareConfig(dataSourceName string, tlsInfo tls.Config) (*pgx.ConnConfig, error) {
+func prepareConfig(ctx context.Context, dataSourceName string, tlsInfo tls.Config) (*pgx.ConnConfig, []stdlib.OptionOpenDB, error) {
 	if len(dataSourceName) == 0 {
 		dataSourceName = defaultDSN
 	} else {
@@ -219,7 +218,7 @@ func prepareConfig(dataSourceName string, tlsInfo tls.Config) (*pgx.ConnConfig, 
 	}
 	u, err := util.ParseURL(dataSourceName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(u.Path) == 0 || u.Path == "/" {
 		u.Path = "/kubernetes"
@@ -231,7 +230,7 @@ func prepareConfig(dataSourceName string, tlsInfo tls.Config) (*pgx.ConnConfig, 
 
 	queryMap, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// set up tls dsn
 	params := url.Values{}
@@ -257,10 +256,20 @@ func prepareConfig(dataSourceName string, tlsInfo tls.Config) (*pgx.ConnConfig, 
 	u.RawQuery = params.Encode()
 	config, err := pgx.ParseConfig(u.String())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	config.DialFunc = dialer.CachingDialer.DialContext
-	return config, nil
+
+	var connOpts []stdlib.OptionOpenDB
+	if config.Password == "" {
+		// Try AWS IAM authentication
+		connOpts, err = awsIAMConnOptions(ctx, config)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return config, connOpts, nil
 }
 
 func init() {

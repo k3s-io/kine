@@ -40,3 +40,22 @@ k3s server --datastore-endpoint "mysql://root:$PASSWORD@tcp(localhost:3306)/kine
 ```
 
 And that's it! You can now use `k3s` with `mysql` as a db.
+
+## Using with AWS RDS IAM authentication for PostgresSQL
+
+Kine supports IAM database authentication for PostgreSQL: https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAMDBAuth.html
+
+Create an IAM user in PostgresSQL with these grants:
+
+```sql
+CREATE USER iam_user_kine CREATEDB;
+GRANT rds_iam TO iam_user_kine;
+```
+
+Specify the user in the connection string without a password e.g.
+
+```bash
+kine --endpoint "postgres://iam_user_kine@$RDS_HOST:5432/kine?sslmode=verify-full&sslrootcert=rds-global-bundle.pem"
+```
+
+By default, the AWS region used for authentication will match the environment where kine is being run (via IDMS lookup), however this can be overriden by setting environment variable `AWS_REGION`.
