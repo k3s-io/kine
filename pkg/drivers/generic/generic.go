@@ -33,7 +33,7 @@ var (
 	WithOldVal = WithVal + ", old_value"
 	ListFmt    = `
 		SELECT current_rev, compact_rev, %s
-		FROM (%s) AS kv_current, (%s) AS kv_compact, kine
+		FROM (%s) AS current_rev, (%s) AS compact_rev, kine
 		INNER JOIN (%s) AS mkv USING (id)
 		WHERE (deleted = 0 OR ?)
 		ORDER BY name ASC
@@ -204,14 +204,14 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS kv_current, (%s) AS kv_compact, kine
+			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
 			WHERE id = (%s)
 			AND (deleted = 0 OR ?)`,
 			Columns, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingle"),
 
 		GetSingleValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS kv_current, (%s) AS kv_compact, kine
+			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
 			WHERE id = (%s)
 			AND (deleted = 0 OR ?)`,
 			WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingleVal"),
@@ -232,7 +232,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 
 		AfterOldValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS kv_current, (%s) AS kv_compact, kine
+			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
 			WHERE	name >= ? AND name < ?
 			AND	id > ?
 			ORDER BY id ASC`,
@@ -240,14 +240,14 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 
 		AfterAllOldValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS kv_current, (%s) AS kv_compact, kine
+			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
 			WHERE id > ?
 			ORDER BY id ASC`,
 			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterAllOldVal"),
 
 		AfterSingleOldValSQL: query.New(fmt.Sprintf(`
 			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS kv_current, (%s) AS kv_compact, kine
+			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
 			WHERE name = ?
 			AND id > ?
 			ORDER BY id ASC`,
