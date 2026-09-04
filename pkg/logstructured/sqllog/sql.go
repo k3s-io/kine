@@ -18,16 +18,45 @@ import (
 
 const minCompactBatchSize = 100
 
+// maxPollStall is how long the poll loop may go without advancing before compaction stops holding
+// its target back to the poll cursor. Under load the cursor should advance continuously, so this
+// limit wouldn't be hit. When the datastore is idle it sits at the current revision and the limit
+// isn't needed either. If it stops moving for this long the poll loop is assumed to be wedged for
+// some unrelated reason, and compaction is allowed to proceed so that the database does not grow
+// unbounded. The poll loop will then hit a compacted revision and restart the watch stream,
+// matching what happens in the etcd-based code in k8s.io/apiserver.
+const maxPollStall = time.Minute
+
+// maxCompactHold bounds how far compaction may be held back from the revision it would otherwise
+// compact to, while waiting on the poll loop. We need both this and maxPollStall because, under
+// sustained overload the poll cursor keeps advancing, just more slowly than the write head, so the
+// hold would grow without limit and take the size of the database with it. Past this distance the
+// reader is not likely going to catch up, so compaction proceeds anyway and the poll loop takes the
+// same compacted-revision restart it would have taken had we never held it back.
+const maxCompactHold = 10000
+
 type SQLLog struct {
 	sync.RWMutex
 
-	d                     server.Dialect
-	broadcaster           broadcaster.Broadcaster
-	ctx                   context.Context
-	notify                chan int64
-	currentRev            atomic.Int64
-	polledRev             atomic.Int64
-	polled                *sync.Cond
+	d           server.Dialect
+	broadcaster broadcaster.Broadcaster
+	ctx         context.Context
+	notify      chan int64
+	currentRev  atomic.Int64
+	polledRev   atomic.Int64
+	polled      *sync.Cond
+
+	// polling is true while the poll loop is running; polledAt records the last time polledRev
+	// actually advanced. Compaction consults both so that it does not delete rows the poll loop has
+	// not read yet. See compact().
+	polling  atomic.Bool
+	polledAt atomic.Int64
+
+	// compactorOnce guards the compactor goroutine. The poll loop can now exit
+	// and be restarted by the broadcaster, which calls startWatch again; without
+	// this we would leak an additional compactor on every restart.
+	compactorOnce sync.Once
+
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -256,6 +285,21 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	// Ensure that we never compact the most recent 1000 revisions
 	targetCompactRev = safeCompactRev(targetCompactRev, currentRev, s.compactMinRetain)
 
+	// Never compact past the poll loop's position while it is making progress. The poll loop is not
+	// a client watcher that can be told to resync. It is this process' _only_ reader of the log,
+	// and every watch is fed from it. Deleting rows it has not read yet leaves a permanent hole
+	// that cannot be filled, causing a hang. See the actual poll() loop for why this is a problem
+	// and how it is handled.
+	if s.polling.Load() && time.Since(time.Unix(0, s.polledAt.Load())) < maxPollStall {
+		if polledRev := s.polledRev.Load(); polledRev > 0 && targetCompactRev > polledRev {
+			// Hold back to the poll cursor, but never by more than maxCompactHold.
+			if heldRev := max(polledRev, targetCompactRev-maxCompactHold); heldRev < targetCompactRev {
+				logrus.Debugf("COMPACT holding target revision %d back to %d for poll cursor %d", targetCompactRev, heldRev, polledRev)
+				targetCompactRev = heldRev
+			}
+		}
+	}
+
 	// Don't bother compacting to a revision that has already been compacted
 	if targetCompactRev <= compactRev {
 		logrus.Tracef("COMPACT revision %d has already been compacted", targetCompactRev)
@@ -462,12 +506,15 @@ func (s *SQLLog) startWatch() (chan server.Events, error) {
 	maxJitter := float64(s.compactIntervalJitter) / 100.0 * float64(s.compactInterval)
 	jitter := time.Duration(rand.Float64()*2*maxJitter - maxJitter)
 
-	// start compaction and polling at the same time to watch starts
-	// at the oldest revision, but compaction doesn't create gaps
+	// The compactor is started only once for the lifetime of the SQLLog. The poll loop may exit and
+	// be restarted (see poll()), which brings us back through startWatch, and a second compactor
+	// would double-compact.
 	if s.compactInterval <= 0 {
 		logrus.Debugf("COMPACT disabled; automatic compaction will not occur")
 	} else {
-		go s.compactor(s.compactInterval + jitter)
+		s.compactorOnce.Do(func() {
+			go s.compactor(s.compactInterval + jitter)
+		})
 	}
 
 	go s.poll(c, pollStart)
@@ -480,12 +527,19 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		skipTime     time.Time
 		waitForMore  = true
 		pollRevision = pollStart
+		lastPolled   = pollStart
 		trace        = logrus.IsLevelEnabled(logrus.TraceLevel)
 	)
 
 	wait := time.NewTicker(time.Second)
 	defer wait.Stop()
 	defer close(result)
+
+	// This is where we mark that the poll loop is running and record the last time it advanced. The
+	// compactor consults both of these to avoid deleting rows that the poll loop has not yet read.
+	s.polling.Store(true)
+	s.polledAt.Store(time.Now().UnixNano())
+	defer s.polling.Store(false)
 
 	for {
 		if waitForMore {
@@ -503,6 +557,10 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 
 		//  update polled revision to reflect what rows have already been seen
 		s.Lock()
+		if pollRevision != lastPolled {
+			lastPolled = pollRevision
+			s.polledAt.Store(time.Now().UnixNano())
+		}
 		s.polledRev.Store(pollRevision)
 		s.polled.Broadcast()
 		s.Unlock()
@@ -515,7 +573,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			continue
 		}
 
-		_, _, events, err := RowsToEvents(rows, true, true)
+		_, compactRev, events, err := RowsToEvents(rows, true, true)
 		if err != nil {
 			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
@@ -544,6 +602,25 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			if event.KV.ModRevision != next {
 				if trace {
 					logrus.Tracef("MODREVISION GAP: expected %v, got %v", next, event.KV.ModRevision)
+				}
+				// NOTE: If the missing revision is at or below the compact revision then its row
+				// has been deleted and is never coming back. Filling the gap would advance the poll
+				// cursor past a revision whose event was never broadcast, silently desyncing every
+				// watcher. The major problem with this is that filling only advances the cursor one
+				// revision per round trip (at least in the one implementation of the Dialect
+				// interface). So in a busy system with lots of writers, this unintentionally
+				// throttles this loop to a crawl by doing one insert at a time, which writes can
+				// easily outpace. Essentially this leads to all watchers returning nothing (and any
+				// new watchers also not working because it is all fed from this same poll)
+				//
+				// So we do what etcd does when a watcher falls behind the compact revision: kill
+				// the poll by returning, which closes the broadcast, which cancels every watcher.
+				// Clients re-establish, and Watch() returns ErrCompacted with the compact revision
+				// for any client that is now below it, so the apiserver relists. A fresh poll loop
+				// then starts at the current revision.
+				if compactRev > 0 && next <= compactRev {
+					logrus.Errorf("POLL revision %d has been compacted (compact revision %d); restarting watch stream so clients resync", next, compactRev)
+					return
 				}
 				if canSkipRevision(next, skip, skipTime) {
 					// This situation should never happen, but we have it here as a fallback just for unknown reasons
