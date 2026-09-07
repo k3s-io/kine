@@ -382,9 +382,7 @@ func (d *Generic) ListCurrent(ctx context.Context, key, end string, limit int64,
 	} else {
 		sql = d.ListCurrentValSQL
 	}
-	if limit > 0 {
-		sql = sql.Appendf("LIMIT %d", limit)
-	}
+	sql = sql.WithLimit(limit)
 	return d.query(ctx, sql, key, end, includeDeleted)
 }
 
@@ -396,9 +394,7 @@ func (d *Generic) List(ctx context.Context, key, end string, limit, revision int
 		} else {
 			sql = d.ListRevisionStartValSQL
 		}
-		if limit > 0 {
-			sql = sql.Appendf("LIMIT %d", limit)
-		}
+		sql = sql.WithLimit(limit)
 		return d.query(ctx, sql, key, revision, includeDeleted)
 	}
 	if keysOnly {
@@ -406,9 +402,7 @@ func (d *Generic) List(ctx context.Context, key, end string, limit, revision int
 	} else {
 		sql = d.GetRevisionAfterValSQL
 	}
-	if limit > 0 {
-		sql = sql.Appendf("LIMIT %d", limit)
-	}
+	sql = sql.WithLimit(limit)
 	return d.query(ctx, sql, key, end, revision, includeDeleted)
 }
 
