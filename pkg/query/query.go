@@ -7,7 +7,16 @@ import (
 	"strings"
 )
 
+// LimitToken marks the position in a query where WithLimit should place the
+// row limit clause. It is written as a comment so that a query carrying it
+// remains valid SQL even if the limit is never applied.
+const LimitToken = "/*limit*/"
+
 var whitespace = regexp.MustCompile(`[\n\t ]+`)
+
+// limitToken matches LimitToken along with any whitespace preceding it, so that
+// removing the token does not leave a stray space behind.
+var limitToken = regexp.MustCompile(`\s*` + regexp.QuoteMeta(LimitToken))
 var params = regexp.MustCompile(`\?|\$[0-9]+`)
 
 // Named is a named SQL query string that formats nicely when stringed.
@@ -37,6 +46,26 @@ func New(query, param string, numbered bool, name string) *Named {
 // Append returns a copy of the named query, with additional text appended to the query string.
 func (n *Named) Appendf(format string, a ...any) *Named {
 	return &Named{Name: n.Name, Query: n.Query + " " + fmt.Sprintf(format, a...)}
+}
+
+// WithLimit returns a copy of the named query with a row limit applied.
+//
+// Queries containing LimitToken have it replaced by the limit clause, which
+// lets a driver position the limit inside a subquery instead of at the end of
+// the statement. Queries without the token get the limit appended, as before.
+// A limit of zero or less applies no limit, and only strips the token.
+func (n *Named) WithLimit(limit int64) *Named {
+	var clause string
+	if limit > 0 {
+		clause = " LIMIT " + strconv.FormatInt(limit, 10)
+	}
+	if limitToken.MatchString(n.Query) {
+		return &Named{Name: n.Name, Query: limitToken.ReplaceAllLiteralString(n.Query, clause)}
+	}
+	if clause == "" {
+		return n
+	}
+	return &Named{Name: n.Name, Query: n.Query + clause}
 }
 
 // String nicely formats the query and name for printing in logs.
