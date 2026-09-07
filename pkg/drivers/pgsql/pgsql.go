@@ -54,6 +54,38 @@ var (
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 		`CREATE INDEX IF NOT EXISTS kine_list_query_index on kine(name, id DESC, deleted)`,
 	}
+	// listFmt selects the current revision of every key in a range, in name
+	// order, with the row limit applied to the key set instead of to the joined
+	// result. DISTINCT ON keeps the whole row available, so the deleted filter
+	// runs ahead of the limit and the key scan can stop as soon as the limit is
+	// satisfied, rather than aggregating the entire range first as the portable
+	// query in generic.ListFmt has to.
+	//
+	// Format args: current revision, compact revision, columns, key selection.
+	listFmt = `
+		SELECT (%s) AS current_rev, (%s) AS compact_rev, %s
+		FROM (
+			SELECT dkv.id AS list_id
+			FROM (%s) AS dkv
+			WHERE (dkv.deleted = 0 OR ?)
+			ORDER BY dkv.name ASC
+			` + query.LimitToken + `
+		) AS mkv
+		JOIN kine ON kine.id = mkv.list_id
+		ORDER BY kine.name ASC`
+
+	// distinctNameSQL selects the highest id -- the current revision -- of every
+	// key in [key, end), carrying deleted along for the filter above.
+	// Format arg: optional revision bound.
+	distinctNameSQL = `
+		SELECT DISTINCT ON (name) name, id, deleted
+		FROM kine
+		WHERE name >= ? AND name < ? %s
+		ORDER BY name ASC, id DESC`
+
+	listSQL    = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.Columns, distinctNameSQL)
+	listValSQL = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.WithVal, distinctNameSQL)
+
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
 		// It is important to set the collation to "C" to ensure that LIKE and COMPARISON
@@ -99,6 +131,11 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.id <= $4
 		) AS ks
 		WHERE kv.id = ks.id`, "$", true, "Compact")
+	// Push the row limit into the key selection; see listFmt.
+	dialect.ListCurrentSQL = query.New(fmt.Sprintf(listSQL, ""), "$", true, "ListCurrent")
+	dialect.ListCurrentValSQL = query.New(fmt.Sprintf(listValSQL, ""), "$", true, "ListCurrentVal")
+	dialect.GetRevisionAfterSQL = query.New(fmt.Sprintf(listSQL, "AND id <= ?"), "$", true, "GetRevisionAfter")
+	dialect.GetRevisionAfterValSQL = query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), "$", true, "GetRevisionAfterVal")
 	dialect.FillRetryDuration = time.Millisecond + 5
 	dialect.InsertRetry = func(err error) bool {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
