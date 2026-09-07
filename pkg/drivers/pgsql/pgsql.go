@@ -88,13 +88,15 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 			WHERE
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
-				kp.id <= $1
+				kp.id > $1 AND
+				kp.id <= $2
 			UNION
 			SELECT kd.id AS id
 			FROM kine AS kd
 			WHERE
 				kd.deleted != 0 AND
-				kd.id <= $2
+				kd.id > $3 AND
+				kd.id <= $4
 		) AS ks
 		WHERE kv.id = ks.id`, "$", true, "Compact")
 	dialect.FillRetryDuration = time.Millisecond + 5

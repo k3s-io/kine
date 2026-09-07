@@ -265,7 +265,8 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	logrus.Infof("COMPACT compactRev=%d targetCompactRev=%d currentRev=%d", compactRev, targetCompactRev, currentRev)
 
 	start := time.Now()
-	deletedRows, err := t.Compact(s.ctx, targetCompactRev)
+	// compact revisions from old compact revision to new target
+	deletedRows, err := t.Compact(s.ctx, compactRev, targetCompactRev)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
