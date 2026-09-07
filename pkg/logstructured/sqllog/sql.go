@@ -529,7 +529,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			continue
 		}
 
-		waitForMore = len(events) < 100
+		waitForMore = int64(len(events)) < s.pollBatchSize
 
 		var (
 			rev        = pollRevision
