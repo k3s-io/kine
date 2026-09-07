@@ -101,12 +101,14 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 			WHERE
 				kp.name != 'compact_rev_key' AND
 				kp.prev_revision != 0 AND
+				kp.id > ? AND
 				kp.id <= ?
 			UNION
 			SELECT kd.id AS id
 			FROM kine AS kd
 			WHERE
 				kd.deleted != 0 AND
+				kd.id > ? AND
 				kd.id <= ?
 		) AS ks
 		ON kv.id = ks.id`,
