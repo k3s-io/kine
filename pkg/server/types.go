@@ -52,7 +52,7 @@ type Dialect interface {
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
 	SetCompactRevision(ctx context.Context, revision int64) error
-	Compact(ctx context.Context, revision int64) (int64, error)
+	Compact(ctx context.Context, from, to int64) (int64, error)
 	PostCompact(ctx context.Context) error
 	Fill(ctx context.Context, revision int64) error
 	IsFill(key string) bool
@@ -69,7 +69,7 @@ type Transaction interface {
 	MustRollback()
 	GetCompactRevision(ctx context.Context) (int64, error)
 	SetCompactRevision(ctx context.Context, revision int64) error
-	Compact(ctx context.Context, revision int64) (int64, error)
+	Compact(ctx context.Context, from, to int64) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error
 	CurrentRevision(ctx context.Context) (int64, error)
 }

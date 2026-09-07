@@ -71,9 +71,9 @@ func (t *Tx) SetCompactRevision(ctx context.Context, revision int64) error {
 	return err
 }
 
-func (t *Tx) Compact(ctx context.Context, revision int64) (int64, error) {
-	logrus.Tracef("TX COMPACT %v", revision)
-	res, err := t.execute(ctx, t.d.CompactSQL, revision, revision)
+func (t *Tx) Compact(ctx context.Context, from, to int64) (int64, error) {
+	logrus.Tracef("TX COMPACT %v => %v", from, to)
+	res, err := t.execute(ctx, t.d.CompactSQL, from, to, from, to)
 	if err != nil {
 		return 0, err
 	}
