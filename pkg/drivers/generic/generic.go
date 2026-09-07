@@ -314,7 +314,7 @@ func (d *Generic) execute(ctx context.Context, sql *query.Named, args ...any) (r
 		metrics.ObserveSQL(startTime, d.ErrCode(err), retries, query)
 	}()
 
-	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
+	wait := strategy.Backoff(backoff.Linear(100 * time.Millisecond))
 	for ; retries < 20; retries++ {
 		logrus.Tracef("EXEC (try=%d): %s", retries, query)
 		result, err = d.DB.ExecContext(ctx, sql.Query, args...)
@@ -509,7 +509,7 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 	// visible until the transaction completes, at which point we may have already created a gap fill record.
 	// Retry the insert if the driver indicates a retriable insert error, to avoid presenting a spurious
 	// duplicate key error to the client.
-	wait := strategy.Backoff(backoff.Linear(100 + time.Millisecond))
+	wait := strategy.Backoff(backoff.Linear(100 * time.Millisecond))
 	for i := uint(0); i < 20; i++ {
 		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, previousRevision)
 		err = row.Scan(&id)
