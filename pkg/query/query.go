@@ -10,13 +10,10 @@ import (
 // LimitToken marks the position in a query where WithLimit should place the
 // row limit clause. It is written as a comment so that a query carrying it
 // remains valid SQL even if the limit is never applied.
-const LimitToken = "/*limit*/"
+const LimitToken = "/* LIMIT */"
 
 var whitespace = regexp.MustCompile(`[\n\t ]+`)
 
-// limitToken matches LimitToken along with any whitespace preceding it, so that
-// removing the token does not leave a stray space behind.
-var limitToken = regexp.MustCompile(`\s*` + regexp.QuoteMeta(LimitToken))
 var params = regexp.MustCompile(`\?|\$[0-9]+`)
 
 // Named is a named SQL query string that formats nicely when stringed.
@@ -49,23 +46,18 @@ func (n *Named) Appendf(format string, a ...any) *Named {
 }
 
 // WithLimit returns a copy of the named query with a row limit applied.
-//
-// Queries containing LimitToken have it replaced by the limit clause, which
-// lets a driver position the limit inside a subquery instead of at the end of
-// the statement. Queries without the token get the limit appended, as before.
-// A limit of zero or less applies no limit, and only strips the token.
+// If limit is less than 1, the query is returned without modification; no
+// limit is applied. If the query contains a LimitToken placeholder, the
+// placeholder comment is replaced with the limit clause. If it does not, the
+// limit clause is appended.
 func (n *Named) WithLimit(limit int64) *Named {
-	var clause string
-	if limit > 0 {
-		clause = " LIMIT " + strconv.FormatInt(limit, 10)
-	}
-	if limitToken.MatchString(n.Query) {
-		return &Named{Name: n.Name, Query: limitToken.ReplaceAllLiteralString(n.Query, clause)}
-	}
-	if clause == "" {
+	if limit < 1 {
 		return n
 	}
-	return &Named{Name: n.Name, Query: n.Query + clause}
+	if strings.Contains(n.Query, LimitToken) {
+		return &Named{Name: n.Name, Query: strings.Replace(n.Query, LimitToken, fmt.Sprintf("LIMIT %d", limit), 1)}
+	}
+	return n.Appendf("LIMIT %d", limit)
 }
 
 // String nicely formats the query and name for printing in logs.

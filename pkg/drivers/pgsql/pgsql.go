@@ -54,37 +54,29 @@ var (
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 		`CREATE INDEX IF NOT EXISTS kine_list_query_index on kine(name, id DESC, deleted)`,
 	}
-	// listFmt selects the current revision of every key in a range, in name
-	// order, with the row limit applied to the key set instead of to the joined
-	// result. DISTINCT ON keeps the whole row available, so the deleted filter
-	// runs ahead of the limit and the key scan can stop as soon as the limit is
-	// satisfied, rather than aggregating the entire range first as the portable
-	// query in generic.ListFmt has to.
-	//
-	// Format args: current revision, compact revision, columns, key selection.
+
 	listFmt = `
 		SELECT (%s) AS current_rev, (%s) AS compact_rev, %s
 		FROM (
 			SELECT dkv.id AS list_id
 			FROM (%s) AS dkv
 			WHERE (dkv.deleted = 0 OR ?)
-			ORDER BY dkv.name ASC
-			` + query.LimitToken + `
+			ORDER BY dkv.name ASC %s
 		) AS mkv
 		JOIN kine ON kine.id = mkv.list_id
 		ORDER BY kine.name ASC`
 
-	// distinctNameSQL selects the highest id -- the current revision -- of every
-	// key in [key, end), carrying deleted along for the filter above.
-	// Format arg: optional revision bound.
+	// use a subquery to extract `name, id DESC, deleted` so that the postgres
+	// query planner will make use of kine_list_query_index; by default the `MAX(id)`
+	// plans as a separate group aggregate which will not use the index.
 	distinctNameSQL = `
 		SELECT DISTINCT ON (name) name, id, deleted
 		FROM kine
 		WHERE name >= ? AND name < ? %s
 		ORDER BY name ASC, id DESC`
 
-	listSQL    = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.Columns, distinctNameSQL)
-	listValSQL = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.WithVal, distinctNameSQL)
+	listSQL    = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.Columns, distinctNameSQL, query.LimitToken)
+	listValSQL = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.WithVal, distinctNameSQL, query.LimitToken)
 
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,
