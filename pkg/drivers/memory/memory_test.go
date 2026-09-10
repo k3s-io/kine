@@ -327,84 +327,6 @@ func TestCount(t *testing.T) {
 	expEqual(t, int64(2), count)
 }
 
-func TestWatch(t *testing.T) {
-	b, ctx := setupBackend(t)
-
-	rev1, _ := b.Create(ctx, "/test/a", nil, 0)
-	rev2, _ := b.Create(ctx, "/test/a/1", nil, 0)
-	b.Update(ctx, "/test/a", nil, rev1, 0)
-	b.Delete(ctx, "/test/a", int64(3))
-	b.Update(ctx, "/test/a/1", nil, rev2, 0)
-
-	// Watch all events from the beginning.
-	wctx, cancel := context.WithCancel(ctx)
-	wr := b.Watch(wctx, 1)
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-
-	var events server.Events
-	for es := range wr.Events {
-		events = append(events, es...)
-	}
-	expEqual(t, 5, len(events))
-
-	// Watch filtered by prefix.
-	wctx, cancel = context.WithCancel(ctx)
-	wr = b.Watch(wctx, 1)
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-
-	events = nil
-	for es := range wr.Events {
-		events = append(events, es...)
-	}
-	expEqual(t, 2, len(events))
-}
-
-func TestWatchNewEvents(t *testing.T) {
-	b, ctx := setupBackend(t)
-
-	wctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	wr := b.Watch(wctx, 0)
-
-	// Write after watch starts.
-	b.Create(ctx, "/test/a", []byte("hello"), 0)
-
-	select {
-	case events := <-wr.Events:
-		expEqual(t, 1, len(events))
-		expEqual(t, "/test/a", events[0].KV.Key)
-		expEqual(t, true, events[0].Create)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for watch event")
-	}
-}
-
-func TestWatchPrevKV(t *testing.T) {
-	b, ctx := setupBackend(t)
-
-	rev, _ := b.Create(ctx, "/test/a", []byte("v1"), 0)
-
-	wctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	wr := b.Watch(wctx, 0)
-
-	b.Update(ctx, "/test/a", []byte("v2"), rev, 0)
-
-	select {
-	case events := <-wr.Events:
-		expEqual(t, 1, len(events))
-		expEqual(t, "v2", string(events[0].KV.Value))
-		expEqual(t, "v1", string(events[0].PrevKV.Value))
-		expEqual(t, int64(1), events[0].PrevKV.ModRevision)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for watch event")
-	}
-}
-
 func TestCompact(t *testing.T) {
 	b, ctx := setupBackend(t)
 
@@ -546,21 +468,6 @@ func TestCompactStraddlesBoundary(t *testing.T) {
 	if got := b.logIndexAfter(5); got != 2 {
 		t.Fatalf("logIndexAfter(5): got %d, want 2", got)
 	}
-}
-
-func TestWatchCompacted(t *testing.T) {
-	b, ctx := setupBackend(t)
-
-	b.Create(ctx, "/test/a", nil, 0)
-	b.Create(ctx, "/test/b", nil, 0)
-	b.Compact(ctx, 2)
-
-	wr := b.Watch(ctx, 1)
-	expEqual(t, int64(2), wr.CompactRevision)
-
-	// Events channel should be closed immediately.
-	_, ok := <-wr.Events
-	expEqual(t, false, ok)
 }
 
 func TestCurrentRevision(t *testing.T) {

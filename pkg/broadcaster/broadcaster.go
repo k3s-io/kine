@@ -8,15 +8,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type ConnectFunc func() (chan server.Events, error)
+type ConnectFunc func() (chan server.EventBatch, error)
 
 type Broadcaster struct {
 	sync.Mutex
 	running bool
-	subs    map[chan server.Events]struct{}
+	subs    map[chan server.EventBatch]struct{}
 }
 
-func (b *Broadcaster) Watch(ctx context.Context, connect ConnectFunc) <-chan server.Events {
+func (b *Broadcaster) Watch(ctx context.Context, connect ConnectFunc) <-chan server.EventBatch {
 	eventCh, err := b.subscribe(ctx, connect)
 	if err != nil {
 		logrus.Errorf("Failed to subscribe to broadcaster: %v", err)
@@ -25,7 +25,7 @@ func (b *Broadcaster) Watch(ctx context.Context, connect ConnectFunc) <-chan ser
 	return eventCh
 }
 
-func (b *Broadcaster) subscribe(ctx context.Context, connect ConnectFunc) (<-chan server.Events, error) {
+func (b *Broadcaster) subscribe(ctx context.Context, connect ConnectFunc) (<-chan server.EventBatch, error) {
 	b.Lock()
 	defer b.Unlock()
 
@@ -35,9 +35,9 @@ func (b *Broadcaster) subscribe(ctx context.Context, connect ConnectFunc) (<-cha
 		}
 	}
 
-	sub := make(chan server.Events, 100)
+	sub := make(chan server.EventBatch, 100)
 	if b.subs == nil {
-		b.subs = map[chan server.Events]struct{}{}
+		b.subs = map[chan server.EventBatch]struct{}{}
 	}
 	b.subs[sub] = struct{}{}
 	go func() {
@@ -48,7 +48,7 @@ func (b *Broadcaster) subscribe(ctx context.Context, connect ConnectFunc) (<-cha
 	return sub, nil
 }
 
-func (b *Broadcaster) unsub(sub chan server.Events, lock bool) {
+func (b *Broadcaster) unsub(sub chan server.EventBatch, lock bool) {
 	if lock {
 		b.Lock()
 	}
@@ -72,7 +72,7 @@ func (b *Broadcaster) start(connect ConnectFunc) error {
 	return nil
 }
 
-func (b *Broadcaster) stream(input chan server.Events) {
+func (b *Broadcaster) stream(input chan server.EventBatch) {
 	for item := range input {
 		b.Lock()
 		for sub := range b.subs {

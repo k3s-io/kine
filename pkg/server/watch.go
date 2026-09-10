@@ -93,7 +93,7 @@ func (s *server) Send(wr *etcdserverpb.WatchResponse) error {
 	if wr != nil && wr.Header != nil {
 		if wr.WatchId != invalidWatchID && wr.Created {
 			// Watch created, start tracking
-			s.maxRev[wr.WatchId] = &revAt{r: wr.Header.Revision, t: now}
+			s.maxRev[wr.WatchId] = &revAt{t: now}
 		} else if wr.WatchId != invalidWatchID && wr.Canceled {
 			// Watch deleted, stop tracking
 			delete(s.maxRev, wr.WatchId)
@@ -207,8 +207,9 @@ func (w *watcher) Create(ctx context.Context, r *etcdserverpb.WatchCreateRequest
 		return
 	}
 
+	// NOTE: this lock is not released until watch() sends the created response,
+	// to ensure that create responses are not sent out of order.
 	w.Lock()
-	defer w.Unlock()
 
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -242,18 +243,24 @@ func (w *watcher) Create(ctx context.Context, r *etcdserverpb.WatchCreateRequest
 }
 
 func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision int64, progressCh chan int64) {
+	defer logrus.Tracef("WATCH CLOSE server=%d, id=%d, key=%s, end=%s", w.id, id, key, end)
 	defer w.wg.Done()
 
-	if err := w.server.Send(&etcdserverpb.WatchResponse{
-		Header:  &etcdserverpb.ResponseHeader{},
+	wr := w.backend.Watch(ctx, startRevision)
+	err := w.server.Send(&etcdserverpb.WatchResponse{
+		Header:  txnHeader(wr.CurrentRevision),
 		Created: true,
 		WatchId: id,
-	}); err != nil {
+	})
+
+	// NOTE: this releases a lock taken in Create() that ensures that create
+	// requests and responses are processed sequentially.
+	w.Unlock()
+
+	if err != nil {
 		w.Cancel(id, 0, 0, err)
 		return
 	}
-
-	wr := w.backend.Watch(ctx, startRevision)
 
 	// If the watch result has a non-zero CompactRevision, then the watch request failed due to
 	// the requested start revision having been compacted.  Pass the current and and compact
@@ -265,21 +272,21 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 
 	outer := true
 	for outer {
-		var reads int
-		var events Events
 		var revision int64
+		var batch EventBatch
 
 		// Block on initial read from events or progress channel
 		select {
-		case events = <-wr.Events:
+		case batch = <-wr.Eventc:
 			// got events; read additional queued events from the channel and add to batch
-			reads++
 			inner := true
 			for inner {
 				select {
-				case e, ok := <-wr.Events:
-					reads++
-					events = append(events, e...)
+				case b, ok := <-wr.Eventc:
+					batch.Events = append(batch.Events, b.Events...)
+					if batch.CurrentRev < b.CurrentRev {
+						batch.CurrentRev = b.CurrentRev
+					}
 					if !ok {
 						// channel was closed, break out of both loops
 						inner = false
@@ -290,23 +297,25 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 				}
 			}
 			// get max revision from collected events
-			if i := len(events) - 1; i >= 0 && events[i] != nil {
-				revision = events[i].KV.ModRevision
-			}
+			revision = batch.CurrentRev
 		case progressRev := <-progressCh:
-			// have been requested to send progress with no events;
+			// have been requested to send progress with no events
 			revision = progressRev
 		}
 
-		// send response - note that there are no events if this is a progress response
+		// send response - note that there are no events if this is a progress notification.
+		// only send with no events if the watcher has requested progress notifications.
 		if revision >= startRevision {
-			wr := &etcdserverpb.WatchResponse{
-				Header:  txnHeader(revision),
-				WatchId: id,
-				Events:  toEvents(key, end, events),
-			}
-			if err := w.server.Send(wr); err != nil {
-				w.Cancel(id, 0, 0, err)
+			events := toEvents(key, end, batch)
+			if progressCh != nil || len(events) > 0 {
+				wr := &etcdserverpb.WatchResponse{
+					Header:  txnHeader(revision),
+					WatchId: id,
+					Events:  events,
+				}
+				if err := w.server.Send(wr); err != nil {
+					w.Cancel(id, 0, 0, err)
+				}
 			}
 		}
 	}
@@ -317,12 +326,11 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 	default:
 		w.Cancel(id, 0, 0, nil)
 	}
-	logrus.Tracef("WATCH CLOSE server=%d, id=%d, key=%s", w.id, id, key)
 }
 
-func toEvents(key, end string, events Events) []*mvccpb.Event {
-	ret := make([]*mvccpb.Event, 0, len(events))
-	for _, e := range events {
+func toEvents(key, end string, batch EventBatch) []*mvccpb.Event {
+	var ret []*mvccpb.Event
+	for _, e := range batch.Events {
 		if e.InRange(key, end) {
 			ret = append(ret, toEvent(e))
 		}

@@ -194,49 +194,44 @@ func (b *backend) Watch(ctx context.Context, revision int64) kserver.WatchResult
 	ctx, cancel := context.WithCancel(ctx)
 	readChan := b.broadcaster.Watch(ctx, b.startWatch)
 
-	result := make(chan kserver.Events, 100)
+	result := make(chan kserver.EventBatch, 100)
 	errc := make(chan error, 1)
-	wr := kserver.WatchResult{Events: result, Errorc: errc}
+	wr := kserver.WatchResult{Eventc: result, Errorc: errc}
 
 	// include the current revision in list
 	if revision > 1 {
 		revision--
 	}
 
-	var rev int64
-	var kvs kserver.Events
+	var batch kserver.EventBatch
 	var err error
 
-	if revision != 0 {
-		rev, kvs, err = b.after(ctx, revision)
-		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				logrus.Errorf("Failed to list for revision %d: %v", revision, err)
-				if err == kserver.ErrCompacted {
-					wr.CompactRevision = b.node.CompactRevision()
-					wr.CurrentRevision = rev
-				} else {
-					errc <- kserver.ErrGRPCUnhealthy
-				}
-			}
-			cancel()
-		}
-		logrus.Tracef("WATCH LIST rev=%d => rev=%d kvs=%d", revision, rev, len(kvs))
+	if revision == 0 {
+		wr.CurrentRevision, err = b.CurrentRevision(ctx)
+		batch.CurrentRev = wr.CurrentRevision
+	} else {
+		batch, err = b.after(ctx, revision)
+		wr.CurrentRevision = batch.CurrentRev
 	}
 
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			if err == kserver.ErrCompacted {
+				wr.CompactRevision = b.node.CompactRevision()
+			} else {
+				errc <- kserver.ErrGRPCUnhealthy
+			}
+		}
+		cancel()
+	}
+
+	result <- batch
+
+	rev := wr.CurrentRevision
 	go func() {
-		if len(kvs) > 0 {
-			revision = rev
-		}
-
-		if len(kvs) > 0 {
-			result <- kvs
-			kvs = nil
-		}
-
 		// always ensure we fully read the channel
 		for i := range readChan {
-			result <- i.After(revision)
+			result <- i.After(rev)
 		}
 		close(result)
 		cancel()
@@ -245,8 +240,8 @@ func (b *backend) Watch(ctx context.Context, revision int64) kserver.WatchResult
 	return wr
 }
 
-func (b *backend) startWatch() (chan kserver.Events, error) {
-	events := make(chan kserver.Events)
+func (b *backend) startWatch() (chan kserver.EventBatch, error) {
+	events := make(chan kserver.EventBatch)
 	rev := b.node.CompactRevision()
 	if rev == 0 {
 		rev++
@@ -268,15 +263,16 @@ func (b *backend) startWatch() (chan kserver.Events, error) {
 		// loop only takes immediately available events.
 		const maxBatch = 64
 		for ev := range ch {
-			batch := kserver.Events{toServerEvent(&ev)}
+			batch := kserver.EventBatch{CurrentRev: ev.KV.Revision, Events: []*kserver.Event{toServerEvent(&ev)}}
 		drain:
-			for len(batch) < maxBatch {
+			for len(batch.Events) < maxBatch {
 				select {
 				case ev2, ok := <-ch:
 					if !ok {
 						break drain
 					}
-					batch = append(batch, toServerEvent(&ev2))
+					batch.Events = append(batch.Events, toServerEvent(&ev2))
+					batch.CurrentRev = ev2.KV.Revision
 				default:
 					break drain
 				}
@@ -291,35 +287,35 @@ func (b *backend) startWatch() (chan kserver.Events, error) {
 	return events, nil
 }
 
-func (b *backend) after(ctx context.Context, revision int64) (int64, kserver.Events, error) {
+func (b *backend) after(ctx context.Context, revision int64) (kserver.EventBatch, error) {
 	// watch is inclusive, so start at the next revision
 	revision++
-	currentRev := b.node.CurrentRevision()
-	if revision > currentRev {
-		return currentRev, nil, nil
-	} else if revision < b.node.CompactRevision() {
-		return currentRev, nil, kserver.ErrCompacted
+	batch := kserver.EventBatch{CurrentRev: b.node.CurrentRevision()}
+	// The compact revision itself can still be queried, so it is only an error to watch anything before compactRev - 1
+	if revision > batch.CurrentRev {
+		return batch, nil
+	} else if revision < b.node.CompactRevision()-1 {
+		return batch, kserver.ErrCompacted
 	}
 
 	wctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch, err := b.node.Watch(wctx, "", revision, t4.WithPrevKV())
 	if err != nil {
-		return currentRev, nil, translateErr(err)
+		return batch, translateErr(err)
 	}
 
-	var batch kserver.Events
 	for {
 		select {
 		case ev, ok := <-ch:
 			if ok {
-				batch = append(batch, toServerEvent(&ev))
-				if ev.KV.Revision >= currentRev {
-					return currentRev, batch, nil
+				batch.Events = append(batch.Events, toServerEvent(&ev))
+				if ev.KV.Revision >= batch.CurrentRev {
+					return batch, nil
 				}
 			}
 		case <-ctx.Done():
-			return currentRev, nil, ctx.Err()
+			return batch, ctx.Err()
 		}
 	}
 }
