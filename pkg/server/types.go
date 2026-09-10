@@ -83,13 +83,24 @@ type KeyValue struct {
 	Lease          int64
 }
 
-type Events []*Event
+type EventBatch struct {
+	Events     []*Event
+	CurrentRev int64
+}
 
-func (e Events) After(rev int64) Events {
-	for len(e) > 0 && e[0] != nil && e[0].KV.ModRevision <= rev {
-		e = e[1:]
+func (e EventBatch) After(rev int64) EventBatch {
+	events := e.Events
+	for len(events) > 0 && events[0] != nil && events[0].KV.ModRevision <= rev {
+		events = events[1:]
+	}
+	if len(events) != len(e.Events) {
+		return EventBatch{Events: events, CurrentRev: e.CurrentRev}
 	}
 	return e
+}
+
+func (e EventBatch) String() string {
+	return fmt.Sprintf("{current_rev:%d events:%v}", e.CurrentRev, e.Events)
 }
 
 type Event struct {
@@ -116,7 +127,7 @@ func (e *Event) String() string {
 type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64
-	Events          <-chan Events
+	Eventc          <-chan EventBatch
 	Errorc          <-chan error
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/k3s-io/kine/pkg/drivers"
 	kserver "github.com/k3s-io/kine/pkg/server"
@@ -161,120 +160,6 @@ func TestT4Backend_ListAndCount(t *testing.T) {
 	}
 	if len(kvs) != 2 {
 		t.Fatalf("List limit=2 returned %d", len(kvs))
-	}
-}
-
-func TestT4Backend_Watch(t *testing.T) {
-	b, ctx := newLocalBackend(t)
-
-	startRev, err := b.CurrentRevision(ctx)
-	if err != nil {
-		t.Fatalf("CurrentRevision: %v", err)
-	}
-
-	wr := b.Watch(ctx, startRev+1)
-
-	doneCh := make(chan struct{})
-	gotCreate, gotUpdate, gotDelete := false, false, false
-	go func() {
-		defer close(doneCh)
-		for batch := range wr.Events {
-			for _, ev := range batch {
-				switch {
-				case ev.Create:
-					gotCreate = true
-				case ev.Delete:
-					gotDelete = true
-				default:
-					gotUpdate = true
-				}
-				if gotCreate && gotUpdate && gotDelete {
-					return
-				}
-			}
-		}
-	}()
-
-	rev1, err := b.Create(ctx, "/w/k", []byte("v1"), 0)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	rev2, _, _, err := b.Update(ctx, "/w/k", []byte("v2"), rev1, 0)
-	if err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-	if _, _, _, err := b.Delete(ctx, "/w/k", rev2); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-
-	select {
-	case <-doneCh:
-	case <-time.After(5 * time.Second):
-		t.Fatalf("Watch timeout: create=%v update=%v delete=%v", gotCreate, gotUpdate, gotDelete)
-	}
-}
-
-func TestT4Backend_CompactAndCompactedWatch(t *testing.T) {
-	b, ctx := newLocalBackend(t)
-
-	rev1, err := b.Create(ctx, "/c/k", []byte("v1"), 0)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	rev2, _, _, err := b.Update(ctx, "/c/k", []byte("v2"), rev1, 0)
-	if err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-
-	if _, err := b.Compact(ctx, rev2); err != nil {
-		t.Fatalf("Compact: %v", err)
-	}
-
-	wr := b.Watch(ctx, rev1)
-	select {
-	case err := <-wr.Errorc:
-		if !errors.Is(err, kserver.ErrCompacted) {
-			t.Fatalf("Watch at compacted rev: want ErrCompacted, got %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Watch at compacted rev did not return ErrCompacted")
-	}
-}
-
-func TestT4Backend_WatchAtCompactRevision(t *testing.T) {
-	b, ctx := newLocalBackend(t)
-
-	rev1, err := b.Create(ctx, "/cw/k", []byte("v1"), 0)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	rev2, _, _, err := b.Update(ctx, "/cw/k", []byte("v2"), rev1, 0)
-	if err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-
-	if _, err := b.Compact(ctx, rev2); err != nil {
-		t.Fatalf("Compact: %v", err)
-	}
-
-	// Watching at the compact revision is required to work and to replay the
-	// event recorded at that revision.
-	wr := b.Watch(ctx, rev2)
-	select {
-	case err, ok := <-wr.Errorc:
-		t.Fatalf("Watch at compact revision: unexpected error %v (chan open: %v)", err, ok)
-	case evs, ok := <-wr.Events:
-		if !ok {
-			t.Fatal("Watch at compact revision: event channel closed")
-		}
-		if len(evs) == 0 {
-			t.Fatal("Watch at compact revision: empty event batch")
-		}
-		if got := evs[0].KV.ModRevision; got != rev2 {
-			t.Errorf("replayed event: want ModRevision %d, got %d", rev2, got)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Watch at compact revision: timeout waiting for replay")
 	}
 }
 

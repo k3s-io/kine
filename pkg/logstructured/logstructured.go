@@ -14,10 +14,10 @@ type Log interface {
 	Start(ctx context.Context) error
 	CompactRevision(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
-	List(ctx context.Context, key, end string, limit, revision int64, includeDeletes, keysOnly bool) (int64, server.Events, error)
+	List(ctx context.Context, key, end string, limit, revision int64, includeDeletes, keysOnly bool) (server.EventBatch, error)
 	Count(ctx context.Context, key, end string, revision int64) (int64, int64, error)
-	After(ctx context.Context, key, end string, revision, limit int64) (int64, server.Events, error)
-	Watch(ctx context.Context) <-chan server.Events
+	After(ctx context.Context, key, end string, revision, limit int64) (server.EventBatch, error)
+	Watch(ctx context.Context) <-chan server.EventBatch
 	Append(ctx context.Context, event *server.Event) (int64, error)
 	DbSize(ctx context.Context) (int64, error)
 	Compact(ctx context.Context, revision int64) (int64, error)
@@ -59,14 +59,14 @@ func (l *LogStructured) Get(ctx context.Context, key string, revision int64, key
 }
 
 func (l *LogStructured) get(ctx context.Context, key string, revision int64, includeDeletes, keysOnly bool) (int64, *server.Event, error) {
-	rev, events, err := l.log.List(ctx, key, "", 1, revision, includeDeletes, keysOnly)
+	batch, err := l.log.List(ctx, key, "", 1, revision, includeDeletes, keysOnly)
 	if err != nil {
-		return 0, nil, err
+		return batch.CurrentRev, nil, err
 	}
-	if len(events) == 0 {
-		return rev, nil, nil
+	if len(batch.Events) == 0 {
+		return batch.CurrentRev, nil, nil
 	}
-	return rev, events[0], nil
+	return batch.CurrentRev, batch.Events[0], nil
 }
 
 func (l *LogStructured) adjustRevision(ctx context.Context, rev *int64) {
@@ -155,12 +155,12 @@ func (l *LogStructured) List(ctx context.Context, key, end string, limit, revisi
 		logrus.Tracef("LIST %s, end=%s, limit=%d, rev=%d => rev=%d, kvs=%d, err=%v", key, end, limit, revision, revRet, len(kvRet), errRet)
 	}()
 
-	rev, events, err := l.log.List(ctx, key, end, limit, revision, false, keysOnly)
-	kvs := make([]*server.KeyValue, 0, len(events))
-	for _, event := range events {
+	batch, err := l.log.List(ctx, key, end, limit, revision, false, keysOnly)
+	kvs := make([]*server.KeyValue, 0, len(batch.Events))
+	for _, event := range batch.Events {
 		kvs = append(kvs, event.KV)
 	}
-	return rev, kvs, err
+	return batch.CurrentRev, kvs, err
 }
 
 func (l *LogStructured) Count(ctx context.Context, key, end string, revision int64) (revRet int64, count int64, err error) {
@@ -223,50 +223,44 @@ func (l *LogStructured) Watch(ctx context.Context, revision int64) server.WatchR
 	ctx, cancel := context.WithCancel(ctx)
 	readChan := l.log.Watch(ctx)
 
-	result := make(chan server.Events, 100)
+	result := make(chan server.EventBatch, 100)
 	errc := make(chan error, 1)
-	wr := server.WatchResult{Events: result, Errorc: errc}
+	wr := server.WatchResult{Eventc: result, Errorc: errc}
 
 	// include the current revision in list
 	if revision > 1 {
 		revision--
 	}
 
-	var rev int64
-	var kvs server.Events
+	var batch server.EventBatch
 	var err error
 
-	if revision != 0 {
-		rev, kvs, err = l.log.After(ctx, "", "", revision, 0)
-		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				logrus.Errorf("Failed to list for revision %d: %v", revision, err)
-				if err == server.ErrCompacted {
-					compact, _ := l.log.CompactRevision(ctx)
-					wr.CompactRevision = compact
-					wr.CurrentRevision = rev
-				} else {
-					errc <- server.ErrGRPCUnhealthy
-				}
-			}
-			cancel()
-		}
-		logrus.Tracef("WATCH LIST rev=%d => rev=%d kvs=%d", revision, rev, len(kvs))
+	if revision == 0 {
+		wr.CurrentRevision, err = l.CurrentRevision(ctx)
+		batch.CurrentRev = wr.CurrentRevision
+	} else {
+		batch, err = l.log.After(ctx, "", "", revision, 0)
+		wr.CurrentRevision = batch.CurrentRev
 	}
 
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			if err == server.ErrCompacted {
+				wr.CompactRevision, _ = l.log.CompactRevision(ctx)
+			} else {
+				errc <- server.ErrGRPCUnhealthy
+			}
+		}
+		cancel()
+	}
+
+	result <- batch
+
+	rev := wr.CurrentRevision
 	go func() {
-		if len(kvs) > 0 {
-			revision = rev
-		}
-
-		if len(kvs) > 0 {
-			result <- kvs
-			kvs = nil
-		}
-
 		// always ensure we fully read the channel
 		for i := range readChan {
-			result <- i.After(revision)
+			result <- i.After(rev)
 		}
 		close(result)
 		cancel()
