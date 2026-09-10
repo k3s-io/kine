@@ -11,7 +11,7 @@ import (
 
 func main() {
 	app := app.New()
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(context.Background(), os.Args); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			logrus.Fatal(err)
 		}
