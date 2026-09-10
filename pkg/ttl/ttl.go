@@ -76,12 +76,12 @@ func Run(ctx context.Context, b server.Backend) {
 		case <-ctx.Done():
 			queue.ShutDown()
 			return
-		case events, ok := <-wr.Events:
+		case batch, ok := <-wr.Eventc:
 			if !ok {
 				queue.ShutDown()
 				return
 			}
-			for _, event := range events {
+			for _, event := range batch.Events {
 				if event.Delete || event.KV == nil || event.KV.Lease <= 0 {
 					continue
 				}
