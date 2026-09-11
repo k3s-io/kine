@@ -20,12 +20,6 @@ func (l *LimitedServer) Range(ctx context.Context, r *etcdserverpb.RangeRequest)
 	return l.list(ctx, r)
 }
 
-func txnHeader(rev int64) *etcdserverpb.ResponseHeader {
-	return &etcdserverpb.ResponseHeader{
-		Revision: rev,
-	}
-}
-
 func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (*etcdserverpb.TxnResponse, error) {
 	if put := isCreate(txn); put != nil {
 		return l.create(ctx, put)

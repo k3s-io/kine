@@ -247,7 +247,7 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 
 	wr := w.backend.Watch(ctx, startRevision)
 	err := w.server.Send(&etcdserverpb.WatchResponse{
-		Header:  txnHeader(wr.CurrentRevision),
+		Header:  &etcdserverpb.ResponseHeader{Revision: wr.CurrentRevision},
 		Created: true,
 		WatchId: id,
 	})
@@ -308,7 +308,7 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 			events := toEvents(key, end, batch)
 			if progressCh != nil || len(events) > 0 {
 				wr := &etcdserverpb.WatchResponse{
-					Header:  txnHeader(revision),
+					Header:  &etcdserverpb.ResponseHeader{Revision: revision},
 					WatchId: id,
 					Events:  events,
 				}
@@ -373,7 +373,7 @@ func (w *watcher) CancelEarly(ctx context.Context, earlyErr error) {
 	}
 
 	err = w.server.Send(&etcdserverpb.WatchResponse{
-		Header:       txnHeader(rev),
+		Header:       &etcdserverpb.ResponseHeader{Revision: rev},
 		WatchId:      invalidWatchID,
 		Canceled:     true,
 		Created:      true,
@@ -398,7 +398,7 @@ func (w *watcher) Cancel(watchID, revision, compactRev int64, err error) {
 	logrus.Tracef("WATCH CANCEL server=%d, id=%d, reason=%s, compactRev=%d", w.id, watchID, reason, compactRev)
 
 	serr := w.server.Send(&etcdserverpb.WatchResponse{
-		Header:          txnHeader(revision),
+		Header:          &etcdserverpb.ResponseHeader{Revision: revision},
 		Canceled:        true,
 		CancelReason:    reason,
 		WatchId:         watchID,
@@ -462,7 +462,7 @@ func (w *watcher) ProgressAll(ctx context.Context) {
 	}
 
 	logrus.Tracef("WATCH SEND PROGRESS server=%d, revision=%d", w.id, rev)
-	go w.server.Send(&etcdserverpb.WatchResponse{Header: txnHeader(rev), WatchId: invalidWatchID})
+	go w.server.Send(&etcdserverpb.WatchResponse{Header: &etcdserverpb.ResponseHeader{Revision: rev}, WatchId: invalidWatchID})
 }
 
 // ProgressIfSynced sends a progress report on any channels that are synced.

@@ -52,7 +52,7 @@ func (l *LimitedServer) update(ctx context.Context, revision int64, key string, 
 	}
 
 	resp := &etcdserverpb.TxnResponse{
-		Header:    txnHeader(rev),
+		Header:    &etcdserverpb.ResponseHeader{Revision: rev},
 		Succeeded: ok,
 	}
 
@@ -61,7 +61,7 @@ func (l *LimitedServer) update(ctx context.Context, revision int64, key string, 
 			{
 				Response: &etcdserverpb.ResponseOp_ResponsePut{
 					ResponsePut: &etcdserverpb.PutResponse{
-						Header: txnHeader(rev),
+						Header: &etcdserverpb.ResponseHeader{Revision: rev},
 					},
 				},
 			},
@@ -72,7 +72,7 @@ func (l *LimitedServer) update(ctx context.Context, revision int64, key string, 
 			{
 				Response: &etcdserverpb.ResponseOp_ResponseRange{
 					ResponseRange: &etcdserverpb.RangeResponse{
-						Header: txnHeader(rev),
+						Header: &etcdserverpb.ResponseHeader{Revision: rev},
 						Kvs:    kvs,
 						Count:  int64(len(kvs)),
 					},

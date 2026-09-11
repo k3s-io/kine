@@ -24,7 +24,7 @@ func (l *LimitedServer) get(ctx context.Context, r *etcdserverpb.RangeRequest) (
 		logrus.Tracef("GET key=%s, revision=%d, currentRev=%d, keysOnly=%v", r.Key, r.Revision, rev, r.KeysOnly)
 	}
 	resp := &RangeResponse{
-		Header: txnHeader(rev),
+		Header: &etcdserverpb.ResponseHeader{Revision: rev},
 	}
 	if kv != nil {
 		resp.Kvs = []*KeyValue{kv}
