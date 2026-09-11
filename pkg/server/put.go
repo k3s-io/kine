@@ -29,10 +29,10 @@ func (l *LimitedServer) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*e
 		if err != nil {
 			return nil, err
 		}
+		rev, _, _, err = l.backend.Update(ctx, key, r.Value, kv.ModRevision, r.Lease)
 		if !r.PrevKv {
 			kv = nil
 		}
-		rev, _, _, err = l.backend.Update(ctx, key, r.Value, rev, r.Lease)
 	}
 
 	return &etcdserverpb.PutResponse{
