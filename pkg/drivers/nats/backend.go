@@ -534,12 +534,11 @@ func (b *Backend) startWatch() (chan server.EventBatch, error) {
 					Create: nd.Create,
 					Delete: nd.Delete,
 					KV:     nd.KV,
-					PrevKV: &server.KeyValue{
-						ModRevision: nd.PrevRevision,
-					},
 				}
 
-				if nd.PrevRevision > 0 {
+				// PrevKV should be nil if revision has been compacted; ref:
+				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+				if nd.PrevRevision > b.kv.compactRev.Load() {
 					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
 					if err == nil && pnd != nil {
 						event.PrevKV = pnd.KV
@@ -556,10 +555,11 @@ func (b *Backend) startWatch() (chan server.EventBatch, error) {
 func (b *Backend) after(ctx context.Context, revision int64) (server.EventBatch, error) {
 	// watch is inclusive, so start at the next revision
 	revision++
+	compactRev := b.kv.compactRev.Load()
 	batch := server.EventBatch{CurrentRev: b.kv.BucketRevision()}
 	if revision > batch.CurrentRev {
 		return batch, nil
-	} else if revision < b.kv.compactRev.Load() {
+	} else if revision < compactRev {
 		return batch, server.ErrCompacted
 	}
 
@@ -590,12 +590,11 @@ func (b *Backend) after(ctx context.Context, revision int64) (server.EventBatch,
 					Create: nd.Create,
 					Delete: nd.Delete,
 					KV:     nd.KV,
-					PrevKV: &server.KeyValue{
-						ModRevision: nd.PrevRevision,
-					},
 				}
 
-				if nd.PrevRevision > 0 {
+				// PrevKV should be nil if revision has been compacted; ref:
+				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+				if nd.PrevRevision > compactRev {
 					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
 					if err == nil && pnd != nil {
 						event.PrevKV = pnd.KV

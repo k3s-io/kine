@@ -444,9 +444,10 @@ func (m *Memory) after(ctx context.Context, revision int64) (server.EventBatch, 
 			Create: e.created,
 			Delete: e.deleted,
 			KV:     e.toKeyValue(),
-			PrevKV: &server.KeyValue{ModRevision: e.prevRevision},
 		}
-		if e.prev != nil {
+		// PrevKV should be nil if revision has been compacted; ref:
+		// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+		if e.prev != nil && e.prev.revision >= m.compactRevision {
 			event.PrevKV = e.prev.toKeyValue()
 		}
 		batch.Events = append(batch.Events, event)
