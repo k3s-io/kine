@@ -36,7 +36,7 @@ func (l *LimitedServer) Put(ctx context.Context, r *etcdserverpb.PutRequest) (*e
 	}
 
 	return &etcdserverpb.PutResponse{
-		Header: txnHeader(rev),
+		Header: &etcdserverpb.ResponseHeader{Revision: rev},
 		PrevKv: toKV(kv),
 	}, err
 }
