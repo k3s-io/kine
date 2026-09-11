@@ -290,11 +290,12 @@ func (b *backend) startWatch() (chan kserver.EventBatch, error) {
 func (b *backend) after(ctx context.Context, revision int64) (kserver.EventBatch, error) {
 	// watch is inclusive, so start at the next revision
 	revision++
+	compactRev := b.node.CompactRevision()
 	batch := kserver.EventBatch{CurrentRev: b.node.CurrentRevision()}
 	// The compact revision itself can still be queried, so it is only an error to watch anything before compactRev - 1
 	if revision > batch.CurrentRev {
 		return batch, nil
-	} else if revision < b.node.CompactRevision()-1 {
+	} else if revision < compactRev-1 {
 		return batch, kserver.ErrCompacted
 	}
 
@@ -309,6 +310,11 @@ func (b *backend) after(ctx context.Context, revision int64) (kserver.EventBatch
 		select {
 		case ev, ok := <-ch:
 			if ok {
+				// PrevKV should be nil if revision has been compacted; ref:
+				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+				if ev.PrevKV != nil && ev.PrevKV.Version < compactRev {
+					ev.PrevKV = nil
+				}
 				batch.Events = append(batch.Events, toServerEvent(&ev))
 				if ev.KV.Revision >= batch.CurrentRev {
 					return batch, nil

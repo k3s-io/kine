@@ -343,6 +343,14 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		return batch, server.ErrCompacted
 	}
 
+	// PrevKV should be nil if revision has been compacted; ref:
+	// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+	for _, event := range batch.Events {
+		if event.PrevKV != nil && event.PrevKV.ModRevision < compact {
+			event.PrevKV = nil
+		}
+	}
+
 	return batch, err
 }
 
