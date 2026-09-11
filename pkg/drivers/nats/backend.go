@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -63,6 +64,7 @@ type Backend struct {
 	l                *logrus.Logger
 	compactInterval  time.Duration
 	compactMinRetain int64
+	broadcaster      broadcaster.Broadcaster
 	ctx              context.Context
 }
 
@@ -415,15 +417,61 @@ func (b *Backend) List(ctx context.Context, key, end string, limit, maxRevision 
 	return rev, kvs, nil
 }
 
-func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int64) server.WatchResult {
-	events := make(chan []*server.Event, 32)
+func (b *Backend) Watch(ctx context.Context, revision int64) server.WatchResult {
+	// starting watching right away so we don't miss anything
+	ctx, cancel := context.WithCancel(ctx)
+	readChan := b.broadcaster.Watch(ctx, b.startWatch)
 
-	if startRevision > 0 && startRevision <= b.kv.compactRev.Load() {
-		return server.WatchResult{
-			Events:          events,
-			CurrentRevision: b.kv.BucketRevision(),
-			CompactRevision: b.kv.compactRev.Load(),
+	result := make(chan server.EventBatch, 100)
+	errc := make(chan error, 1)
+	wr := server.WatchResult{Eventc: result, Errorc: errc}
+
+	// include the current revision in list
+	if revision > 1 {
+		revision--
+	}
+
+	var batch server.EventBatch
+	var err error
+
+	if revision == 0 {
+		wr.CurrentRevision, err = b.CurrentRevision(ctx)
+		batch.CurrentRev = wr.CurrentRevision
+	} else {
+		batch, err = b.after(ctx, revision)
+		wr.CurrentRevision = batch.CurrentRev
+	}
+
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			if err == server.ErrCompacted {
+				wr.CompactRevision = b.kv.compactRev.Load()
+			} else {
+				errc <- server.ErrGRPCUnhealthy
+			}
 		}
+		cancel()
+	}
+
+	result <- batch
+
+	rev := wr.CurrentRevision
+	go func() {
+		// always ensure we fully read the channel
+		for i := range readChan {
+			result <- i.After(rev)
+		}
+		close(result)
+		cancel()
+	}()
+
+	return wr
+}
+func (b *Backend) startWatch() (chan server.EventBatch, error) {
+	events := make(chan server.EventBatch)
+	rev := b.kv.compactRev.Load()
+	if rev == 0 {
+		rev++
 	}
 
 	go func() {
@@ -434,37 +482,37 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 	outer:
 		for {
 			var err error
-			w, err = b.kv.Watch(ctx, key, end, startRevision)
+			w, err = b.kv.Watch(b.ctx, "", "", rev)
 			if err == nil {
 				break
 			} else if errors.Is(err, context.Canceled) || errors.Is(err, nats.ErrConnectionClosed) {
 				return
 			}
 
-			b.l.Warnf("watch init: key=%s, err=%s", key, err)
+			b.l.Warnf("watch init: err=%s", err)
 			time.Sleep(time.Second)
 		}
 		defer w.Stop()
 
 		for {
 			select {
-			case <-ctx.Done():
-				err := ctx.Err()
+			case <-b.ctx.Done():
+				err := b.ctx.Err()
 				if err == nil || errors.Is(err, context.Canceled) {
 					return
 				}
-				b.l.Debugf("watch ctx: key=%s, err=%s", key, err)
+				b.l.Debugf("watch ctx: err=%s", err)
 				err = w.Stop()
 				if err != nil {
-					b.l.Debugf("watch stop: key=%s, err=%s", key, err)
+					b.l.Debugf("watch stop: err=%s", err)
 				}
 				goto outer
 
 			case err := <-w.Err():
-				b.l.Debugf("watch error: key=%s, err=%s", key, err)
+				b.l.Debugf("watch error: err=%s", err)
 				err = w.Stop()
 				if err != nil {
-					b.l.Debugf("watch stop: key=%s, err=%s", key, err)
+					b.l.Debugf("watch stop: err=%s", err)
 				}
 				goto outer
 
@@ -478,39 +526,90 @@ func (b *Backend) Watch(ctx context.Context, key, end string, startRevision int6
 				var nd natsData
 				err := nd.Decode(e)
 				if err != nil {
-					b.l.Debugf("watch decode: key=%s, err=%s", key, err)
+					b.l.Debugf("watch decode: err=%s", err)
 					continue
 				}
 
-				event := server.Event{
+				event := &server.Event{
 					Create: nd.Create,
 					Delete: nd.Delete,
 					KV:     nd.KV,
-					PrevKV: &server.KeyValue{
-						ModRevision: nd.PrevRevision,
-					},
 				}
 
-				if nd.PrevRevision > 0 {
-					_, pnd, err := b.get(ctx, key, nd.PrevRevision, false, false)
+				// PrevKV should be nil if revision has been compacted; ref:
+				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+				if nd.PrevRevision > b.kv.compactRev.Load() {
+					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
 					if err == nil && pnd != nil {
 						event.PrevKV = pnd.KV
 					}
 				}
 
-				events <- []*server.Event{&event}
+				events <- server.EventBatch{CurrentRev: event.KV.ModRevision, Events: []*server.Event{event}}
 			}
 		}
 	}()
+	return events, nil
+}
 
-	rev := startRevision
-	if rev == 0 {
-		rev = b.kv.BucketRevision()
+func (b *Backend) after(ctx context.Context, revision int64) (server.EventBatch, error) {
+	// watch is inclusive, so start at the next revision
+	revision++
+	compactRev := b.kv.compactRev.Load()
+	batch := server.EventBatch{CurrentRev: b.kv.BucketRevision()}
+	if revision > batch.CurrentRev {
+		return batch, nil
+	} else if revision < compactRev {
+		return batch, server.ErrCompacted
 	}
 
-	return server.WatchResult{
-		Events:          events,
-		CurrentRevision: rev,
+	w, err := b.kv.Watch(b.ctx, "", "", revision)
+	if err != nil {
+		return batch, err
+	}
+	defer w.Stop()
+
+	for {
+		select {
+		case e, ok := <-w.Updates():
+			if ok {
+				if e.Operation() != jetstream.KeyValuePut {
+					continue
+				}
+
+				key := e.Key()
+
+				var nd natsData
+				err := nd.Decode(e)
+				if err != nil {
+					b.l.Debugf("watch decode: err=%s", err)
+					continue
+				}
+
+				event := &server.Event{
+					Create: nd.Create,
+					Delete: nd.Delete,
+					KV:     nd.KV,
+				}
+
+				// PrevKV should be nil if revision has been compacted; ref:
+				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+				if nd.PrevRevision > compactRev {
+					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
+					if err == nil && pnd != nil {
+						event.PrevKV = pnd.KV
+					}
+				}
+				batch.Events = append(batch.Events, event)
+				if event.KV.ModRevision >= batch.CurrentRev {
+					return batch, nil
+				}
+			}
+		case err := <-w.Err():
+			return batch, err
+		case <-ctx.Done():
+			return batch, ctx.Err()
+		}
 	}
 }
 
@@ -566,10 +665,6 @@ func (b *Backend) Compact(ctx context.Context, revision int64) (int64, error) {
 	return currRev, nil
 }
 
-func (b *Backend) WaitForSyncTo(revision int64) {
-	// no-op
-}
-
 // compactor runs periodic automatic compaction in the background.
 // This advances the compact revision point,
 // causing queries for old revisions to return ErrCompacted.
@@ -600,6 +695,7 @@ func (b *Backend) compactWatcher() {
 	w, err := b.kv.Watch(b.ctx, compactRevAPI, "", 0)
 	if err != nil {
 		b.l.Errorf("Failed to configure watch for compact revision: %v", err)
+		return
 	}
 	defer w.Stop()
 

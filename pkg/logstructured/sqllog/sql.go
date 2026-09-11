@@ -26,8 +26,6 @@ type SQLLog struct {
 	ctx                   context.Context
 	notify                chan int64
 	currentRev            atomic.Int64
-	polledRev             atomic.Int64
-	polled                *sync.Cond
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -47,7 +45,6 @@ func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter 
 		compactBatchSize:      compactBatchSize,
 		pollBatchSize:         pollBatchSize,
 	}
-	l.polled = sync.NewCond(l.RLocker())
 	return l
 }
 
@@ -68,14 +65,14 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 		return err
 	}
 
-	_, _, events, err := RowsToEvents(rows, true, true)
+	batch, _, err := RowsToEvents(rows, true, true)
 	if err != nil {
 		return err
 	}
 
-	logrus.Tracef("COMPACTSTART len(events)=%v", len(events))
+	logrus.Tracef("COMPACTSTART len(events)=%v", len(batch.Events))
 
-	if len(events) == 0 {
+	if len(batch.Events) == 0 {
 		_, err := s.Append(ctx, &server.Event{
 			Create: true,
 			KV: &server.KeyValue{
@@ -84,7 +81,7 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 			},
 		})
 		return err
-	} else if len(events) == 1 {
+	} else if len(batch.Events) == 1 {
 		return nil
 	}
 
@@ -97,7 +94,7 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 	// this is to work around a bug in which we ended up with two compact_rev_key rows
 	maxRev := int64(0)
 	maxID := int64(0)
-	for _, event := range events {
+	for _, event := range batch.Events {
 		if event.PrevKV != nil && event.PrevKV.ModRevision > maxRev {
 			maxRev = event.PrevKV.ModRevision
 			maxID = event.KV.ModRevision
@@ -105,7 +102,7 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 		logrus.Tracef("COMPACTSTART maxRev=%v maxID=%v", maxRev, maxID)
 	}
 
-	for _, event := range events {
+	for _, event := range batch.Events {
 		logrus.Tracef("COMPACTSTART event.KV.ModRevision=%v maxID=%v", event.KV.ModRevision, maxID)
 		if event.KV.ModRevision == maxID {
 			continue
@@ -265,19 +262,23 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	logrus.Infof("COMPACT compactRev=%d targetCompactRev=%d currentRev=%d", compactRev, targetCompactRev, currentRev)
 
 	start := time.Now()
+
+	// Set compact revision before compacting - if the compact transaction times
+	// out this will get rolled back. Otherwise it is possible for Compact to
+	// succeed within the time limit, but SetCompactRevision occurs too late, and
+	// the work is wasted.
+	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
+		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
+	}
+
 	// compact revisions from old compact revision to new target
 	deletedRows, err := t.Compact(s.ctx, compactRev, targetCompactRev)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
 
-	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
-		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
-	}
-
-	// only commit the transaction if we make it all the way through deleting and
-	// updating the compact revision without any errors. The deferred rollback
-	// becomes a no-op if the transaction is committed.
+	// Commit the transaction if we make it all the way through deleting without any
+	// errors. The deferred rollback becomes a no-op if the transaction is committed.
 	t.MustCommit()
 	logrus.Infof("COMPACT deleted %d rows from %d revisions in %s - compacted to %d/%d", deletedRows, (targetCompactRev - compactRev), time.Since(start), targetCompactRev, currentRev)
 
@@ -312,38 +313,57 @@ func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
 	return s.d.GetCompactRevision(ctx)
 }
 
-func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int64) (int64, server.Events, error) {
+func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int64) (server.EventBatch, error) {
+	var (
+		batch   server.EventBatch
+		compact int64
+	)
+	currentRev, err := s.CurrentRevision(ctx)
+	if err != nil {
+		return batch, err
+	}
 	rows, err := s.d.After(ctx, key, end, revision, limit)
 	if err != nil {
-		return 0, nil, err
+		return batch, err
 	}
 
-	rev, compact, result, err := RowsToEvents(rows, true, true)
+	batch, compact, err = RowsToEvents(rows, true, true)
 
-	if revision > 0 && len(result) == 0 {
-		// a zero length result won't have the compact or current revisions so get them manually
-		rev, err = s.CurrentRevision(ctx)
-		if err != nil {
-			return 0, nil, err
-		}
+	if batch.CurrentRev == 0 {
+		// without rows we won't have the compact or current revisions
+		batch.CurrentRev = currentRev
 		compact, err = s.d.GetCompactRevision(ctx)
 		if err != nil {
-			return 0, nil, err
+			return batch, err
 		}
 	}
 
-	if revision > 0 && revision < compact {
-		return rev, nil, server.ErrCompacted
+	// The compact revision itself can still be queried, so it is only an error to watch anything before compactRev - 1
+	if revision > 0 && revision < compact-1 {
+		return batch, server.ErrCompacted
 	}
 
-	return rev, result, err
+	// PrevKV should be nil if revision has been compacted; ref:
+	// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+	for _, event := range batch.Events {
+		if event.PrevKV != nil && event.PrevKV.ModRevision < compact {
+			event.PrevKV = nil
+		}
+	}
+
+	return batch, err
 }
 
-func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) (int64, server.Events, error) {
+func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) (server.EventBatch, error) {
 	var (
-		rows *sql.Rows
-		err  error
+		rows    *sql.Rows
+		batch   server.EventBatch
+		compact int64
 	)
+	currentRev, err := s.CurrentRevision(ctx)
+	if err != nil {
+		return batch, err
+	}
 
 	key = s.d.TranslateStartKey(key)
 
@@ -353,109 +373,71 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 		rows, err = s.d.List(ctx, key, end, limit, revision, includeDeleted, keysOnly)
 	}
 	if err != nil {
-		return 0, nil, err
+		return batch, err
 	}
 
-	rev, compact, result, err := RowsToEvents(rows, !keysOnly, false)
+	batch, compact, err = RowsToEvents(rows, !keysOnly, false)
 	if err != nil {
-		return 0, nil, err
+		return batch, err
 	}
 
-	if len(result) == 0 {
-		// a zero length result won't have the compact or current revisions so get them manually
-		rev, err = s.CurrentRevision(ctx)
-		if err != nil {
-			return 0, nil, err
-		}
+	if batch.CurrentRev == 0 {
+		// without rows we won't have the compact or current revisions
+		batch.CurrentRev = currentRev
 		compact, err = s.d.GetCompactRevision(ctx)
 		if err != nil {
-			return 0, nil, err
+			return batch, err
 		}
 	}
 
-	if revision > rev {
-		return rev, nil, server.ErrFutureRev
+	if revision > batch.CurrentRev {
+		return batch, server.ErrFutureRev
 	}
 
 	if revision > 0 && revision < compact {
-		return rev, nil, server.ErrCompacted
+		return batch, server.ErrCompacted
 	}
 
 	select {
-	case s.notify <- rev:
+	case s.notify <- batch.CurrentRev:
 	default:
 	}
 
-	return rev, result, err
+	return batch, err
 }
 
 // rowsToEvents converts database rows to KV store events.
 // if val is false, rows must not include the current value
 // if prev is false, rows must additionally not include the previous value
-func RowsToEvents(rows *sql.Rows, val, prev bool) (int64, int64, server.Events, error) {
+func RowsToEvents(rows *sql.Rows, val, prev bool) (server.EventBatch, int64, error) {
 	var (
-		result  server.Events
-		rev     int64
+		batch   server.EventBatch
 		compact int64
 	)
 	defer rows.Close()
 
 	for rows.Next() {
-		event, err := scan(rows, &rev, &compact, val, prev)
+		event, err := scan(rows, &batch.CurrentRev, &compact, val, prev)
 		if err != nil {
-			return 0, 0, nil, err
+			return batch, 0, err
 		}
-		result = append(result, event)
+		batch.Events = append(batch.Events, event)
 	}
 
-	return rev, compact, result, nil
+	return batch, compact, nil
 }
 
-func (s *SQLLog) Watch(ctx context.Context, key, end string) <-chan server.Events {
-	res := make(chan server.Events, 100)
-	values, err := s.broadcaster.Subscribe(ctx, s.startWatch)
-	if err != nil {
-		return nil
-	}
-
-	go func() {
-		defer close(res)
-		for i := range values {
-			if events, ok := filter(i, key, end); ok {
-				res <- events
-			}
-		}
-	}()
-
-	return res
+func (s *SQLLog) Watch(ctx context.Context) <-chan server.EventBatch {
+	return s.broadcaster.Watch(ctx, s.startWatch)
 }
 
-func filter(events server.Events, key, end string) (server.Events, bool) {
-	// optimization: do not allocate a new Events slice to filter into if there is only a single entry
-	if len(events) == 1 {
-		if events[0].InRange(key, end) {
-			return events, true
-		}
-		return nil, false
-	}
-
-	filteredEvents := make(server.Events, 0, len(events))
-	for _, event := range events {
-		if event.InRange(key, end) {
-			filteredEvents = append(filteredEvents, event)
-		}
-	}
-
-	return filteredEvents, len(filteredEvents) > 0
-}
-
-func (s *SQLLog) startWatch() (chan server.Events, error) {
+func (s *SQLLog) startWatch() (chan server.EventBatch, error) {
 	pollStart, err := s.d.CurrentRevision(s.ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	c := make(chan server.Events)
+	c := make(chan server.EventBatch)
 
 	if s.compactIntervalJitter < 0 || s.compactIntervalJitter > 100 {
 		panic("jitterPercent must be between 0 and 100")
@@ -475,7 +457,7 @@ func (s *SQLLog) startWatch() (chan server.Events, error) {
 	return c, nil
 }
 
-func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
+func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 	var (
 		skip         int64
 		skipTime     time.Time
@@ -500,13 +482,6 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			case <-wait.C:
 			}
 		}
-		waitForMore = true
-
-		//  update polled revision to reflect what rows have already been seen
-		s.Lock()
-		s.polledRev.Store(pollRevision)
-		s.polled.Broadcast()
-		s.Unlock()
 
 		rows, err := s.d.After(s.ctx, "", "", pollRevision, s.pollBatchSize)
 		if err != nil {
@@ -516,29 +491,28 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 			continue
 		}
 
-		_, _, events, err := RowsToEvents(rows, true, true)
+		batch, _, err := RowsToEvents(rows, true, true)
+		waitForMore = int64(len(batch.Events)) < s.pollBatchSize
 		if err != nil {
 			logrus.Errorf("fail to convert rows changes: %v", err)
 			continue
 		}
 
 		if trace {
-			logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", pollRevision, s.pollBatchSize, len(events))
+			logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", pollRevision, s.pollBatchSize, len(batch.Events))
 		}
 
-		if len(events) == 0 {
+		if len(batch.Events) == 0 {
 			continue
 		}
-
-		waitForMore = int64(len(events)) < s.pollBatchSize
 
 		var (
 			rev        = pollRevision
 			saveLast   = false
-			sequential = make(server.Events, len(events))
+			sequential = make([]*server.Event, 0, len(batch.Events))
 		)
 
-		for i, event := range events {
+		for _, event := range batch.Events {
 			next := rev + 1
 			// Ensure that we are notifying events in a sequential fashion. For example if we find row 4 before 3
 			// we don't want to notify row 4 because 3 is essentially dropped forever.
@@ -596,7 +570,7 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 					logrus.Tracef("BROADCAST SKIPPED FOR FILL %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 				}
 			} else {
-				sequential[i] = event
+				sequential = append(sequential, event)
 				if trace {
 					logrus.Tracef("BROADCAST %s, revision=%d, delete=%v", event.KV.Key, event.KV.ModRevision, event.Delete)
 				}
@@ -606,7 +580,9 @@ func (s *SQLLog) poll(result chan server.Events, pollStart int64) {
 		if saveLast {
 			s.currentRev.CompareAndSwap(pollRevision, rev)
 			pollRevision = rev
-			result <- sequential
+			if len(sequential) > 0 {
+				result <- server.EventBatch{CurrentRev: pollRevision, Events: sequential}
+			}
 		}
 	}
 }
@@ -754,12 +730,4 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 		return s.CurrentRevision(ctx)
 	}
 	return currentRev, nil
-}
-
-func (s *SQLLog) WaitForSyncTo(revision int64) {
-	s.polled.L.Lock()
-	for s.polledRev.Load() < revision {
-		s.polled.Wait()
-	}
-	s.polled.L.Unlock()
 }

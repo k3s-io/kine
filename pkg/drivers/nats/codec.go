@@ -82,7 +82,7 @@ func (*keyCodec) Encode(key string) (string, error) {
 	return enc, nil
 }
 
-func (*keyCodec) Decode(key string) (retKey string, e error) {
+func (*keyCodec) Decode(key string) (keyString, error) {
 	var parts []string
 
 	hasRootPrefix := !strings.HasPrefix(key, noRootPrefix)
@@ -116,7 +116,13 @@ func (*keyCodec) Decode(key string) (retKey string, e error) {
 		dk = fmt.Sprintf("/%s", dk)
 	}
 
-	return dk, nil
+	return keyString(dk), nil
+}
+
+type keyString string
+
+func (k keyString) InRange(key, end string) bool {
+	return key == "" || (end != "" && string(k) >= key && string(k) < end) || string(k) == key
 }
 
 // valueCodec is a codec that compresses values using s2.

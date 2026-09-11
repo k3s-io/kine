@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 )
 
@@ -29,6 +30,10 @@ func isDelete(txn *etcdserverpb.TxnRequest) (int64, string, bool) {
 
 func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) (*etcdserverpb.TxnResponse, error) {
 	rev, kv, ok, err := l.backend.Delete(ctx, key, revision)
+	if logrus.IsLevelEnabled(logrus.TraceLevel) {
+		logrus.Tracef("DELETE key=%s, revision=%d, currentRev=%d", key, revision, rev)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -36,12 +41,12 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 	kvs := toKVs(kv)
 	if !ok {
 		return &etcdserverpb.TxnResponse{
-			Header: txnHeader(rev),
+			Header: &etcdserverpb.ResponseHeader{Revision: rev},
 			Responses: []*etcdserverpb.ResponseOp{
 				{
 					Response: &etcdserverpb.ResponseOp_ResponseRange{
 						ResponseRange: &etcdserverpb.RangeResponse{
-							Header: txnHeader(rev),
+							Header: &etcdserverpb.ResponseHeader{Revision: rev},
 							Kvs:    kvs,
 							Count:  int64(len(kvs)),
 						},
@@ -53,12 +58,12 @@ func (l *LimitedServer) delete(ctx context.Context, key string, revision int64) 
 	}
 
 	return &etcdserverpb.TxnResponse{
-		Header: txnHeader(rev),
+		Header: &etcdserverpb.ResponseHeader{Revision: rev},
 		Responses: []*etcdserverpb.ResponseOp{
 			{
 				Response: &etcdserverpb.ResponseOp_ResponseDeleteRange{
 					ResponseDeleteRange: &etcdserverpb.DeleteRangeResponse{
-						Header:  txnHeader(rev),
+						Header:  &etcdserverpb.ResponseHeader{Revision: rev},
 						PrevKvs: kvs,
 						Deleted: int64(len(kvs)),
 					},

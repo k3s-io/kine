@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/k3s-io/kine/pkg/broadcaster"
 	kserver "github.com/k3s-io/kine/pkg/server"
 	"github.com/k3s-io/kine/pkg/ttl"
 	"github.com/sirupsen/logrus"
@@ -16,7 +17,9 @@ import (
 
 // backend implements kine's server.Backend using a *t4.Node.
 type backend struct {
-	node *t4.Node
+	node        *t4.Node
+	broadcaster broadcaster.Broadcaster
+	ctx         context.Context
 }
 
 // Start blocks until the t4 node is ready to serve writes, retrying
@@ -28,6 +31,7 @@ type backend struct {
 // (rev=2 after bootstrap). The k8s apiserver storage tests assume this
 // shape.
 func (b *backend) Start(ctx context.Context) error {
+	b.ctx = ctx
 	const (
 		retryInterval = 500 * time.Millisecond
 		retryTimeout  = 60 * time.Second
@@ -185,32 +189,73 @@ func (b *backend) Update(ctx context.Context, key string, value []byte, revision
 	return newRev, toServerKV(oldKV, false), updated, nil
 }
 
-func (b *backend) Watch(ctx context.Context, key, end string, revision int64) kserver.WatchResult {
-	curRev := b.node.CurrentRevision()
-	compactRev := b.node.CompactRevision()
+func (b *backend) Watch(ctx context.Context, revision int64) kserver.WatchResult {
+	// starting watching right away so we don't miss anything
+	ctx, cancel := context.WithCancel(ctx)
+	readChan := b.broadcaster.Watch(ctx, b.startWatch)
 
-	errCh := make(chan error, 1)
-	eventCh := make(chan []*kserver.Event, 64)
+	result := make(chan kserver.EventBatch, 100)
+	errc := make(chan error, 1)
+	wr := kserver.WatchResult{Eventc: result, Errorc: errc}
 
-	if revision > 0 && revision < compactRev {
-		errCh <- kserver.ErrCompacted
-		close(errCh)
-		close(eventCh)
-		return kserver.WatchResult{CurrentRevision: curRev, CompactRevision: compactRev, Events: eventCh, Errorc: errCh}
+	// include the current revision in list
+	if revision > 1 {
+		revision--
 	}
 
-	prefix, _ := translateRange(key, end)
-	go func() {
-		defer close(eventCh)
-		defer close(errCh)
-		// PrevKV is required: toServerEvent classifies an event as Create if
-		// ev.PrevKV == nil. Without it, every update is reported as a Create
-		// and apiserver's watchCache rejects them as duplicate/out-of-order.
-		ch, err := b.node.Watch(ctx, prefix, revision, t4.WithPrevKV())
-		if err != nil {
-			errCh <- translateErr(err)
-			return
+	var batch kserver.EventBatch
+	var err error
+
+	if revision == 0 {
+		wr.CurrentRevision, err = b.CurrentRevision(ctx)
+		batch.CurrentRev = wr.CurrentRevision
+	} else {
+		batch, err = b.after(ctx, revision)
+		wr.CurrentRevision = batch.CurrentRev
+	}
+
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			if err == kserver.ErrCompacted {
+				wr.CompactRevision = b.node.CompactRevision()
+			} else {
+				errc <- kserver.ErrGRPCUnhealthy
+			}
 		}
+		cancel()
+	}
+
+	result <- batch
+
+	rev := wr.CurrentRevision
+	go func() {
+		// always ensure we fully read the channel
+		for i := range readChan {
+			result <- i.After(rev)
+		}
+		close(result)
+		cancel()
+	}()
+
+	return wr
+}
+
+func (b *backend) startWatch() (chan kserver.EventBatch, error) {
+	events := make(chan kserver.EventBatch)
+	rev := b.node.CompactRevision()
+	if rev == 0 {
+		rev++
+	}
+	// PrevKV is required: toServerEvent classifies an event as Create if
+	// ev.PrevKV == nil. Without it, every update is reported as a Create
+	// and apiserver's watchCache rejects them as duplicate/out-of-order.
+	ch, err := b.node.Watch(b.ctx, "", rev, t4.WithPrevKV())
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	go func() {
+		defer close(events)
 		// Coalesce events that are already buffered into a single slice send.
 		// kine's server-side already batches, but per-send overhead matters
 		// under churn — and a small batch saves a chan op per event.
@@ -218,28 +263,67 @@ func (b *backend) Watch(ctx context.Context, key, end string, revision int64) ks
 		// loop only takes immediately available events.
 		const maxBatch = 64
 		for ev := range ch {
-			batch := []*kserver.Event{toServerEvent(&ev)}
+			batch := kserver.EventBatch{CurrentRev: ev.KV.Revision, Events: []*kserver.Event{toServerEvent(&ev)}}
 		drain:
-			for len(batch) < maxBatch {
+			for len(batch.Events) < maxBatch {
 				select {
 				case ev2, ok := <-ch:
 					if !ok {
 						break drain
 					}
-					batch = append(batch, toServerEvent(&ev2))
+					batch.Events = append(batch.Events, toServerEvent(&ev2))
+					batch.CurrentRev = ev2.KV.Revision
 				default:
 					break drain
 				}
 			}
 			select {
-			case eventCh <- batch:
-			case <-ctx.Done():
+			case events <- batch:
+			case <-b.ctx.Done():
 				return
 			}
 		}
 	}()
+	return events, nil
+}
 
-	return kserver.WatchResult{CurrentRevision: curRev, CompactRevision: 0, Events: eventCh, Errorc: errCh}
+func (b *backend) after(ctx context.Context, revision int64) (kserver.EventBatch, error) {
+	// watch is inclusive, so start at the next revision
+	revision++
+	compactRev := b.node.CompactRevision()
+	batch := kserver.EventBatch{CurrentRev: b.node.CurrentRevision()}
+	// The compact revision itself can still be queried, so it is only an error to watch anything before compactRev - 1
+	if revision > batch.CurrentRev {
+		return batch, nil
+	} else if revision < compactRev-1 {
+		return batch, kserver.ErrCompacted
+	}
+
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	ch, err := b.node.Watch(wctx, "", revision, t4.WithPrevKV())
+	if err != nil {
+		return batch, translateErr(err)
+	}
+
+	for {
+		select {
+		case ev, ok := <-ch:
+			if ok {
+				// PrevKV should be nil if revision has been compacted; ref:
+				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
+				if ev.PrevKV != nil && ev.PrevKV.Version < compactRev {
+					ev.PrevKV = nil
+				}
+				batch.Events = append(batch.Events, toServerEvent(&ev))
+				if ev.KV.Revision >= batch.CurrentRev {
+					return batch, nil
+				}
+			}
+		case <-ctx.Done():
+			return batch, ctx.Err()
+		}
+	}
 }
 
 func (b *backend) DbSize(_ context.Context) (int64, error) {
@@ -260,10 +344,6 @@ func (b *backend) Compact(ctx context.Context, revision int64) (int64, error) {
 		return 0, translateErr(err)
 	}
 	return revision, nil
-}
-
-func (b *backend) WaitForSyncTo(revision int64) {
-	_ = b.node.WaitForRevision(context.Background(), revision)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
