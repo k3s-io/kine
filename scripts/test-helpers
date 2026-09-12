@@ -18,7 +18,7 @@ dump-logs() {
         for log in $node/logs/*.log; do
             echo
             echo "#- Tail: $log"
-            tail -5 $log
+            tail -15 $log
             echo "#- Done: $log"
             echo
         done
@@ -251,7 +251,7 @@ run-apiserver-tests() {
   test -e ./bin/etcd3.test || build-apiserver-tests
   for TEST in ./bin/*.test; do
     # TODO: add RangeStream support - ref https://github.com/k3s-io/kine/issues/740
-    (set -x; $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m -test.skip 'ListStream|StreamMetrics|TestWatchChanSync')
+    (set -x; $TEST -test.failfast -test.count 1 -test.parallel 1 -test.timeout 15m)
   done
 }
 export -f run-apiserver-tests
@@ -319,6 +319,7 @@ provision-kine() {
         -d --name $name \
         $KINE_ENV \
         $KINE_IMAGE \
+        --debug \
         --compact-interval=0 \
         --watch-progress-notify-interval=5s \
         --endpoint=$KINE_ENDPOINT

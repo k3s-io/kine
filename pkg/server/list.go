@@ -19,11 +19,15 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	if r.Revision > 0 {
 		revision = r.Revision
 	}
+	if key == "\x00" && end == "\x00" {
+		key = ""
+		end = ""
+	}
 
 	if r.CountOnly {
 		rev, count, err := l.backend.Count(ctx, key, end, revision)
 		resp := &RangeResponse{
-			Header: txnHeader(rev),
+			Header: &etcdserverpb.ResponseHeader{Revision: rev},
 			Count:  count,
 		}
 		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, rev, count)
@@ -38,7 +42,7 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 	rev, kvs, err := l.backend.List(ctx, key, end, limit, revision, r.KeysOnly)
 	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d, keysOnly=%v", key, end, revision, rev, len(kvs), r.Limit, r.KeysOnly)
 	resp := &RangeResponse{
-		Header: txnHeader(rev),
+		Header: &etcdserverpb.ResponseHeader{Revision: rev},
 		Count:  int64(len(kvs)),
 		Kvs:    kvs,
 	}
@@ -54,7 +58,7 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 
 		rev, resp.Count, err = l.backend.Count(ctx, key, end, revision)
 		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, rev, resp.Count)
-		resp.Header = txnHeader(rev)
+		resp.Header = &etcdserverpb.ResponseHeader{Revision: rev}
 	}
 
 	return resp, err

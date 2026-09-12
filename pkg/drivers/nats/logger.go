@@ -78,6 +78,17 @@ func (b *BackendLogger) List(ctx context.Context, key, end string, limit, revisi
 	return b.backend.List(ctx, key, end, limit, revision, keysOnly)
 }
 
+func (b *BackendLogger) ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) server.ListResult {
+	start := time.Now()
+	defer func() {
+		dur := time.Since(start)
+		fStr := "LISTSTREAM %s, end=%s, limit=%d, rev=%d => duration=%s"
+		b.logMethod(dur, fStr, key, end, limit, revision, dur)
+	}()
+
+	return b.backend.ListStream(ctx, key, end, limit, revision, keysOnly)
+}
+
 // Count returns an exact count of the number of matching keys and the current revision of the database
 func (b *BackendLogger) Count(ctx context.Context, key, end string, revision int64) (revRet int64, count int64, err error) {
 	start := time.Now()
@@ -105,8 +116,8 @@ func (b *BackendLogger) Update(ctx context.Context, key string, value []byte, re
 	return b.backend.Update(ctx, key, value, revision, lease)
 }
 
-func (b *BackendLogger) Watch(ctx context.Context, key, end string, revision int64) server.WatchResult {
-	return b.backend.Watch(ctx, key, end, revision)
+func (b *BackendLogger) Watch(ctx context.Context, revision int64) server.WatchResult {
+	return b.backend.Watch(ctx, revision)
 }
 
 // DbSize get the kineBucket size from JetStream.
@@ -121,8 +132,4 @@ func (b *BackendLogger) CurrentRevision(ctx context.Context) (int64, error) {
 
 func (b *BackendLogger) Compact(ctx context.Context, revision int64) (int64, error) {
 	return b.backend.Compact(ctx, revision)
-}
-
-func (b *BackendLogger) WaitForSyncTo(revision int64) {
-	b.backend.WaitForSyncTo(revision)
 }

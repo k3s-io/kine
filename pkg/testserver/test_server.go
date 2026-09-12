@@ -30,11 +30,9 @@ import (
 func NewTestConfig(t testing.TB) *embed.Config {
 	cfg := embed.NewConfig()
 
-	clientURL := url.URL{Scheme: "unix", Path: "/tmp/kine.sock"}
-
-	cfg.ListenClientUrls = []url.URL{clientURL}
-	cfg.WatchProgressNotifyInterval = 5 * time.Second
 	cfg.Dir = t.TempDir()
+	cfg.ListenClientUrls = []url.URL{{Scheme: "unix", Path: cfg.Dir + "/kine.sock"}}
+	cfg.WatchProgressNotifyInterval = 5 * time.Second
 	os.Chmod(cfg.Dir, 0700)
 	return cfg
 }
@@ -150,6 +148,9 @@ func setDatabasePath(endpoint, dir string) (string, error) {
 		//  mysql DSNs are not valid URLs, so just insert the hash before the query string, if any
 		path, query, _ := strings.Cut(endpoint, "?")
 		return path + hash + "?" + query, nil
+	case "t4":
+		hash = dir
+		fallthrough
 	default:
 		ep, err := url.Parse(endpoint)
 		if err != nil {
