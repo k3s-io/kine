@@ -312,6 +312,11 @@ func (l *loggingServerStream) SendMsg(m any) error {
 				l.clientAddr, wr.WatchId, wr.Header.Revision, len(wr.Events), proto.Size(wr), wr.Created, wr.Canceled, wr.CancelReason, time.Since(start).Truncate(time.Microsecond))
 			return
 		}
+		if rsr, ok := m.(*etcdserverpb.RangeStreamResponse); ok {
+			logrus.Tracef("STREAM STATS SENDMSG client=%s, name=%s, size=%d, time=%s, kvs=%d, count=%d, more=%t, header=%s",
+				l.clientAddr, proto.MessageName(rsr), proto.Size(rsr), time.Since(start).Truncate(time.Microsecond), len(rsr.RangeResponse.Kvs), rsr.RangeResponse.Count, rsr.RangeResponse.More, rsr.RangeResponse.Header)
+			return
+		}
 		if p, ok := m.(proto.Message); ok {
 			logrus.Tracef("STREAM STATS SENDMSG client=%s, name=%s, size=%d, time=%s", l.clientAddr, proto.MessageName(p), proto.Size(p), time.Since(start).Truncate(time.Microsecond))
 		}

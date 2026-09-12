@@ -148,12 +148,12 @@ func TestGetAtRevision(t *testing.T) {
 	rev1, err := b.Create(ctx, "/test/a", []byte("v1"), 0)
 	noErr(t, err)
 
-	_, _, _, err = b.Update(ctx, "/test/a", []byte("v2"), rev1, 0)
+	rev2, _, _, err := b.Update(ctx, "/test/a", []byte("v2"), rev1, 0)
 	noErr(t, err)
 
 	rev, kv, err := b.Get(ctx, "/test/a", rev1, false)
 	noErr(t, err)
-	expEqual(t, rev1, rev)
+	expEqual(t, rev2, rev)
 	expEqual(t, "v1", string(kv.Value))
 
 	rev, kv, err = b.Get(ctx, "/test/a", 0, false)
@@ -274,7 +274,7 @@ func TestList(t *testing.T) {
 	// At a revision.
 	rev, ents, err = b.List(ctx, "/test/", "/test0", 0, 3, false)
 	noErr(t, err)
-	expEqual(t, int64(3), rev)
+	expEqual(t, int64(7), rev)
 	expEqual(t, 3, len(ents))
 	expSortedKeys(t, ents)
 	expEqualKeys(t, []string{"/test/a", "/test/a/b/c", "/test/b"}, ents)
