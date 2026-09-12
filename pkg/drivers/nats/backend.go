@@ -390,10 +390,14 @@ func (b *Backend) Update(ctx context.Context, key string, value []byte, revision
 // that are alphanumerically equal to or greater than the startKey.
 // If limit is provided, the maximum set of matches is limited.
 // If revision is provided, this indicates the maximum revision to return.
-func (b *Backend) List(ctx context.Context, key, end string, limit, maxRevision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
-	matches, err := b.kv.List(ctx, key, end, limit, maxRevision, keysOnly)
+func (b *Backend) List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (int64, []*server.KeyValue, error) {
+	var currentRev = b.kv.BucketRevision()
+	if revision == 0 {
+		revision = currentRev
+	}
+	matches, err := b.kv.List(ctx, key, end, limit, revision, keysOnly)
 	if err != nil {
-		return b.kv.BucketRevision(), nil, err
+		return currentRev, nil, err
 	}
 
 	kvs := make([]*server.KeyValue, 0, len(matches))
@@ -401,20 +405,48 @@ func (b *Backend) List(ctx context.Context, key, end string, limit, maxRevision 
 		var nd natsData
 		err = nd.Decode(e)
 		if err != nil {
-			return b.kv.BucketRevision(), nil, err
+			return currentRev, nil, err
 		}
 
 		kvs = append(kvs, nd.KV)
 	}
 
-	var rev int64
-	if maxRevision > 0 {
-		rev = maxRevision
-	} else {
-		rev = b.kv.BucketRevision()
+	return currentRev, kvs, nil
+}
+
+func (b *Backend) ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) server.ListResult {
+	var (
+		currentRev = b.kv.BucketRevision()
+		kvc        = make(chan *server.KeyValue, 1)
+		errc       = make(chan error, 1)
+	)
+
+	if revision == 0 {
+		revision = currentRev
 	}
 
-	return rev, kvs, nil
+	// stream rows into kv channel
+	go func() {
+		defer close(kvc)
+		defer close(errc)
+
+		matches, err := b.kv.List(ctx, key, end, limit, revision, keysOnly)
+		if err != nil {
+			errc <- err
+			return
+		}
+
+		for _, e := range matches {
+			var nd natsData
+			if err := nd.Decode(e); err != nil {
+				errc <- err
+				return
+			}
+			kvc <- nd.KV
+		}
+	}()
+
+	return server.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: currentRev}
 }
 
 func (b *Backend) Watch(ctx context.Context, revision int64) server.WatchResult {

@@ -161,6 +161,57 @@ func (b *backend) List(ctx context.Context, key, end string, limit, revision int
 	return curRev, out, nil
 }
 
+func (b *backend) ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) kserver.ListResult {
+	var (
+		kvc  = make(chan *kserver.KeyValue, 1)
+		errc = make(chan error, 1)
+	)
+	errorResult := func(err error) kserver.ListResult {
+		if err != nil {
+			errc <- err
+		}
+		close(kvc)
+		close(errc)
+		return kserver.ListResult{KVc: kvc, Errorc: errc}
+	}
+
+	curRev := b.node.CurrentRevision()
+	if revision > 0 {
+		if revision > curRev {
+			return errorResult(kserver.ErrFutureRev)
+		}
+		if revision < b.node.CompactRevision() {
+			return errorResult(kserver.ErrCompacted)
+		}
+	} else {
+		revision = curRev
+	}
+	prefix, startKey := translateRange(key, end)
+	opts := readOpts(revision)
+	if startKey != "" {
+		opts = append(opts, t4.WithFromKey(startKey))
+	}
+	if limit > 0 {
+		opts = append(opts, t4.WithLimit(limit))
+	}
+
+	// stream rows into kv channel
+	go func() {
+		defer close(kvc)
+		defer close(errc)
+		kvs, err := b.node.LinearizableList(ctx, prefix, opts...)
+		if err != nil {
+			errc <- translateErr(err)
+			return
+		}
+		for _, kv := range kvs {
+			kvc <- toServerKV(kv, keysOnly)
+		}
+	}()
+
+	return kserver.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: curRev}
+}
+
 func (b *backend) Count(ctx context.Context, key, end string, revision int64) (int64, int64, error) {
 	curRev := b.node.CurrentRevision()
 	if revision > 0 && revision > curRev {

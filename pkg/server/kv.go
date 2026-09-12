@@ -8,8 +8,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // explicit interface check
@@ -64,6 +62,42 @@ func (k *KVServerBridge) Range(ctx context.Context, r *etcdserverpb.RangeRequest
 	}
 
 	return rangeResponse, nil
+}
+
+func (k *KVServerBridge) RangeStream(r *etcdserverpb.RangeRequest, rs etcdserverpb.KV_RangeStreamServer) error {
+	if r.MaxCreateRevision != 0 {
+		return unsupported("maxCreateRevision")
+	}
+
+	if r.SortOrder != 0 {
+		return unsupported("sortOrder")
+	}
+
+	if r.SortTarget != 0 {
+		return unsupported("sortTarget")
+	}
+
+	if r.Serializable {
+		return unsupported("serializable")
+	}
+
+	if r.MinModRevision != 0 {
+		return unsupported("minModRevision")
+	}
+
+	if r.MinCreateRevision != 0 {
+		return unsupported("minCreateRevision")
+	}
+
+	if r.MaxCreateRevision != 0 {
+		return unsupported("maxCreateRevision")
+	}
+
+	if r.MaxModRevision != 0 {
+		return unsupported("maxModRevision")
+	}
+
+	return k.limited.RangeStream(r, rs)
 }
 
 func toKVs(kvs ...*KeyValue) []*mvccpb.KeyValue {
@@ -128,9 +162,4 @@ func (k *KVServerBridge) Compact(ctx context.Context, r *etcdserverpb.Compaction
 		logrus.Errorf("error in compact %s: %v", r, err)
 	}
 	return res, err
-}
-
-func (k *KVServerBridge) RangeStream(r *etcdserverpb.RangeRequest, rs etcdserverpb.KV_RangeStreamServer) error {
-	// TODO: add RangeStream support - ref https://github.com/k3s-io/kine/issues/740
-	return status.Error(codes.Unimplemented, "RangeStream is unimplemented")
 }
