@@ -406,6 +406,85 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 	return batch, err
 }
 
+func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) server.ListResult {
+	var (
+		rows *sql.Rows
+		kvc  = make(chan *server.KeyValue, 1)
+		errc = make(chan error, 1)
+	)
+	errorResult := func(err error) server.ListResult {
+		if err != nil {
+			errc <- err
+		}
+		if rows != nil {
+			rows.Close()
+		}
+		close(kvc)
+		close(errc)
+		return server.ListResult{KVc: kvc, Errorc: errc}
+	}
+
+	key = s.d.TranslateStartKey(key)
+
+	currentRev, err := s.CurrentRevision(ctx)
+	if err != nil {
+		return errorResult(err)
+	}
+
+	if revision == 0 {
+		rows, err = s.d.ListCurrent(ctx, key, end, limit, includeDeleted, keysOnly)
+	} else {
+		rows, err = s.d.List(ctx, key, end, limit, revision, includeDeleted, keysOnly)
+	}
+	if err != nil {
+		return errorResult(err)
+	}
+
+	// scan first row now, to get current and compact revs
+	var current, compact int64
+	if rows.Next() {
+		event, err := scan(rows, &current, &compact, !keysOnly, false)
+		if err != nil {
+			return errorResult(err)
+		}
+		kvc <- event.KV
+	}
+
+	if current == 0 {
+		// without rows we won't have the compact or current revisions
+		current = currentRev
+		compact, err = s.d.GetCompactRevision(ctx)
+		if err != nil {
+			return errorResult(err)
+		}
+	}
+
+	if revision > current {
+		return errorResult(server.ErrFutureRev)
+	}
+
+	if revision > 0 && revision < compact {
+		return errorResult(server.ErrCompacted)
+	}
+
+	// stream rows into kv channel
+	go func() {
+		defer rows.Close()
+		defer close(kvc)
+		defer close(errc)
+		for rows.Next() {
+			event, err := scan(rows, &current, &compact, !keysOnly, false)
+			if err != nil {
+				errc <- err
+				return
+			}
+			kvc <- event.KV
+		}
+	}()
+
+	return server.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: current}
+}
+
 // rowsToEvents converts database rows to KV store events.
 // if val is false, rows must not include the current value
 // if prev is false, rows must additionally not include the previous value

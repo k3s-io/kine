@@ -32,6 +32,7 @@ type Backend interface {
 	Create(ctx context.Context, key string, value []byte, lease int64) (int64, error)
 	Delete(ctx context.Context, key string, revision int64) (int64, *KeyValue, bool, error)
 	List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (int64, []*KeyValue, error)
+	ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) ListResult
 	Count(ctx context.Context, key, end string, revision int64) (int64, int64, error)
 	Update(ctx context.Context, key string, value []byte, revision, lease int64) (int64, *KeyValue, bool, error)
 	Watch(ctx context.Context, revision int64) WatchResult
@@ -128,6 +129,12 @@ type WatchResult struct {
 	CurrentRevision int64
 	CompactRevision int64
 	Eventc          <-chan EventBatch
+	Errorc          <-chan error
+}
+
+type ListResult struct {
+	CurrentRevision int64
+	KVc             <-chan *KeyValue
 	Errorc          <-chan error
 }
 

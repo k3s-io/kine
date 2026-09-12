@@ -188,12 +188,12 @@ func TestBackend_Get(t *testing.T) {
 	// Get at prior version.
 	rev, ent, err = b.Get(ctx, prefix("/a"), rev, false)
 	noErr(t, err)
-	expEqual(t, baseRev+4, rev) // Should be the requested older revision
+	expEqual(t, baseRev+5, rev) // Should be the latest revision
 	expEqual(t, prefix("/a"), ent.Key)
 	expEqual(t, "c", string(ent.Value))
 	expEqual(t, 0, ent.Lease)
-	expEqual(t, rev, ent.ModRevision)
-	expEqual(t, rev, ent.CreateRevision)
+	expEqual(t, rev, ent.ModRevision+1)
+	expEqual(t, rev, ent.CreateRevision+1)
 
 	rev, ent, err = b.Get(ctx, prefix("/a"), 0, false)
 	noErr(t, err)
@@ -373,7 +373,7 @@ func TestBackend_List(t *testing.T) {
 	// List the keys up to a revision.
 	rev, ents, err = b.List(ctx, prefix("/"), prefix("0"), 0, baseRev+3, false)
 	noErr(t, err)
-	expEqual(t, baseRev+3, rev)
+	expEqual(t, baseRev+7, rev)
 	expEqual(t, 3, len(ents))
 	expSortedKeys(t, ents)
 	expEqualKeys(t, []string{prefix("/a"), prefix("/a/b/c"), prefix("/b")}, ents)

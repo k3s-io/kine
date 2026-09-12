@@ -15,23 +15,14 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 
 	key := string(r.Key)
 	end := string(r.RangeEnd)
-	revision := int64(0)
-	if r.Revision > 0 {
-		revision = r.Revision
-	}
 	if key == "\x00" && end == "\x00" {
 		key = ""
 		end = ""
 	}
 
-	if r.CountOnly {
-		rev, count, err := l.backend.Count(ctx, key, end, revision)
-		resp := &RangeResponse{
-			Header: &etcdserverpb.ResponseHeader{Revision: rev},
-			Count:  count,
-		}
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, rev, count)
-		return resp, err
+	revision := int64(0)
+	if r.Revision > 0 {
+		revision = r.Revision
 	}
 
 	limit := r.Limit
@@ -39,27 +30,40 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 		limit++
 	}
 
-	rev, kvs, err := l.backend.List(ctx, key, end, limit, revision, r.KeysOnly)
-	logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d, keysOnly=%v", key, end, revision, rev, len(kvs), r.Limit, r.KeysOnly)
-	resp := &RangeResponse{
-		Header: &etcdserverpb.ResponseHeader{Revision: rev},
-		Count:  int64(len(kvs)),
-		Kvs:    kvs,
+	var currentRev int64
+	var kvs []*KeyValue
+	var err error
+	if !r.CountOnly {
+		currentRev, kvs, err = l.backend.List(ctx, key, end, limit, revision, r.KeysOnly)
+		logrus.Tracef("LIST key=%s, end=%s, revision=%d, currentRev=%d count=%d, limit=%d, keysOnly=%v", key, end, revision, currentRev, len(kvs), r.Limit, r.KeysOnly)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// if the number of items returned exceeds the limit, count the keys remaining that follow the start key
-	if limit > 0 && resp.Count > r.Limit {
-		resp.More = true
-		resp.Kvs = kvs[0 : limit-1]
-
-		if revision == 0 {
-			revision = rev
+	var more bool
+	var count = int64(len(kvs))
+	if r.CountOnly || (limit > 0 && count > r.Limit) {
+		if len(kvs) > 1 {
+			kvs = kvs[:len(kvs)-1]
+			more = true
 		}
 
-		rev, resp.Count, err = l.backend.Count(ctx, key, end, revision)
-		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, rev, resp.Count)
-		resp.Header = &etcdserverpb.ResponseHeader{Revision: rev}
+		if revision == 0 {
+			revision = currentRev
+		}
+
+		currentRev, count, err = l.backend.Count(ctx, key, end, revision)
+		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, currentRev, count)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return resp, err
+	return &RangeResponse{
+		Header: &etcdserverpb.ResponseHeader{Revision: currentRev},
+		Kvs:    kvs,
+		More:   more,
+		Count:  count,
+	}, nil
 }

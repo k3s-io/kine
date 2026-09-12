@@ -78,6 +78,17 @@ func (b *BackendLogger) List(ctx context.Context, key, end string, limit, revisi
 	return b.backend.List(ctx, key, end, limit, revision, keysOnly)
 }
 
+func (b *BackendLogger) ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) server.ListResult {
+	start := time.Now()
+	defer func() {
+		dur := time.Since(start)
+		fStr := "LISTSTREAM %s, end=%s, limit=%d, rev=%d => duration=%s"
+		b.logMethod(dur, fStr, key, end, limit, revision, dur)
+	}()
+
+	return b.backend.ListStream(ctx, key, end, limit, revision, keysOnly)
+}
+
 // Count returns an exact count of the number of matching keys and the current revision of the database
 func (b *BackendLogger) Count(ctx context.Context, key, end string, revision int64) (revRet int64, count int64, err error) {
 	start := time.Now()
