@@ -294,7 +294,6 @@ func (m *Memory) List(ctx context.Context, key, end string, limit, revision int6
 		if revision < m.compactRevision {
 			return rev, nil, server.ErrCompacted
 		}
-		rev = revision
 	}
 
 	iter := m.keys.Iter()
@@ -337,6 +336,78 @@ func (m *Memory) List(ctx context.Context, key, end string, limit, revision int6
 		}
 	}
 	return rev, kvs, nil
+}
+
+func (m *Memory) ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) server.ListResult {
+	var (
+		kvc  = make(chan *server.KeyValue, 1)
+		errc = make(chan error, 1)
+	)
+	errorResult := func(err error) server.ListResult {
+		if err != nil {
+			errc <- err
+		}
+		close(kvc)
+		close(errc)
+		return server.ListResult{KVc: kvc, Errorc: errc}
+	}
+
+	rev := m.currentRevision.Load()
+	if revision > 0 {
+		if revision > rev {
+			return errorResult(server.ErrFutureRev)
+		}
+		if revision < m.compactRevision {
+			return errorResult(server.ErrCompacted)
+		}
+	}
+
+	// stream rows into kv channel
+	go func() {
+		defer close(kvc)
+		defer close(errc)
+		iter := m.keys.Iter()
+		if !iter.Seek(key) {
+			return
+		}
+		var count int64
+		for {
+			k := iter.Key()
+			if k == "" {
+				iter.Next()
+				continue
+			}
+			if !keyString(k).InRange(key, end) {
+				return
+			}
+
+			var e *entry
+			if revision > 0 {
+				e = m.atRevision(k, revision)
+			} else {
+				e = m.latest(k)
+			}
+
+			if e != nil && !e.deleted {
+				kv := e.toKeyValue()
+				if keysOnly {
+					kv.Value = nil
+				}
+				count++
+				kvc <- kv
+			}
+
+			if limit > 0 && count >= limit {
+				return
+			}
+
+			if !iter.Next() {
+				return
+			}
+		}
+	}()
+
+	return server.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: rev}
 }
 
 func (m *Memory) Count(ctx context.Context, key, end string, revision int64) (int64, int64, error) {

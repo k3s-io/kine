@@ -8,8 +8,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // explicit interface check
@@ -131,6 +129,5 @@ func (k *KVServerBridge) Compact(ctx context.Context, r *etcdserverpb.Compaction
 }
 
 func (k *KVServerBridge) RangeStream(r *etcdserverpb.RangeRequest, rs etcdserverpb.KV_RangeStreamServer) error {
-	// TODO: add RangeStream support - ref https://github.com/k3s-io/kine/issues/740
-	return status.Error(codes.Unimplemented, "RangeStream is unimplemented")
+	return k.limited.RangeStream(r, rs)
 }

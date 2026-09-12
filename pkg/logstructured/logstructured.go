@@ -15,6 +15,7 @@ type Log interface {
 	CompactRevision(ctx context.Context) (int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	List(ctx context.Context, key, end string, limit, revision int64, includeDeletes, keysOnly bool) (server.EventBatch, error)
+	ListStream(ctx context.Context, key, end string, limit, revision int64, includeDeletes, keysOnly bool) server.ListResult
 	Count(ctx context.Context, key, end string, revision int64) (int64, int64, error)
 	After(ctx context.Context, key, end string, revision, limit int64) (server.EventBatch, error)
 	Watch(ctx context.Context) <-chan server.EventBatch
@@ -161,6 +162,10 @@ func (l *LogStructured) List(ctx context.Context, key, end string, limit, revisi
 		kvs = append(kvs, event.KV)
 	}
 	return batch.CurrentRev, kvs, err
+}
+
+func (l *LogStructured) ListStream(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) server.ListResult {
+	return l.log.ListStream(ctx, key, end, limit, revision, false, keysOnly)
 }
 
 func (l *LogStructured) Count(ctx context.Context, key, end string, revision int64) (revRet int64, count int64, err error) {
