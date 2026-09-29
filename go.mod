@@ -19,12 +19,13 @@ require (
 	github.com/t4db/t4 v1.0.6
 	github.com/tidwall/btree v1.8.1
 	github.com/urfave/cli/v2 v2.27.7
-	go.etcd.io/etcd/api/v3 v3.7.1
-	go.etcd.io/etcd/client/pkg/v3 v3.7.1
-	go.etcd.io/etcd/client/v3 v3.7.1
-	go.etcd.io/etcd/server/v3 v3.7.1
+	go.etcd.io/etcd/api/v3 v3.7.2
+	go.etcd.io/etcd/client/pkg/v3 v3.7.2
+	go.etcd.io/etcd/client/v3 v3.7.2
+	go.etcd.io/etcd/server/v3 v3.7.2
 	go.uber.org/zap v1.27.1
 	google.golang.org/grpc v1.83.2
+	google.golang.org/protobuf v1.36.12
 	k8s.io/apimachinery v0.37.0
 	k8s.io/apiserver v0.37.0
 	k8s.io/client-go v0.37.0
@@ -124,7 +125,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.7.1 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.7.2 // indirect
 	go.etcd.io/raft/v3 v3.7.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0 // indirect
@@ -149,7 +150,6 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
