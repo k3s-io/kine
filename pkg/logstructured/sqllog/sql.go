@@ -309,6 +309,19 @@ func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
 	return s.currentRev.Load(), nil
 }
 
+// refreshRevision queries the database for the current revision and
+// advances the cached revision if the database is ahead of it.
+func (s *SQLLog) refreshRevision(ctx context.Context) (int64, error) {
+	backendRev, err := s.d.CurrentRevision(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if currentRev := s.currentRev.Load(); backendRev > currentRev {
+		s.currentRev.CompareAndSwap(currentRev, backendRev)
+	}
+	return backendRev, nil
+}
+
 func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
 	return s.d.GetCompactRevision(ctx)
 }
@@ -318,10 +331,6 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		batch   server.EventBatch
 		compact int64
 	)
-	currentRev, err := s.CurrentRevision(ctx)
-	if err != nil {
-		return batch, err
-	}
 	rows, err := s.d.After(ctx, key, end, revision, limit)
 	if err != nil {
 		return batch, err
@@ -330,8 +339,12 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 	batch, compact, err = RowsToEvents(rows, true, true)
 
 	if batch.CurrentRev == 0 {
-		// without rows we won't have the compact or current revisions
-		batch.CurrentRev = currentRev
+		// Without rows we won't have the compact or current revisions, and
+		// the cached revision can lag the actual head when the database is
+		// shared; refresh it from the database before reporting.
+		if batch.CurrentRev, err = s.refreshRevision(ctx); err != nil {
+			return batch, err
+		}
 		compact, err = s.d.GetCompactRevision(ctx)
 		if err != nil {
 			return batch, err
@@ -359,12 +372,8 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 		rows    *sql.Rows
 		batch   server.EventBatch
 		compact int64
+		err     error
 	)
-	currentRev, err := s.CurrentRevision(ctx)
-	if err != nil {
-		return batch, err
-	}
-
 	key = s.d.TranslateStartKey(key)
 
 	if revision == 0 {
@@ -383,9 +392,10 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 
 	if batch.CurrentRev == 0 {
 		// without rows we won't have the compact or current revisions
-		batch.CurrentRev = currentRev
-		compact, err = s.d.GetCompactRevision(ctx)
-		if err != nil {
+		if batch.CurrentRev, err = s.refreshRevision(ctx); err != nil {
+			return batch, err
+		}
+		if compact, err = s.d.GetCompactRevision(ctx); err != nil {
 			return batch, err
 		}
 	}
@@ -411,6 +421,7 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 		rows *sql.Rows
 		kvc  = make(chan *server.KeyValue, 1)
 		errc = make(chan error, 1)
+		err  error
 	)
 	errorResult := func(err error) server.ListResult {
 		if err != nil {
@@ -425,11 +436,6 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 	}
 
 	key = s.d.TranslateStartKey(key)
-
-	currentRev, err := s.CurrentRevision(ctx)
-	if err != nil {
-		return errorResult(err)
-	}
 
 	if revision == 0 {
 		rows, err = s.d.ListCurrent(ctx, key, end, limit, includeDeleted, keysOnly)
@@ -452,9 +458,10 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 
 	if current == 0 {
 		// without rows we won't have the compact or current revisions
-		current = currentRev
-		compact, err = s.d.GetCompactRevision(ctx)
-		if err != nil {
+		if current, err = s.refreshRevision(ctx); err != nil {
+			return errorResult(err)
+		}
+		if compact, err = s.d.GetCompactRevision(ctx); err != nil {
 			return errorResult(err)
 		}
 	}
@@ -805,7 +812,7 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 	if targetCompactRev > currentRev {
 		return 0, server.ErrFutureRev
 	}
-	compactRev, _ := s.d.GetCompactRevision(s.ctx)
+	compactRev, _ := s.d.GetCompactRevision(ctx)
 	if targetCompactRev <= compactRev {
 		return 0, server.ErrCompacted
 	}
