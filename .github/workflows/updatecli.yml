@@ -27,7 +27,7 @@ jobs:
           go-version: '1.26'
 
       - name: Install UpdateCLI
-        uses: updatecli/updatecli-action@41b9c8d707830a9daebaeaa84c1b62d60b779564 # v3.6.0
+        uses: updatecli/updatecli-action@2efa15cbae1751f532f9bfc88f56adafd6d1faed # v3.8.0
 
       - name: Delete leftover UpdateCLI branches
         run: |
