@@ -31,6 +31,16 @@ const (
 	listPageSize = 1000
 )
 
+var (
+	// seedRetries is the number of times seeding the workqueue is retried
+	// before giving up; seedRetryInterval is the delay before the first
+	// retry, doubled after each failure up to seedRetryMaxInterval. They
+	// are vars rather than consts so that tests can shorten them.
+	seedRetries          = 10
+	seedRetryInterval    = 250 * time.Millisecond
+	seedRetryMaxInterval = 30 * time.Second
+)
+
 type entry struct {
 	modRevision int64
 	expiredAt   time.Time
@@ -49,7 +59,7 @@ func Run(ctx context.Context, b server.Backend) {
 		}
 	}()
 
-	rev, err := seed(ctx, b, &mu, queue, store)
+	rev, err := seedWithRetry(ctx, b, &mu, queue, store)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			logrus.Errorf("TTL initial list failed: %v", err)
@@ -92,6 +102,33 @@ func Run(ctx context.Context, b server.Backend) {
 					logrus.Tracef("TTL set key=%v modRev=%v ttl=%v", kv.Key, kv.ModRevision, expires)
 					queue.AddAfter(kv.Key, expires)
 				}
+			}
+		}
+	}
+}
+
+// seedWithRetry retries seed with exponential backoff while ctx is not
+// canceled. Transient failures - such as a stale backend revision when the
+// database is shared with other instances - must not permanently disable
+// lease expiry for the life of the process. Only after seedRetries attempts
+// have been exhausted is the error returned to the caller.
+func seedWithRetry(ctx context.Context, b server.Backend, mu *sync.RWMutex, queue workqueue.TypedDelayingInterface[string], store map[string]*entry) (int64, error) {
+	delay := seedRetryInterval
+	for attempt := 0; ; attempt++ {
+		rev, err := seed(ctx, b, mu, queue, store)
+		if err == nil || errors.Is(err, context.Canceled) || attempt >= seedRetries {
+			return rev, err
+		}
+		logrus.Warnf("TTL initial list failed, retrying in %s: %v", delay, err)
+		select {
+		case <-ctx.Done():
+			return rev, ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < seedRetryMaxInterval {
+			delay *= 2
+			if delay > seedRetryMaxInterval {
+				delay = seedRetryMaxInterval
 			}
 		}
 	}
