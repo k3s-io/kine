@@ -309,6 +309,28 @@ func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
 	return s.currentRev.Load(), nil
 }
 
+// refreshRevision queries the database for the current revision, and advances
+// the cached revision if the database is ahead of it. The cache can lag the
+// actual head of the log when the database is shared with other kine
+// instances, or when the poll loop has not yet observed the most recent
+// changes; in that case requests must not be failed with ErrFutureRev based
+// on the stale cached value.
+func (s *SQLLog) refreshRevision(ctx context.Context) (int64, error) {
+	rev, err := s.d.CurrentRevision(ctx)
+	if err != nil {
+		return rev, err
+	}
+	for {
+		cached := s.currentRev.Load()
+		if rev <= cached {
+			return cached, nil
+		}
+		if s.currentRev.CompareAndSwap(cached, rev) {
+			return rev, nil
+		}
+	}
+}
+
 func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
 	return s.d.GetCompactRevision(ctx)
 }
@@ -335,6 +357,20 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		compact, err = s.d.GetCompactRevision(ctx)
 		if err != nil {
 			return batch, err
+		}
+	}
+
+	// The current revision may have come from the cache, which can lag the
+	// actual head of the log when the database is shared with other kine
+	// instances or the poll loop is delayed. Refresh it from the database
+	// before returning a stale revision to the caller.
+	if revision > batch.CurrentRev {
+		freshRev, err := s.refreshRevision(ctx)
+		if err != nil {
+			return batch, err
+		}
+		if freshRev > batch.CurrentRev {
+			batch.CurrentRev = freshRev
 		}
 	}
 
@@ -391,7 +427,21 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 	}
 
 	if revision > batch.CurrentRev {
-		return batch, server.ErrFutureRev
+		// The current revision may have come from the cache, which can lag
+		// the actual head of the log when the database is shared with other
+		// kine instances or the poll loop is delayed. Refresh it from the
+		// database before deciding that the requested revision is actually
+		// in the future.
+		freshRev, err := s.refreshRevision(ctx)
+		if err != nil {
+			return batch, err
+		}
+		if freshRev > batch.CurrentRev {
+			batch.CurrentRev = freshRev
+		}
+		if revision > batch.CurrentRev {
+			return batch, server.ErrFutureRev
+		}
 	}
 
 	if revision > 0 && revision < compact {
@@ -460,7 +510,21 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 	}
 
 	if revision > current {
-		return errorResult(server.ErrFutureRev)
+		// The current revision may have come from the cache, which can lag
+		// the actual head of the log when the database is shared with other
+		// kine instances or the poll loop is delayed. Refresh it from the
+		// database before deciding that the requested revision is actually
+		// in the future.
+		freshRev, err := s.refreshRevision(ctx)
+		if err != nil {
+			return errorResult(err)
+		}
+		if freshRev > current {
+			current = freshRev
+		}
+		if revision > current {
+			return errorResult(server.ErrFutureRev)
+		}
 	}
 
 	if revision > 0 && revision < compact {
@@ -688,7 +752,19 @@ func (s *SQLLog) Count(ctx context.Context, key, end string, revision int64) (in
 		return 0, 0, err
 	}
 	if revision > rev {
-		return rev, 0, server.ErrFutureRev
+		// The revision returned by the count query may lag the actual head
+		// of the log; refresh it from the database before deciding that the
+		// requested revision is actually in the future.
+		freshRev, err := s.refreshRevision(ctx)
+		if err != nil {
+			return rev, 0, err
+		}
+		if freshRev > rev {
+			rev = freshRev
+		}
+		if revision > rev {
+			return rev, 0, server.ErrFutureRev
+		}
 	}
 	if revision < compact {
 		return rev, 0, server.ErrCompacted
@@ -803,7 +879,18 @@ func (s *SQLLog) DbSize(ctx context.Context) (int64, error) {
 func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, error) {
 	currentRev, _ := s.CurrentRevision(ctx)
 	if targetCompactRev > currentRev {
-		return 0, server.ErrFutureRev
+		// The cached revision can lag the actual head of the log when the
+		// database is shared with other kine instances or the poll loop is
+		// delayed; refresh it from the database before deciding that the
+		// target revision is actually in the future.
+		freshRev, err := s.refreshRevision(ctx)
+		if err != nil {
+			return 0, err
+		}
+		currentRev = freshRev
+		if targetCompactRev > currentRev {
+			return 0, server.ErrFutureRev
+		}
 	}
 	compactRev, _ := s.d.GetCompactRevision(s.ctx)
 	if targetCompactRev <= compactRev {
