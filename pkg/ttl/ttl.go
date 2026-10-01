@@ -99,29 +99,39 @@ func Run(ctx context.Context, b server.Backend) {
 
 // seed pages through every leased key at the current revision and adds it
 // to the workqueue. Pagination is anchored at the revision returned by the
-// first List so subsequent pages are stable.
+// first List so subsequent pages are stable. List failures are retried
+// until the context is canceled; if the list can never succeed then the
+// backend is broken and there is nothing else the TTL worker could do
+// anyway.
 func seed(ctx context.Context, b server.Backend, mu *sync.RWMutex, queue workqueue.TypedDelayingInterface[string], store map[string]*entry) (int64, error) {
-	rev, kvs, err := b.List(ctx, "", "", listPageSize, 0, true)
-	if err != nil {
-		return rev, err
-	}
-	for len(kvs) > 0 {
-		for _, kv := range kvs {
-			if kv.Lease > 0 {
-				expires := save(mu, store, kv)
-				logrus.Tracef("TTL seed key=%v modRev=%v ttl=%v", kv.Key, kv.ModRevision, expires)
-				queue.AddAfter(kv.Key, expires)
+	for {
+		rev, kvs, err := b.List(ctx, "", "", listPageSize, 0, true)
+		for err == nil && len(kvs) > 0 {
+			for _, kv := range kvs {
+				if kv.Lease > 0 {
+					expires := save(mu, store, kv)
+					logrus.Tracef("TTL seed key=%v modRev=%v ttl=%v", kv.Key, kv.ModRevision, expires)
+					queue.AddAfter(kv.Key, expires)
+				}
 			}
+			if int64(len(kvs)) < listPageSize {
+				return rev, nil
+			}
+			_, kvs, err = b.List(ctx, kvs[len(kvs)-1].Key, "0", listPageSize, rev, true)
 		}
-		if int64(len(kvs)) < listPageSize {
-			break
+		if err == nil {
+			return rev, nil
 		}
-		_, kvs, err = b.List(ctx, kvs[len(kvs)-1].Key, "0", listPageSize, rev, true)
-		if err != nil {
+		if errors.Is(err, context.Canceled) {
 			return rev, err
 		}
+		logrus.Warnf("TTL initial list failed, retrying in %s: %v", retryInterval, err)
+		select {
+		case <-ctx.Done():
+			return rev, ctx.Err()
+		case <-time.After(retryInterval):
+		}
 	}
-	return rev, nil
 }
 
 // handle processes one queue item. Returns false when the queue has shut
@@ -170,8 +180,12 @@ func save(mu *sync.RWMutex, store map[string]*entry, kv *server.KeyValue) time.D
 	defer mu.Unlock()
 	expires := time.Duration(kv.Lease) * time.Second
 	if e, ok := store[kv.Key]; ok {
-		e.modRevision = kv.ModRevision
-		e.expiredAt = time.Now().Add(expires)
+		// A retried seed may see the same revision again; keep the
+		// original deadline instead of extending the lease.
+		if kv.ModRevision != e.modRevision {
+			e.modRevision = kv.ModRevision
+			e.expiredAt = time.Now().Add(expires)
+		}
 	} else {
 		store[kv.Key] = &entry{
 			modRevision: kv.ModRevision,
