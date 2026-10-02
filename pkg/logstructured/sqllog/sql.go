@@ -480,6 +480,12 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 			}
 			kvc <- event.KV
 		}
+		// Next returns false for a read that ended early exactly as it does for
+		// the last row, so without this a list cut short by a cancelled query or
+		// a dropped connection reaches the client as a complete one.
+		if err := rows.Err(); err != nil {
+			errc <- err
+		}
 	}()
 
 	return server.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: current}
