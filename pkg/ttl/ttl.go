@@ -107,11 +107,9 @@ func Run(ctx context.Context, b server.Backend) {
 	}
 }
 
-// seedWithRetry retries seed with exponential backoff while ctx is not
-// canceled. Transient failures - such as a stale backend revision when the
-// database is shared with other instances - must not permanently disable
-// lease expiry for the life of the process. Only after seedRetries attempts
-// have been exhausted is the error returned to the caller.
+// seedWithRetry retries seed with exponential backoff until ctx is canceled
+// or seedRetries is exhausted; a transient failure must not permanently
+// disable lease expiry for the life of the process.
 func seedWithRetry(ctx context.Context, b server.Backend, mu *sync.RWMutex, queue workqueue.TypedDelayingInterface[string], store map[string]*entry) (int64, error) {
 	delay := seedRetryInterval
 	for attempt := 0; ; attempt++ {
@@ -207,8 +205,12 @@ func save(mu *sync.RWMutex, store map[string]*entry, kv *server.KeyValue) time.D
 	defer mu.Unlock()
 	expires := time.Duration(kv.Lease) * time.Second
 	if e, ok := store[kv.Key]; ok {
-		e.modRevision = kv.ModRevision
-		e.expiredAt = time.Now().Add(expires)
+		// A retried seed may see the same revision again; keep the
+		// original deadline instead of extending the lease.
+		if kv.ModRevision != e.modRevision {
+			e.modRevision = kv.ModRevision
+			e.expiredAt = time.Now().Add(expires)
+		}
 	} else {
 		store[kv.Key] = &entry{
 			modRevision: kv.ModRevision,

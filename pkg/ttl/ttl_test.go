@@ -59,8 +59,8 @@ func shortenSeedRetries(t *testing.T, retries int, interval time.Duration) {
 	})
 }
 
-// TestRunRetriesFailedSeed verifies that a transient failure of the initial
-// list is retried instead of permanently shutting down the TTL queue.
+// TestRunRetriesFailedSeed verifies that a transient seed failure is
+// retried instead of permanently shutting down the TTL queue.
 func TestRunRetriesFailedSeed(t *testing.T) {
 	shortenSeedRetries(t, 10, time.Millisecond)
 
@@ -92,8 +92,8 @@ func TestRunRetriesFailedSeed(t *testing.T) {
 	}
 }
 
-// TestRunSeedGivesUp verifies that a seed that keeps failing eventually gives
-// up and shuts the queue down rather than retrying forever.
+// TestRunSeedGivesUp verifies that a persistently failing seed eventually
+// gives up rather than retrying forever.
 func TestRunSeedGivesUp(t *testing.T) {
 	shortenSeedRetries(t, 2, time.Millisecond)
 
@@ -116,8 +116,8 @@ func TestRunSeedGivesUp(t *testing.T) {
 	}
 }
 
-// TestRunSeedRespectsContextCancel verifies that a pending seed retry is
-// aborted when the context is canceled, rather than waiting out the backoff.
+// TestRunSeedRespectsContextCancel verifies that a pending retry is
+// aborted on context cancel.
 func TestRunSeedRespectsContextCancel(t *testing.T) {
 	shortenSeedRetries(t, 10, time.Minute)
 
