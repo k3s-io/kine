@@ -238,6 +238,7 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get current revision: %w", err)
 	}
+	s.noteRevision(currentRev)
 
 	dbCompactRev, err := t.GetCompactRevision(s.ctx)
 	if err != nil {
@@ -320,13 +321,18 @@ func (s *SQLLog) refreshRevision(ctx context.Context) (int64, error) {
 	if err != nil {
 		return rev, err
 	}
+	s.noteRevision(rev)
+	return s.currentRev.Load(), nil
+}
+
+// noteRevision advances the cached revision to rev if the cache is behind.
+// The value comes from queries that already observed the head of the log, so
+// the cache is tightened without issuing an extra query.
+func (s *SQLLog) noteRevision(rev int64) {
 	for {
 		cached := s.currentRev.Load()
-		if rev <= cached {
-			return cached, nil
-		}
-		if s.currentRev.CompareAndSwap(cached, rev) {
-			return rev, nil
+		if rev <= cached || s.currentRev.CompareAndSwap(cached, rev) {
+			return
 		}
 	}
 }
@@ -360,10 +366,7 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		}
 	}
 
-	// The current revision may have come from the cache, which can lag the
-	// actual head of the log when the database is shared with other kine
-	// instances or the poll loop is delayed. Refresh it from the database
-	// before returning a stale revision to the caller.
+	// The cached revision can lag the actual head; refresh before erroring.
 	if revision > batch.CurrentRev {
 		freshRev, err := s.refreshRevision(ctx)
 		if err != nil {
@@ -373,6 +376,9 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 			batch.CurrentRev = freshRev
 		}
 	}
+	// The row query already observed the head of the log; keep the cached
+	// revision at least as fresh so later reads don't see stale values.
+	s.noteRevision(batch.CurrentRev)
 
 	// The compact revision itself can still be queried, so it is only an error to watch anything before compactRev - 1
 	if revision > 0 && revision < compact-1 {
@@ -427,11 +433,7 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 	}
 
 	if revision > batch.CurrentRev {
-		// The current revision may have come from the cache, which can lag
-		// the actual head of the log when the database is shared with other
-		// kine instances or the poll loop is delayed. Refresh it from the
-		// database before deciding that the requested revision is actually
-		// in the future.
+		// The cached revision can lag the actual head; refresh before erroring.
 		freshRev, err := s.refreshRevision(ctx)
 		if err != nil {
 			return batch, err
@@ -443,6 +445,8 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 			return batch, server.ErrFutureRev
 		}
 	}
+
+	s.noteRevision(batch.CurrentRev)
 
 	if revision > 0 && revision < compact {
 		return batch, server.ErrCompacted
@@ -510,11 +514,7 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 	}
 
 	if revision > current {
-		// The current revision may have come from the cache, which can lag
-		// the actual head of the log when the database is shared with other
-		// kine instances or the poll loop is delayed. Refresh it from the
-		// database before deciding that the requested revision is actually
-		// in the future.
+		// The cached revision can lag the actual head; refresh before erroring.
 		freshRev, err := s.refreshRevision(ctx)
 		if err != nil {
 			return errorResult(err)
@@ -526,6 +526,8 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 			return errorResult(server.ErrFutureRev)
 		}
 	}
+
+	s.noteRevision(current)
 
 	if revision > 0 && revision < compact {
 		return errorResult(server.ErrCompacted)
@@ -543,12 +545,6 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 				return
 			}
 			kvc <- event.KV
-		}
-		// Next returns false for a read that ended early exactly as it does for
-		// the last row, so without this a list cut short by a cancelled query or
-		// a dropped connection reaches the client as a complete one.
-		if err := rows.Err(); err != nil {
-			errc <- err
 		}
 	}()
 
@@ -751,10 +747,9 @@ func (s *SQLLog) Count(ctx context.Context, key, end string, revision int64) (in
 	if err != nil {
 		return 0, 0, err
 	}
+	s.noteRevision(rev)
 	if revision > rev {
-		// The revision returned by the count query may lag the actual head
-		// of the log; refresh it from the database before deciding that the
-		// requested revision is actually in the future.
+		// The cached revision can lag the actual head; refresh before erroring.
 		freshRev, err := s.refreshRevision(ctx)
 		if err != nil {
 			return rev, 0, err
@@ -879,10 +874,7 @@ func (s *SQLLog) DbSize(ctx context.Context) (int64, error) {
 func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, error) {
 	currentRev, _ := s.CurrentRevision(ctx)
 	if targetCompactRev > currentRev {
-		// The cached revision can lag the actual head of the log when the
-		// database is shared with other kine instances or the poll loop is
-		// delayed; refresh it from the database before deciding that the
-		// target revision is actually in the future.
+		// The cached revision can lag the actual head; refresh before erroring.
 		freshRev, err := s.refreshRevision(ctx)
 		if err != nil {
 			return 0, err

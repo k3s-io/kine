@@ -3,6 +3,7 @@ package sqllog_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -14,10 +15,9 @@ import (
 	"github.com/k3s-io/kine/pkg/server"
 )
 
-// newLog opens a fresh SQLite dialect on the given DSN and wraps it in a
-// started SQLLog. A second call with the same DSN simulates another kine
-// process sharing the same database: it gets its own in-memory revision
-// cache, which will lag the head of the log once the other instance writes.
+// newLog wraps a SQLite dialect in a started SQLLog. Two instances on the
+// same DSN simulate two kine processes sharing one database, each with its
+// own in-memory revision cache.
 func newLog(t *testing.T, ctx context.Context, wg *sync.WaitGroup, dsn string) *sqllog.SQLLog {
 	t.Helper()
 
@@ -32,10 +32,8 @@ func newLog(t *testing.T, ctx context.Context, wg *sync.WaitGroup, dsn string) *
 	return log
 }
 
-// TestStaleCurrentRevision verifies that requests carrying a revision that is
-// at or below the actual head of the log do not fail with ErrFutureRev when
-// the local revision cache is stale - as happens when the database is shared
-// with another kine instance, or the poll loop is delayed.
+// TestStaleCurrentRevision verifies that a request at or below the actual
+// head does not fail with ErrFutureRev when the local revision cache lags.
 func TestStaleCurrentRevision(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -46,28 +44,32 @@ func TestStaleCurrentRevision(t *testing.T) {
 
 	dsn := filepath.Join(t.TempDir(), "state.db") + "?" + sqlite.DefaultParams
 
-	// logA caches the current revision at startup.
 	logA := newLog(t, ctx, &wg, dsn)
 	cachedRev, err := logA.CurrentRevision(ctx)
 	if err != nil {
 		t.Fatalf("CurrentRevision failed: %v", err)
 	}
 
-	// logB is a second instance on the same database. Its append advances the
-	// head of the log past logA's cached revision.
+	// advance writes via logB so logA's cache goes stale before each op.
 	logB := newLog(t, ctx, &wg, dsn)
-	headRev, err := logB.Append(ctx, &server.Event{
-		KV: &server.KeyValue{Key: "/registry/test", Value: []byte("test")},
-	})
-	if err != nil {
-		t.Fatalf("Append failed: %v", err)
+	headRev := cachedRev
+	advance := func() int64 {
+		rev, err := logB.Append(ctx, &server.Event{
+			Create: true,
+			KV:     &server.KeyValue{Key: fmt.Sprintf("/registry/test-%d", headRev+1), Value: []byte("test")},
+		})
+		if err != nil {
+			t.Fatalf("Append failed: %v", err)
+		}
+		if rev <= headRev {
+			t.Fatalf("test setup failed: head revision %d not ahead of previous head %d", rev, headRev)
+		}
+		headRev = rev
+		return rev
 	}
-	if headRev <= cachedRev {
-		t.Fatalf("test setup failed: head revision %d not ahead of cached revision %d", headRev, cachedRev)
-	}
+	headRev = advance()
 
-	// A List at the head revision for a key that does not exist must refresh
-	// the stale cached revision instead of failing with ErrFutureRev.
+	// List at head on an empty range must refresh the stale cache.
 	batch, err := logA.List(ctx, "/registry/missing", "", 0, headRev, false, false)
 	if err != nil {
 		t.Fatalf("List at head revision %d failed: %v", headRev, err)
@@ -76,7 +78,7 @@ func TestStaleCurrentRevision(t *testing.T) {
 		t.Fatalf("List returned stale current revision %d, want %d", batch.CurrentRev, headRev)
 	}
 
-	// ListStream must behave the same way.
+	advance()
 	res := logA.ListStream(ctx, "/registry/missing", "", 0, headRev, false, false)
 	if err, ok := <-res.Errorc; ok && err != nil {
 		t.Fatalf("ListStream at head revision %d failed: %v", headRev, err)
@@ -88,8 +90,7 @@ func TestStaleCurrentRevision(t *testing.T) {
 		t.Fatalf("ListStream unexpectedly returned a key: %v", kv)
 	}
 
-	// After has no ErrFutureRev check, but it must not report the stale
-	// cached revision either.
+	advance()
 	batch, err = logA.After(ctx, "", "", headRev, 0)
 	if err != nil {
 		t.Fatalf("After failed: %v", err)
@@ -98,13 +99,20 @@ func TestStaleCurrentRevision(t *testing.T) {
 		t.Fatalf("After returned stale current revision %d, want %d", batch.CurrentRev, headRev)
 	}
 
-	// The refresh must have advanced the cached revision.
+	advance()
+	cntRev, _, err := logA.Count(ctx, "/registry/missing", "", headRev)
+	if err != nil {
+		t.Fatalf("Count at head revision %d failed: %v", headRev, err)
+	}
+	if cntRev != headRev {
+		t.Fatalf("Count returned stale current revision %d, want %d", cntRev, headRev)
+	}
+
 	if rev, err := logA.CurrentRevision(ctx); err != nil || rev != headRev {
 		t.Fatalf("cached revision not refreshed: got %d, want %d (err=%v)", rev, headRev, err)
 	}
 
-	// Manual compaction at the head revision must not fail with ErrFutureRev
-	// due to a stale cached revision either.
+	advance()
 	if rev, err := logA.Compact(ctx, headRev); err != nil {
 		t.Fatalf("Compact at head revision %d failed: %v", headRev, err)
 	} else if rev != headRev {
@@ -112,9 +120,8 @@ func TestStaleCurrentRevision(t *testing.T) {
 	}
 }
 
-// TestFutureRevision verifies that revisions past the actual head of the log
-// still fail with ErrFutureRev once the cached revision has been refreshed
-// from the database.
+// TestFutureRevision verifies that revisions past the actual head still
+// fail with ErrFutureRev after the cache is refreshed.
 func TestFutureRevision(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
