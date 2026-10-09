@@ -18,6 +18,13 @@ Kine is an etcdshim that provides an etcd-compatible API on top of various backe
 
 See an [example](/examples/minimal.md).
 
+## High Availability
+
+If you want to run multiple Kine instances (or multiple K3s server nodes, using the Kine embedded in K3s) you must use an external SQL database, or NATS, or T4.
+* The SQLite and Memory backends support only a single Kine instance.
+* Kine does not support running multiple instances against a shared SQLite DB file; either local, or on shared storage.
+* Kine does not support use of SQLite temporary or in-memory databases, or use of shared-cache mode without WAL journal.
+
 ## Developer Documentation
 
 A high level flow diagram and overview of code structure is available at [docs/flow.md](/docs/flow.md).
