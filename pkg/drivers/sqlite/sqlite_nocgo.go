@@ -41,15 +41,30 @@ func newConnector(driverName, dsn string) (*sqliteConnector, error) {
 // translateDSN translates a subset of mattn/go-sqlite3 DSN parameters to modernc/sqlite _pragmas
 // only commonly used params are translated, others are passed through as-is
 func translateDSN(dsn string) (string, error) {
-	path, params, _ := strings.Cut(dsn, "?")
-	old, err := url.ParseQuery(params)
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme != "file" {
+		// Not a file URI, treat it as a plain file path, as go-sqlite3 does.
+		path, query, _ := strings.Cut(dsn, "?")
+		switch path {
+		case "", ":memory:":
+			// SQLite's special names for temporary and in-memory databases.
+			// These aren't file paths, so pass them on as they are.
+			u = &url.URL{Opaque: path, RawQuery: query}
+		default:
+			// Convert it into a file URI so that the remaining query
+			// parameters are interpreted by SQLite.
+			path, err = filepath.Abs(path)
+			if err != nil {
+				return "", err
+			}
+			u = &url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: query}
+		}
+	}
+	old, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
 		return "", err
 	}
-	path, err = filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
+	inMemory := u.Opaque == ":memory:" || old.Get("mode") == "memory"
 	new := make(url.Values)
 	addAll := func(key, format string, vals []string) {
 		for _, val := range vals {
@@ -65,16 +80,21 @@ func translateDSN(dsn string) (string, error) {
 		case "_synchronous", "_sync":
 			addAll("_pragma", "synchronous(%s)", vals)
 		case "cache":
-			// shared cache mode is not supported
+			// Shared cache mode is not supported, except for in-memory
+			// databases, where it's the only way for multiple connections to
+			// see the same database.
+			if inMemory {
+				addAll(key, "%s", vals)
+			}
 		default:
 			addAll(key, "%s", vals)
 		}
 	}
-	params, err = url.QueryUnescape(new.Encode())
+	u.RawQuery, err = url.QueryUnescape(new.Encode())
 	if err != nil {
 		return "", err
 	}
-	return "file://" + path + "?" + params, nil
+	return u.String(), nil
 }
 
 func version() string {
