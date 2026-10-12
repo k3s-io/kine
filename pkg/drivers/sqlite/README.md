@@ -1,6 +1,6 @@
 # SQLite Driver for Kine
 
-Kine uses SQLite as its default storage backend. The SQLite driver is only available in CGO-enabled builds; builds without CGO will return an error if SQLite is selected.
+Kine uses SQLite as its default storage backend. The SQLite driver works in both CGO builds (using mattn/go-sqlite3) and non-CGO builds (using modernc.org/sqlite).
 
 ## Endpoint Format
 
@@ -11,13 +11,13 @@ sqlite://<path-to-database>?<parameters>
 If no endpoint is specified, kine uses the `sqlite` driver with the following default DSN:
 
 ```
-./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate
+./db/state.db?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&_stmt_cache_size=20&cache=shared
 ```
 
 The equivalent explicit endpoint would be:
 
 ```
-sqlite://./db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate
+sqlite://./db/state.db?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&_stmt_cache_size=20&cache=shared
 ```
 
 The `litestream` scheme can be used instead of `sqlite` to enable [Litestream](https://litestream.io/) compatibility mode, which automatically disables all WAL checkpointing and startup VACUUM (see below).
@@ -30,10 +30,12 @@ These are standard parameters supported by the [go-sqlite3](https://github.com/m
 
 | Parameter | Default | Description |
 |---|---|---|
-| `_journal` | `WAL` | Sets the SQLite journal mode. `WAL` (Write-Ahead Logging) is strongly recommended for concurrent access. |
-| `cache` | `shared` | Sets the cache mode. `shared` allows multiple connections within the same process to share a single cache. |
+| `_journal_mode` | `WAL` | Sets the SQLite journal mode (`_journal` is accepted as an alias). `WAL` (Write-Ahead Logging) is strongly recommended for concurrent access. |
+| `cache` | `shared` | Sets the cache mode. `shared` allows multiple connections within the same process to share a single cache. Ignored in non-CGO builds. |
 | `_busy_timeout` | `30000` | Time in milliseconds that SQLite will wait when a table is locked before returning `SQLITE_BUSY`. The default is 30 seconds. |
+| `_synchronous` | `NORMAL` | Sets SQLite's `synchronous` setting, which controls how often SQLite syncs to disk. See the [SQLite documentation](https://www.sqlite.org/pragma.html#pragma_synchronous). |
 | `_txlock` | `immediate` | Sets the transaction locking mode. `immediate` acquires a write lock at the start of the transaction, reducing contention under concurrent writes. |
+| `_stmt_cache_size` | `20` | Sets the maximum number of prepared statements that go-sqlite3 caches. |
 
 ### Kine-Specific Parameters
 
@@ -56,22 +58,22 @@ kine
 
 **Custom database path:**
 ```
-kine --endpoint 'sqlite:///var/lib/kine/db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate'
+kine --endpoint 'sqlite:///var/lib/kine/db/state.db?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&_stmt_cache_size=20&cache=shared'
 ```
 
 **Disable startup VACUUM (useful for large databases):**
 ```
-kine --endpoint 'sqlite:///var/lib/kine/db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate&_kine_disable_startup_vacuum'
+kine --endpoint 'sqlite:///var/lib/kine/db/state.db?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&_stmt_cache_size=20&cache=shared&_kine_disable_startup_vacuum'
 ```
 
 **Disable all WAL checkpointing (manual WAL management):**
 ```
-kine --endpoint 'sqlite:///var/lib/kine/db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate&_kine_disable_compact_wal_checkpoint&_kine_disable_wal_autocheckpoint'
+kine --endpoint 'sqlite:///var/lib/kine/db/state.db?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&_stmt_cache_size=20&cache=shared&_kine_disable_compact_wal_checkpoint&_kine_disable_wal_autocheckpoint'
 ```
 
 **Litestream compatibility (all checkpointing and VACUUM disabled automatically):**
 ```
-kine --endpoint 'litestream:///var/lib/kine/db/state.db?_journal=WAL&cache=shared&_busy_timeout=30000&_txlock=immediate'
+kine --endpoint 'litestream:///var/lib/kine/db/state.db?_journal_mode=WAL&_busy_timeout=30000&_synchronous=NORMAL&_txlock=immediate&_stmt_cache_size=20&cache=shared'
 ```
 
 ## Startup Behavior
