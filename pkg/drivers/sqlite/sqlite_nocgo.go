@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
 	sqlite3 "modernc.org/sqlite"
 	sqlite3lib "modernc.org/sqlite/lib"
@@ -79,11 +78,6 @@ func translateDSN(dsn string) (string, error) {
 
 func version() string {
 	return fmt.Sprintf("modernc.org/sqlite version %s", sqlite3lib.SQLITE_VERSION)
-}
-
-func postCompact() *query.Named {
-	// wal_checkpoint(FULL) hangs in the busy handler, an issue unique to this sqlite variant
-	return query.New(`PRAGMA wal_checkpoint(PASSIVE)`, "?", false, "PostCompactSQL")
 }
 
 func translateErr(err error) error {
