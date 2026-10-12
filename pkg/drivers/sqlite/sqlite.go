@@ -166,6 +166,12 @@ func init() {
 	drivers.SetDefault("sqlite")
 }
 
+func postCompact() *query.Named {
+	// wal_checkpoint(FULL) hangs in the busy handler when SQLITE_ENABLE_UNLOCK_NOTIFY is enabled;
+	// just sync as many frames as possible to avoid blocking on slow IO.
+	return query.New(`PRAGMA wal_checkpoint(PASSIVE)`, "?", false, "PostCompactSQL")
+}
+
 // sqliteConnector wraps SQLiteDriver and a DSN with methods to satisfy the driver.Connector interface
 type sqliteConnector struct {
 	driver driver.Driver
