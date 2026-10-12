@@ -5,7 +5,6 @@ package sqlite
 import (
 	"fmt"
 
-	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/mattn/go-sqlite3"
 )
@@ -23,10 +22,6 @@ func newConnector(driverName, dsn string) (*sqliteConnector, error) {
 func version() string {
 	version, _, _ := sqlite3.Version()
 	return fmt.Sprintf("github.com/mattn/go-sqlite3 version %s", version)
-}
-
-func postCompact() *query.Named {
-	return query.New(`PRAGMA wal_checkpoint(FULL)`, "?", false, "PostCompactSQL")
 }
 
 func translateErr(err error) error {

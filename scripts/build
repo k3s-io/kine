@@ -23,8 +23,35 @@ if [ "${CGO_ENABLED:-1}" = "0" ]; then
   NOCGO="-nocgo"
 fi
 
-LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.Version=$VERSION"
-LINKFLAGS="-X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT $LINKFLAGS"
+LINKFLAGS="
+      -X github.com/k3s-io/kine/pkg/version.Version=$VERSION
+      -X github.com/k3s-io/kine/pkg/version.GitCommit=$COMMIT
+"
+
+# Sycned with modernc.org/sqlite options, minus fts/geopoly/json1/zlib/soundex
+# https://gitlab.com/cznic/libsqlite3/-/blob/v1.15.0/generator.go#L196-218
+CGO_CFLAGS="
+      -DSQLITE_DEFAULT_MEMSTATUS=0
+      -DSQLITE_DISABLE_INTRINSIC
+      -DSQLITE_ENABLE_COLUMN_METADATA
+      -DSQLITE_ENABLE_DBPAGE_VTAB
+      -DSQLITE_ENABLE_DBSTAT_VTAB
+      -DSQLITE_ENABLE_MATH_FUNCTIONS
+      -DSQLITE_ENABLE_MEMORY_MANAGEMENT
+      -DSQLITE_ENABLE_OFFSET_SQL_FUNC
+      -DSQLITE_ENABLE_PREUPDATE_HOOK
+      -DSQLITE_ENABLE_RBU
+      -DSQLITE_ENABLE_RTREE
+      -DSQLITE_ENABLE_SESSION
+      -DSQLITE_ENABLE_SNAPSHOT
+      -DSQLITE_ENABLE_STAT4
+      -DSQLITE_ENABLE_UNLOCK_NOTIFY
+      -DSQLITE_LIKE_DOESNT_MATCH_BLOBS
+      -DSQLITE_THREADSAFE=1
+      -DSQLITE_WITHOUT_ZONEMALLOC
+"
+
+TAGS="nats,sqlite_unlock_notify,sqlite_vtable,sqlite_stat4,sqlite_preupdate_hook,sqlite_math_functions,sqlite_dbstat,sqlite_column_metadata"
 
 echo Building Kine
-CGO_ENABLED=${CGO_ENABLED:-1} CGO_CFLAGS="-DSQLITE_USE_ALLOCA=1" go build -ldflags "$LINKFLAGS $OTHER_LINKFLAGS" -tags nats -o bin/kine${NOCGO}
+CGO_ENABLED=${CGO_ENABLED:-1} CGO_CFLAGS=${CGO_CFLAGS} go build -ldflags "${LINKFLAGS} ${OTHER_LINKFLAGS}" -tags ${TAGS} -o bin/kine${NOCGO}
