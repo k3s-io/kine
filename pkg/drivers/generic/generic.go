@@ -106,16 +106,13 @@ type Generic struct {
 }
 
 func (d *Generic) Migrate(ctx context.Context) {
-	var (
-		count     = 0
-		countKV   = d.queryRow(ctx, query.New("SELECT COUNT(*) FROM key_value", "?", false, ""))
-		countKine = d.queryRow(ctx, query.New("SELECT COUNT(*) FROM kine", "?", false, ""))
-	)
+	var count int
 
+	countKV := d.queryRow(ctx, query.New("SELECT COUNT(*) FROM key_value", "?", false, ""))
 	if err := countKV.Scan(&count); err != nil || count == 0 {
 		return
 	}
-
+	countKine := d.queryRow(ctx, query.New("SELECT COUNT(*) FROM kine", "?", false, ""))
 	if err := countKine.Scan(&count); err != nil || count != 0 {
 		return
 	}
