@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -41,6 +42,10 @@ var (
 		`CREATE INDEX IF NOT EXISTS kine_prev_revision_index ON kine (prev_revision)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS kine_name_prev_revision_uindex ON kine (name, prev_revision)`,
 		`CREATE INDEX IF NOT EXISTS kine_id_compact_rev_key_with_prev_revision_index ON kine(id, name, prev_revision) WHERE name != 'compact_rev_key' AND prev_revision != 0`,
+	}
+	schemaMigrations = []string{
+		``,
+		`PRAGMA writable_schema=ON; UPDATE sqlite_schema SET sql = 'CREATE TABLE kine (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created INTEGER, deleted INTEGER, create_revision INTEGER, prev_revision INTEGER, lease INTEGER, value BLOB, old_value BLOB)' WHERE type='table' AND name == 'kine' AND tbl_name = 'kine'; PRAGMA writable_schema=RESET`,
 	}
 )
 
@@ -138,6 +143,23 @@ func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) 
 		logrus.Tracef("SETUP EXEC : %v", query.Strip(stmt))
 		_, err := db.Exec(stmt)
 		if err != nil {
+			return err
+		}
+	}
+
+	// Run enabled schama migrations.
+	// Note that the schema created by the `schema` var is always the latest revision;
+	// migrations should handle deltas between prior schema versions.
+	schemaVersion, _ := strconv.ParseUint(os.Getenv("KINE_SCHEMA_MIGRATION"), 10, 64)
+	for i, stmt := range schemaMigrations {
+		if i >= int(schemaVersion) {
+			break
+		}
+		if stmt == "" {
+			continue
+		}
+		logrus.Tracef("SETUP EXEC MIGRATION %d: %v", i, query.Strip(stmt))
+		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
 	}
