@@ -1,4 +1,20 @@
+
 #!/bin/bash
+
+start-test() {
+    KINE_IMAGE=docker.io/rancher/kine:v0.11.4 KINE_ENV="-v kine-db:/db/" provision-kine
+    sleep 10
+    for container in $(cat $TEST_DIR/kine/*/metadata/name); do
+      docker container rm -f -v $container
+    done
+    rm -rf $TEST_DIR/kine/*
+    KINE_IMAGE=$IMAGE KINE_ENV="-v kine-db:/db/ -e KINE_SCHEMA_MIGRATION=1" provision-kine
+    local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
+    K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
+}
+export -f start-test
+
+LABEL=sqlite-migration run-test
 
 start-test() {
     local ip=$(cat $TEST_DIR/databases/*/metadata/ip)
