@@ -105,29 +105,6 @@ type Generic struct {
 	FillRetryDuration       time.Duration
 }
 
-func (d *Generic) Migrate(ctx context.Context) {
-	var count int
-
-	countKV := d.queryRow(ctx, query.New("SELECT COUNT(*) FROM key_value", "?", false, ""))
-	if err := countKV.Scan(&count); err != nil || count == 0 {
-		return
-	}
-	countKine := d.queryRow(ctx, query.New("SELECT COUNT(*) FROM kine", "?", false, ""))
-	if err := countKine.Scan(&count); err != nil || count != 0 {
-		return
-	}
-
-	logrus.Infof("Migrating content from old table")
-	_, err := d.execute(ctx,
-		query.New(`INSERT INTO kine(deleted, create_revision, prev_revision, name, value, created, lease)
-					SELECT 0, 0, 0, kv.name, kv.value, 1, CASE WHEN kv.ttl > 0 THEN 15 ELSE 0 END
-					FROM key_value kv
-						WHERE kv.id IN (SELECT MAX(kvd.id) FROM key_value kvd GROUP BY kvd.name)`, "?", false, ""))
-	if err != nil {
-		logrus.Errorf("Migration failed: %v", err)
-	}
-}
-
 func configureConnectionPooling(connPoolConfig ConnectionPoolConfig, db *sql.DB, driverName string) {
 	// behavior copied from database/sql - zero means defaultMaxIdleConns; negative means 0
 	if connPoolConfig.MaxIdle < 0 {
