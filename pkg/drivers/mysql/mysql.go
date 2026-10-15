@@ -5,6 +5,7 @@ import (
 	cryptotls "crypto/tls"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -118,6 +119,12 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 			return server.ErrKeyExists
 		}
 		return err
+	}
+	dialect.TxRetry = func(err error) bool {
+		// Error 1020: with innodb_snapshot_isolation=ON, the default as of MariaDB 11.6.2, a locking read fails if a row
+		// was committed after the transaction's read view was created. Only a new transaction can get past it.
+		var merr *mysql.MySQLError
+		return errors.As(err, &merr) && merr.Number == 1020
 	}
 	dialect.ErrCode = func(err error) string {
 		if err == nil {

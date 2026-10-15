@@ -57,6 +57,7 @@ type Dialect interface {
 	PostCompact(ctx context.Context) error
 	Fill(ctx context.Context, revision int64) error
 	IsFill(key string) bool
+	IsTxRetry(err error) bool
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (Transaction, error)
 	GetSize(ctx context.Context) (int64, error)
 	FillRetryDelay(ctx context.Context)

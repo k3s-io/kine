@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Rican7/retry/backoff"
+	"github.com/Rican7/retry/strategy"
 	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/server"
@@ -171,7 +173,7 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev int64) (int64, int64) 
 
 		// only update the compacted and current revisions if they are valid,
 		// but break out of the loop on any error.
-		compacted, current, cerr := s.compact(compactedRev, iterCompactRev)
+		compacted, current, cerr := s.compactRetry(compactedRev, iterCompactRev)
 		if compacted != 0 && current != 0 {
 			compactedRev = compacted
 			currentRev = current
@@ -211,6 +213,22 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev int64) (int64, int64) 
 	metrics.CompactTotal.WithLabelValues(resultLabel).Inc()
 
 	return compactRev, targetCompactRev
+}
+
+// compactRetry calls compact, and starts over with a new transaction if the dialect reports the error as retriable.
+// Retrying a failed statement within the same transaction cannot help, as the transaction's read view is unchanged.
+func (s *SQLLog) compactRetry(compactRev int64, targetCompactRev int64) (compacted int64, current int64, err error) {
+	wait := strategy.Backoff(backoff.Linear(100 * time.Millisecond))
+	for retries := uint(0); retries < 20; retries++ {
+		compacted, current, err = s.compact(compactRev, targetCompactRev)
+		if err != nil && s.d.IsTxRetry(err) {
+			logrus.Debugf("COMPACT retriable transaction error (try=%d): %v", retries, err)
+			wait(retries)
+			continue
+		}
+		return compacted, current, err
+	}
+	return compacted, current, err
 }
 
 // compact removes deleted or replaced rows from the database, and updates the compact rev key.
