@@ -309,15 +309,6 @@ func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
 	return s.currentRev.Load(), nil
 }
 
-// refreshRevision queries the database for the current revision. The
-// in-memory cache is deliberately not updated: s.currentRev tracks the
-// head that the poll loop has already replayed and broadcast to watchers,
-// and advancing it here would report revisions that have not been
-// delivered yet.
-func (s *SQLLog) refreshRevision(ctx context.Context) (int64, error) {
-	return s.d.CurrentRevision(ctx)
-}
-
 func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
 	return s.d.GetCompactRevision(ctx)
 }
@@ -338,7 +329,7 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		// Without rows we won't have the compact or current revisions, and
 		// the cached revision can lag the actual head when the database is
 		// shared; refresh it from the database before reporting.
-		if batch.CurrentRev, err = s.refreshRevision(ctx); err != nil {
+		if batch.CurrentRev, err = s.d.CurrentRevision(ctx); err != nil {
 			return batch, err
 		}
 		compact, err = s.d.GetCompactRevision(ctx)
@@ -388,7 +379,7 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 
 	if batch.CurrentRev == 0 {
 		// without rows we won't have the compact or current revisions
-		if batch.CurrentRev, err = s.refreshRevision(ctx); err != nil {
+		if batch.CurrentRev, err = s.d.CurrentRevision(ctx); err != nil {
 			return batch, err
 		}
 		if compact, err = s.d.GetCompactRevision(ctx); err != nil {
@@ -454,7 +445,7 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 
 	if current == 0 {
 		// without rows we won't have the compact or current revisions
-		if current, err = s.refreshRevision(ctx); err != nil {
+		if current, err = s.d.CurrentRevision(ctx); err != nil {
 			return errorResult(err)
 		}
 		if compact, err = s.d.GetCompactRevision(ctx); err != nil {
