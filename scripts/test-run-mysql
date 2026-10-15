@@ -32,6 +32,7 @@ export -f start-test
 VERSION_LIST="\
     mysql 8.4
     mysql 8.0
+    mariadb 11.8
     mariadb 11.4
     mariadb 10.11
     mariadb 10.6"
