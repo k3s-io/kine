@@ -118,7 +118,6 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return nil, nil, fmt.Errorf("setup db: %w", err)
 	}
 
-	dialect.Migrate(context.Background())
 	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
 }
 
@@ -167,9 +166,7 @@ func init() {
 }
 
 func postCompact() *query.Named {
-	// wal_checkpoint(FULL) hangs in the busy handler when SQLITE_ENABLE_UNLOCK_NOTIFY is enabled;
-	// just sync as many frames as possible to avoid blocking on slow IO.
-	return query.New(`PRAGMA wal_checkpoint(PASSIVE)`, "?", false, "PostCompactSQL")
+	return query.New(`PRAGMA wal_checkpoint(FULL)`, "?", false, "PostCompactSQL")
 }
 
 // sqliteConnector wraps SQLiteDriver and a DSN with methods to satisfy the driver.Connector interface
