@@ -309,17 +309,13 @@ func (s *SQLLog) CurrentRevision(ctx context.Context) (int64, error) {
 	return s.currentRev.Load(), nil
 }
 
-// refreshRevision queries the database for the current revision and
-// advances the cached revision if the database is ahead of it.
+// refreshRevision queries the database for the current revision. The
+// in-memory cache is deliberately not updated: s.currentRev tracks the
+// head that the poll loop has already replayed and broadcast to watchers,
+// and advancing it here would report revisions that have not been
+// delivered yet.
 func (s *SQLLog) refreshRevision(ctx context.Context) (int64, error) {
-	backendRev, err := s.d.CurrentRevision(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if currentRev := s.currentRev.Load(); backendRev > currentRev {
-		s.currentRev.CompareAndSwap(currentRev, backendRev)
-	}
-	return backendRev, nil
+	return s.d.CurrentRevision(ctx)
 }
 
 func (s *SQLLog) CompactRevision(ctx context.Context) (int64, error) {
