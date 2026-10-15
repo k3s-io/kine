@@ -99,6 +99,7 @@ type Generic struct {
 	GetSizeSQL              *query.Named
 	Retry                   ErrRetry
 	InsertRetry             ErrRetry
+	TxRetry                 ErrRetry
 	TranslateErr            TranslateErr
 	TranslateStartKeyFunc   SubstituteFunc
 	ErrCode                 ErrCode
@@ -484,6 +485,12 @@ func (d *Generic) Fill(ctx context.Context, revision int64) error {
 
 func (d *Generic) IsFill(key string) bool {
 	return strings.HasPrefix(key, "gap-")
+}
+
+// IsTxRetry returns true if the driver indicates that err is transient, and that the
+// transaction that returned it should be restarted from the beginning.
+func (d *Generic) IsTxRetry(err error) bool {
+	return d.TxRetry != nil && d.TxRetry(err)
 }
 
 //nolint:revive
