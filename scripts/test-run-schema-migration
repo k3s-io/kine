@@ -1,6 +1,8 @@
 
 #!/bin/bash
 
+export SCHEMA_MIGRATION_VERSION=2
+
 start-test() {
     KINE_IMAGE=docker.io/rancher/kine:v0.11.4 KINE_ENV="-v kine-db:/db/" provision-kine
     sleep 10
@@ -8,7 +10,7 @@ start-test() {
       docker container rm -f -v $container
     done
     rm -rf $TEST_DIR/kine/*
-    KINE_IMAGE=$IMAGE KINE_ENV="-v kine-db:/db/ -e KINE_SCHEMA_MIGRATION=1" provision-kine
+    KINE_IMAGE=$IMAGE KINE_ENV="-v kine-db:/db/ -e KINE_SCHEMA_MIGRATION=$SCHEMA_MIGRATION_VERSION" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
@@ -38,7 +40,7 @@ start-test() {
       docker container rm -f -v $container
     done
     rm -rf $TEST_DIR/kine/*
-    KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" KINE_ENV="-e KINE_SCHEMA_MIGRATION=1" provision-kine
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" KINE_ENV="-e KINE_SCHEMA_MIGRATION=$SCHEMA_MIGRATION_VERSION" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
@@ -68,7 +70,7 @@ start-test() {
       docker container rm -f -v $container
     done
     rm -rf $TEST_DIR/kine/*
-    KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://postgres:$pass@$ip:$port/postgres?sslmode=disable" KINE_ENV="-e KINE_SCHEMA_MIGRATION=1" provision-kine
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://postgres:$pass@$ip:$port/postgres?sslmode=disable" KINE_ENV="-e KINE_SCHEMA_MIGRATION=$SCHEMA_MIGRATION_VERSION" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
