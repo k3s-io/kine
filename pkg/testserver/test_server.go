@@ -121,8 +121,17 @@ func setObjectStorePath(config *endpoint.Config, dir string) {
 func setDatabasePath(endpoint, dir string) (string, error) {
 	// append a hash of the temp dir to the db name for remote engines where we cannot set the db path directly
 	hash := databaseHash(dir)
-	scheme, _, _ := strings.Cut(endpoint, "://")
+	scheme, dsn, _ := strings.Cut(endpoint, "://")
 	switch scheme {
+	case "split":
+		// use the logic for whatever the actual driver is to inject the dir
+		dsn, driverName, _ := strings.Cut(dsn, "&driver=")
+		dsn, err := setDatabasePath(driverName+"://"+dsn, dir)
+		if err != nil {
+			return "", err
+		}
+		_, dsn, _ = strings.Cut(dsn, "://")
+		return "split://" + dsn + "&driver=" + driverName, nil
 	case "memory":
 		return endpoint, nil
 	case "", "sqlite", "litestream":

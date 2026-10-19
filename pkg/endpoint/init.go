@@ -7,6 +7,7 @@ import (
 	_ "github.com/k3s-io/kine/pkg/drivers/nats"
 	_ "github.com/k3s-io/kine/pkg/drivers/pgsql"
 	_ "github.com/k3s-io/kine/pkg/drivers/remote"
+	_ "github.com/k3s-io/kine/pkg/drivers/split"
 	_ "github.com/k3s-io/kine/pkg/drivers/sqlite"
 	_ "github.com/k3s-io/kine/pkg/drivers/t4"
 )

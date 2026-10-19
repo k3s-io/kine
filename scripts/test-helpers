@@ -241,7 +241,7 @@ build-apiserver-tests() {
   sed -i 's|waitTimeout = 100 \* waitDelay|waitTimeout = 500 \* waitDelay|' pkg/storage/etcd3/compact_test.go
   go mod edit --replace github.com/k3s-io/kine=$KINEPATH
   go mod tidy
-  go test -c -o $KINEPATH/bin/ -tags nats ./pkg/storage/etcd3/...
+  go test -c -o $KINEPATH/bin/ -tags nats,kine_split_driver ./pkg/storage/etcd3/...
   cd $KINEPATH
 }
 export -f build-apiserver-tests
