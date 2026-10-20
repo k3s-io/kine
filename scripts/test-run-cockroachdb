@@ -27,8 +27,9 @@ start-test() {
 export -f start-test
 
 VERSION_LIST="\
-    cockroachdb v24.3
-    cockroachdb v24.1"
+    cockroachdb v26.2
+    cockroachdb v25.4
+    cockroachdb v24.3"
 
 while read ENGINE VERSION; do
     LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/$ENGINE/cockroach:latest-$VERSION DB_ARGS="start-single-node --insecure" run-test
