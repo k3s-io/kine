@@ -5,9 +5,14 @@ start-test() {
     local port=$(cat $TEST_DIR/databases/*/metadata/port)
     local pass=$(cat $TEST_DIR/databases/*/metadata/password)
     local image=$(cat $TEST_DIR/databases/*/metadata/image)
+    local db_status_command="--execute=status"
     # Starting with mariadb 11, you have to call to mariadb instead of mysql
     if [[ $image == *mariadb* ]]; then
        db_type="mariadb"
+    elif [[ $image == *mysql:9.7 ]]; then
+       # MySQL 9.7 treats "status" in --execute as SQL instead of a client command.
+       db_type="mysqladmin"
+       db_status_command="status"
     else
        db_type="mysql"
     fi
@@ -20,7 +25,7 @@ start-test() {
           --port=$port
           --user=root
           --password=$pass
-          --execute=status" \
+          $db_status_command" \
     timeout --foreground 1m bash -c "wait-for-db-connection"
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" run-apiserver-tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" provision-kine
