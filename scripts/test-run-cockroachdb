@@ -20,6 +20,7 @@ start-test() {
     # https://www.cockroachlabs.com/docs/stable/cluster-settings#setting-sql-defaults-serial-normalization
     # Also, cockroachdb is slower than most other engines and needs extra time to finish tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://root@$ip:$port/postgres?sslmode=disable&serial_normalization=sql_sequence" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="split://root@$ip:$port/postgres?sslmode=disable&serial_normalization=sql_sequence&driver=postgres" KINE_DATASTORE_POLL_INTERVAL=50ms run-apiserver-tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="postgres://root@$ip:$port/postgres?sslmode=disable&serial_normalization=sql_sequence" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster

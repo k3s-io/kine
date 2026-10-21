@@ -1,7 +1,8 @@
 #!/bin/bash
 start-test() {
-    KINE_IMAGE=$IMAGE KINE_ENDPOINT="" run-apiserver-tests
-    KINE_IMAGE=$IMAGE KINE_ENDPOINT="" provision-kine
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="sqlite://" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="split://?&driver=sqlite" KINE_DATASTORE_POLL_INTERVAL=50ms run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="sqlite://" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster
 }
