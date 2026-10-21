@@ -28,6 +28,8 @@ type SQLLog struct {
 	ctx                   context.Context
 	notify                chan int64
 	currentRev            atomic.Int64
+	polledRev             atomic.Int64
+	polled                *sync.Cond
 	compactInterval       time.Duration
 	compactIntervalJitter int
 	compactTimeout        time.Duration
@@ -47,6 +49,7 @@ func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter 
 		compactBatchSize:      compactBatchSize,
 		pollBatchSize:         pollBatchSize,
 	}
+	l.polled = sync.NewCond(l.RLocker())
 	return l
 }
 
@@ -336,29 +339,19 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		batch   server.EventBatch
 		compact int64
 	)
-	currentRev, err := s.CurrentRevision(ctx)
-	if err != nil {
-		return batch, err
-	}
 	rows, err := s.d.After(ctx, key, end, revision, limit)
 	if err != nil {
 		return batch, err
 	}
 
 	batch, compact, err = RowsToEvents(rows, true, true)
-
-	if batch.CurrentRev == 0 {
-		// without rows we won't have the compact or current revisions
-		batch.CurrentRev = currentRev
-		compact, err = s.d.GetCompactRevision(ctx)
-		if err != nil {
-			return batch, err
-		}
+	if err != nil {
+		return batch, err
 	}
 
-	// The compact revision itself can still be queried, so it is only an error to watch anything before compactRev - 1
-	if revision > 0 && revision < compact-1 {
-		return batch, server.ErrCompacted
+	batch.CurrentRev, err = s.checkRevision(ctx, revision, compact, batch.CurrentRev)
+	if err != nil {
+		return batch, err
 	}
 
 	// PrevKV should be nil if revision has been compacted; ref:
@@ -374,15 +367,11 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 
 func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) (server.EventBatch, error) {
 	var (
+		err     error
 		rows    *sql.Rows
 		batch   server.EventBatch
 		compact int64
 	)
-	currentRev, err := s.CurrentRevision(ctx)
-	if err != nil {
-		return batch, err
-	}
-
 	key = s.d.TranslateStartKey(key)
 
 	if revision == 0 {
@@ -399,33 +388,19 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 		return batch, err
 	}
 
-	if batch.CurrentRev == 0 {
-		// without rows we won't have the compact or current revisions
-		batch.CurrentRev = currentRev
-		compact, err = s.d.GetCompactRevision(ctx)
-		if err != nil {
-			return batch, err
-		}
+	batch.CurrentRev, err = s.checkRevision(ctx, revision, compact, batch.CurrentRev)
+	if err != nil {
+		return batch, err
 	}
 
-	if revision > batch.CurrentRev {
-		return batch, server.ErrFutureRev
-	}
-
-	if revision > 0 && revision < compact {
-		return batch, server.ErrCompacted
-	}
-
-	select {
-	case s.notify <- batch.CurrentRev:
-	default:
-	}
+	s.notifyRev(batch.CurrentRev)
 
 	return batch, err
 }
 
 func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revision int64, includeDeleted, keysOnly bool) server.ListResult {
 	var (
+		err  error
 		rows *sql.Rows
 		kvc  = make(chan *server.KeyValue, 1)
 		errc = make(chan error, 1)
@@ -443,11 +418,6 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 	}
 
 	key = s.d.TranslateStartKey(key)
-
-	currentRev, err := s.CurrentRevision(ctx)
-	if err != nil {
-		return errorResult(err)
-	}
 
 	if revision == 0 {
 		rows, err = s.d.ListCurrent(ctx, key, end, limit, includeDeleted, keysOnly)
@@ -468,21 +438,9 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 		kvc <- event.KV
 	}
 
-	if current == 0 {
-		// without rows we won't have the compact or current revisions
-		current = currentRev
-		compact, err = s.d.GetCompactRevision(ctx)
-		if err != nil {
-			return errorResult(err)
-		}
-	}
-
-	if revision > current {
-		return errorResult(server.ErrFutureRev)
-	}
-
-	if revision > 0 && revision < compact {
-		return errorResult(server.ErrCompacted)
+	current, err = s.checkRevision(ctx, revision, compact, current)
+	if err != nil {
+		return errorResult(err)
 	}
 
 	// stream rows into kv channel
@@ -505,6 +463,8 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 			errc <- err
 		}
 	}()
+
+	s.notifyRev(current)
 
 	return server.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: current}
 }
@@ -573,6 +533,9 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 	defer wait.Stop()
 	defer close(result)
 
+	logrus.Tracef("POLL START %d", pollRevision)
+	s.polledRev.Store(pollRevision)
+
 	for {
 		if waitForMore {
 			select {
@@ -603,10 +566,6 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 
 		if trace {
 			logrus.Tracef("POLL AFTER %d, limit=%d, events=%d", pollRevision, s.pollBatchSize, len(batch.Events))
-		}
-
-		if len(batch.Events) == 0 {
-			continue
 		}
 
 		var (
@@ -687,7 +646,58 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 				result <- server.EventBatch{CurrentRev: pollRevision, Events: sequential}
 			}
 		}
+
+		// broadcast polled revision to reflect current position
+		s.Lock()
+		s.polledRev.Store(pollRevision)
+		s.polled.Broadcast()
+		s.Unlock()
 	}
+}
+
+func (s *SQLLog) notifyRev(revision int64) int64 {
+	if s.polledRev.Load() > 0 && s.currentRev.Load() < revision {
+		select {
+		case s.notify <- revision:
+			s.polled.L.Lock()
+			s.polled.Wait()
+			s.polled.L.Unlock()
+		default:
+		}
+	}
+	currentRev := s.currentRev.Load()
+	return currentRev
+}
+
+// checkRevision validates that the requested revision is within the compact and current revisions.
+// The compact and current revs will be 0 if no rows were returned, in which case they are retrieved individually.
+func (s *SQLLog) checkRevision(ctx context.Context, revision, compact, current int64) (int64, error) {
+	if current == 0 {
+		var err error
+		current, err = s.CurrentRevision(ctx)
+		if err != nil {
+			return 0, err
+		}
+		compact, err = s.d.GetCompactRevision(ctx)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	if revision > 0 && revision < compact {
+		return 0, server.ErrCompacted
+	}
+
+	if revision == 0 {
+		current = s.notifyRev(current + 1)
+	} else if revision > current {
+		current = s.notifyRev(revision)
+		if revision > current {
+			return 0, server.ErrFutureRev
+		}
+	}
+
+	return current, nil
 }
 
 func canSkipRevision(rev, skip int64, skipTime time.Time) bool {
@@ -737,10 +747,7 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	}
 
 	// notify the polling loop of the new revision.
-	select {
-	case s.notify <- rev:
-	default:
-	}
+	s.notifyRev(rev)
 
 	// currentRev may have moved ahead due to other inserts between when Insert returned
 	// and now; ensure that we don't roll it back if it has changed elsewhere.
