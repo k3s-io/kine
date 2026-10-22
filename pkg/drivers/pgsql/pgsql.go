@@ -56,27 +56,24 @@ var (
 	}
 
 	listFmt = `
-		SELECT (%s) AS current_rev, (%s) AS compact_rev, %s
-		FROM (
-			SELECT dkv.id AS list_id
-			FROM (%s) AS dkv
-			WHERE (dkv.deleted = 0 OR ?)
-			ORDER BY dkv.name ASC %s
-		) AS mkv
-		JOIN kine ON kine.id = mkv.list_id
-		ORDER BY kine.name ASC`
-
+		WITH
+		ikv AS (%s),
+		ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+		mkv AS (SELECT %s FROM kine INNER JOIN ikv USING (id) WHERE (ikv_deleted = 0 OR ?) ORDER BY ikv_name ASC %s),
+		fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+		SELECT * from ckv, fkv ORDER BY name ASC
+		`
 	// use a subquery to extract `name, id DESC, deleted` so that the postgres
 	// query planner will make use of kine_list_query_index; by default the `MAX(id)`
 	// plans as a separate group aggregate which will not use the index.
 	distinctNameSQL = `
-		SELECT DISTINCT ON (name) name, id, deleted
+		SELECT DISTINCT ON (name) name AS ikv_name, id, deleted AS ikv_deleted
 		FROM kine
 		WHERE name >= ? AND name < ? %s
-		ORDER BY name ASC, id DESC`
+		ORDER BY ikv_name ASC, id DESC`
 
-	listSQL    = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.Columns, distinctNameSQL, query.LimitToken)
-	listValSQL = fmt.Sprintf(listFmt, generic.CurrentRevSQL, generic.CompactRevSQL, generic.WithVal, distinctNameSQL, query.LimitToken)
+	listSQL    = fmt.Sprintf(listFmt, distinctNameSQL, generic.CurrentRevSQL, generic.CompactRevSQL, generic.Columns, query.LimitToken, generic.Nulls(generic.Columns))
+	listValSQL = fmt.Sprintf(listFmt, distinctNameSQL, generic.CurrentRevSQL, generic.CompactRevSQL, generic.WithVal, query.LimitToken, generic.Nulls(generic.WithVal))
 
 	schemaMigrations = []string{
 		`ALTER TABLE kine ALTER COLUMN id SET DATA TYPE BIGINT, ALTER COLUMN create_revision SET DATA TYPE BIGINT, ALTER COLUMN prev_revision SET DATA TYPE BIGINT; ALTER SEQUENCE kine_id_seq AS BIGINT`,

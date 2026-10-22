@@ -253,7 +253,7 @@ func (l *LogStructured) Watch(ctx context.Context, revision int64) server.WatchR
 			if err == server.ErrCompacted {
 				wr.CompactRevision, _ = l.log.CompactRevision(ctx)
 			} else {
-				errc <- server.ErrGRPCUnhealthy
+				errc <- err
 			}
 		}
 		cancel()
