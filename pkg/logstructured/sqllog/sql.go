@@ -393,6 +393,7 @@ func (s *SQLLog) List(ctx context.Context, key, end string, limit, revision int6
 		return batch, err
 	}
 
+	// notify the polling loop of the potential new revision.
 	s.notifyRevision(batch.CurrentRev)
 
 	return batch, nil
@@ -432,10 +433,12 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 	var current, compact int64
 	if rows.Next() {
 		event, err := scan(rows, &current, &compact, !keysOnly, false)
-		if err != nil {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return errorResult(err)
 		}
-		kvc <- event.KV
+		if event != nil {
+			kvc <- event.KV
+		}
 	}
 
 	err = s.checkRevision(ctx, revision, compact, current)
@@ -464,6 +467,7 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 		}
 	}()
 
+	// notify the polling loop of the potential new revision.
 	s.notifyRevision(current)
 
 	return server.ListResult{KVc: kvc, Errorc: errc, CurrentRevision: current}
@@ -481,12 +485,13 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (server.EventBatch, int64, err
 
 	for rows.Next() {
 		event, err := scan(rows, &batch.CurrentRev, &compact, val, prev)
-		if err != nil {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return batch, 0, err
 		}
-		batch.Events = append(batch.Events, event)
+		if event != nil {
+			batch.Events = append(batch.Events, event)
+		}
 	}
-
 	return batch, compact, nil
 }
 
@@ -580,7 +585,7 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 		batch, _, err := RowsToEvents(rows, true, true)
 		waitForMore = int64(len(batch.Events)) < s.pollBatchSize
 		if err != nil {
-			logrus.Errorf("fail to convert rows changes: %v", err)
+			logrus.Errorf("Failed to convert rows to events: %v", err)
 			continue
 		}
 
@@ -675,6 +680,10 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 
 // checkRevision validates that the requested revision is within the compact and current revisions
 func (s *SQLLog) checkRevision(ctx context.Context, revision, compact, current int64) error {
+	if current == 0 {
+		return server.ErrGRPCUnhealthy
+	}
+
 	if revision > 0 && revision < compact {
 		return server.ErrCompacted
 	}
@@ -749,15 +758,24 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	return rev, nil
 }
 
+type row struct {
+	currentRev     sql.NullInt64
+	compactRev     sql.NullInt64
+	id             sql.NullInt64
+	name           sql.NullString
+	created        sql.NullBool
+	deleted        sql.NullBool
+	createRevision sql.NullInt64
+	prevRevision   sql.NullInt64
+	lease          sql.NullInt64
+	value          []byte
+	oldValue       []byte
+}
+
 // scan scans the current row's columns into a server.Event struct.
 // If a valid event is scanned, the passed rev and compact vars are also updated.
 func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.Event, error) {
-	event := &server.Event{
-		KV:     &server.KeyValue{},
-		PrevKV: &server.KeyValue{},
-	}
-	currentRev := &sql.NullInt64{}
-	compactRev := &sql.NullInt64{}
+	r := row{}
 	colCount := 9
 	if val {
 		colCount++
@@ -767,19 +785,19 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.E
 	}
 
 	dests := make([]any, colCount)
-	dests[0] = currentRev
-	dests[1] = compactRev
-	dests[2] = &event.KV.ModRevision
-	dests[3] = &event.KV.Key
-	dests[4] = &event.Create
-	dests[5] = &event.Delete
-	dests[6] = &event.KV.CreateRevision
-	dests[7] = &event.PrevKV.ModRevision
-	dests[8] = &event.KV.Lease
+	dests[0] = &r.currentRev
+	dests[1] = &r.compactRev
+	dests[2] = &r.id
+	dests[3] = &r.name
+	dests[4] = &r.created
+	dests[5] = &r.deleted
+	dests[6] = &r.createRevision
+	dests[7] = &r.prevRevision
+	dests[8] = &r.lease
 	if val {
-		dests[9] = &event.KV.Value
+		dests[9] = &r.value
 		if prev {
-			dests[10] = &event.PrevKV.Value
+			dests[10] = &r.oldValue
 		}
 	}
 
@@ -788,18 +806,36 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.E
 		return nil, err
 	}
 
-	if event.Create {
-		event.KV.CreateRevision = event.KV.ModRevision
-		event.PrevKV = nil
-	} else {
-		event.PrevKV.CreateRevision = event.KV.CreateRevision
-		event.PrevKV.Lease = event.KV.Lease
-		event.PrevKV.Key = event.KV.Key
-	}
+	*rev = r.currentRev.Int64
+	*compact = r.compactRev.Int64
 
-	*rev = currentRev.Int64
-	*compact = compactRev.Int64
-	return event, nil
+	if r.id.Valid {
+		event := &server.Event{
+			Create: r.created.Bool,
+			Delete: r.deleted.Bool,
+			KV: &server.KeyValue{
+				Key:            r.name.String,
+				Value:          r.value,
+				CreateRevision: r.createRevision.Int64,
+				ModRevision:    r.id.Int64,
+				Lease:          r.lease.Int64,
+			},
+		}
+
+		if event.Create {
+			event.KV.CreateRevision = r.id.Int64
+		} else {
+			event.PrevKV = &server.KeyValue{
+				Key:            r.name.String,
+				Value:          r.oldValue,
+				CreateRevision: r.createRevision.Int64,
+				ModRevision:    r.prevRevision.Int64,
+				Lease:          r.lease.Int64,
+			}
+		}
+		return event, nil
+	}
+	return nil, sql.ErrNoRows
 }
 
 // safeCompactRev ensures that we never compact the most recent 1000 revisions.
