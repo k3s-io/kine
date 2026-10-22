@@ -130,7 +130,7 @@ func (s *SQLLog) compactStart(ctx context.Context) error {
 func (s *SQLLog) compactor(interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	compactRev, _ := s.d.GetCompactRevision(s.ctx)
+	compactRev, _ := s.CompactRevision(s.ctx)
 	targetCompactRev, _ := s.CurrentRevision(s.ctx)
 
 	for {
@@ -693,7 +693,7 @@ func (s *SQLLog) checkRevision(ctx context.Context, revision, compact, current i
 		if err != nil {
 			return 0, err
 		}
-		compact, err = s.d.GetCompactRevision(ctx)
+		compact, err = s.CompactRevision(ctx)
 		if err != nil {
 			return 0, err
 		}
@@ -845,7 +845,7 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 	if targetCompactRev > currentRev {
 		return 0, server.ErrFutureRev
 	}
-	compactRev, _ := s.d.GetCompactRevision(s.ctx)
+	compactRev, _ := s.CompactRevision(s.ctx)
 	if targetCompactRev <= compactRev {
 		return 0, server.ErrCompacted
 	}
