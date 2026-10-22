@@ -13,6 +13,7 @@ import (
 	"github.com/Rican7/retry/backoff"
 	"github.com/Rican7/retry/strategy"
 	"github.com/k3s-io/kine/pkg/broadcaster"
+	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/metrics"
 	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
@@ -34,19 +35,21 @@ type SQLLog struct {
 	compactTimeout        time.Duration
 	compactMinRetain      int64
 	compactBatchSize      int64
+	pollInterval          time.Duration
 	pollBatchSize         int64
 }
 
-func New(d server.Dialect, compactInterval time.Duration, compactIntervalJitter int, compactTimeout time.Duration, compactMinRetain int64, compactBatchSize int64, pollBatchSize int64) *SQLLog {
+func New(d server.Dialect, cfg *drivers.Config) *SQLLog {
 	return &SQLLog{
 		d:                     d,
 		notify:                make(chan int64, 1024),
-		compactInterval:       compactInterval,
-		compactIntervalJitter: compactIntervalJitter,
-		compactTimeout:        compactTimeout,
-		compactMinRetain:      compactMinRetain,
-		compactBatchSize:      compactBatchSize,
-		pollBatchSize:         pollBatchSize,
+		compactInterval:       cfg.CompactInterval,
+		compactIntervalJitter: cfg.CompactIntervalJitter,
+		compactTimeout:        cfg.CompactTimeout,
+		compactMinRetain:      cfg.CompactMinRetain,
+		compactBatchSize:      cfg.CompactBatchSize,
+		pollInterval:          cfg.PollInterval,
+		pollBatchSize:         cfg.PollBatchSize,
 	}
 }
 
@@ -497,11 +500,14 @@ func (s *SQLLog) startWatch() (chan server.EventBatch, error) {
 		return nil, err
 	}
 
-	c := make(chan server.EventBatch)
+	if s.pollInterval <= 0 {
+		return nil, errors.New("datastore poll interval must be greater than zero")
+	}
 
 	if s.compactIntervalJitter < 0 || s.compactIntervalJitter > 100 {
-		panic("jitterPercent must be between 0 and 100")
+		return nil, errors.New("compact interval jitter must be between 0 and 100")
 	}
+
 	maxJitter := float64(s.compactIntervalJitter) / 100.0 * float64(s.compactInterval)
 	jitter := time.Duration(rand.Float64()*2*maxJitter - maxJitter)
 
@@ -513,6 +519,7 @@ func (s *SQLLog) startWatch() (chan server.EventBatch, error) {
 		go s.compactor(s.compactInterval + jitter)
 	}
 
+	c := make(chan server.EventBatch)
 	go s.poll(c, pollStart)
 	return c, nil
 }
@@ -527,7 +534,7 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 		trace        = logrus.IsLevelEnabled(logrus.TraceLevel)
 	)
 
-	wait := time.NewTicker(time.Second)
+	wait := time.NewTicker(s.pollInterval)
 	defer func() {
 		wait.Stop()
 		close(result)

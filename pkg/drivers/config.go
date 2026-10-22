@@ -16,6 +16,7 @@ type Config struct {
 	ConnectionPoolConfig  generic.ConnectionPoolConfig
 	BackendTLSConfig      tls.Config
 	CompactInterval       time.Duration
+	PollInterval          time.Duration
 	CompactIntervalJitter int
 	CompactTimeout        time.Duration
 	CompactMinRetain      int64
