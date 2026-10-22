@@ -123,7 +123,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return nil, nil, fmt.Errorf("setup db: %w", err)
 	}
 
-	return logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), dialect, nil
+	return logstructured.New(sqllog.New(dialect, cfg)), dialect, nil
 }
 
 func setup(db *sql.DB, noCheckpointing, noAutoCheckpoint, noStartupVacuum bool) error {
