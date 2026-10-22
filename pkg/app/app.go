@@ -121,10 +121,17 @@ func New() *cli.App {
 		},
 		&cli.DurationFlag{
 			Name:        "datastore-connection-max-idle-time",
-			Usage:       "Maximum amount of time a connection remain idle before being closed. If value <= 0, then there is no limit.",
+			Usage:       "Maximum amount of time a connection may remain idle before being closed. If value <= 0, then there is no limit.",
 			Destination: &config.ConnectionPoolConfig.MaxIdleTime,
 			Value:       time.Minute * 2,
 			EnvVars:     []string{"KINE_DATASTORE_CONNECTION_MAX_IDLE_TIME"},
+		},
+		&cli.DurationFlag{
+			Name:        "datastore-poll-interval",
+			Usage:       "Interval between datastore polls when no local inserts have occurred. Default is 1s, but can be reduced to improve responsiveness at the cost of increased query count at idle.",
+			Destination: &config.PollInterval,
+			Value:       time.Second,
+			EnvVars:     []string{"KINE_DATASTORE_POLL_INTERVAL"},
 		},
 		&cli.DurationFlag{
 			Name:        "slow-sql-threshold",
