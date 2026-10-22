@@ -14,6 +14,7 @@ import (
 	"github.com/Rican7/retry/strategy"
 	"github.com/k3s-io/kine/pkg/broadcaster"
 	"github.com/k3s-io/kine/pkg/metrics"
+	"github.com/k3s-io/kine/pkg/query"
 	"github.com/k3s-io/kine/pkg/server"
 	"github.com/sirupsen/logrus"
 )
@@ -522,6 +523,7 @@ func (s *SQLLog) startWatch() (chan server.EventBatch, error) {
 
 func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 	var (
+		stmt         *query.Stmt
 		skip         int64
 		skipTime     time.Time
 		waitForMore  = true
@@ -549,10 +551,23 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 			}
 		}
 
-		rows, err := s.d.After(s.ctx, "", "", pollRevision, s.pollBatchSize)
+		if stmt == nil {
+			var err error
+			stmt, err = s.d.PrepareAfter(s.ctx, s.pollBatchSize)
+			if err != nil {
+				logrus.Errorf("Failed to prepare to list latest changes: %v", err)
+			}
+			continue
+		}
+
+		rows, err := s.d.QueryAfter(s.ctx, stmt, pollRevision)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				logrus.Errorf("Failed to list latest changes: %v", err)
+			}
+			if stmt != nil {
+				stmt.Close()
+				stmt = nil
 			}
 			continue
 		}
