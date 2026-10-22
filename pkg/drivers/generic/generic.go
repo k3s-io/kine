@@ -279,6 +279,29 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 	}, err
 }
 
+func (d *Generic) prepare(ctx context.Context, sql *query.Named) (*query.Stmt, error) {
+	logrus.Tracef("PREPARE: %s", sql)
+	conn, err := d.DB.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stmt, err := conn.PrepareContext(ctx, sql.Query)
+	if err != nil {
+		return nil, err
+	}
+	return &query.Stmt{Named: sql, Stmt: stmt}, nil
+}
+
+func (d *Generic) queryStatement(ctx context.Context, stmt *query.Stmt, args ...any) (result *sql.Rows, err error) {
+	query := stmt.Fill(args)
+	logrus.Tracef("QUERY PREPARED: %s", query)
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, d.ErrCode(err), 0, query)
+	}()
+	return stmt.Stmt.QueryContext(ctx, args...)
+}
+
 func (d *Generic) query(ctx context.Context, sql *query.Named, args ...any) (result *sql.Rows, err error) {
 	query := sql.Fill(args)
 	logrus.Tracef("QUERY: %s", query)
@@ -476,6 +499,18 @@ func (d *Generic) After(ctx context.Context, key, end string, rev, limit int64) 
 		sql = sql.Appendf("LIMIT %d", limit)
 	}
 	return d.query(ctx, sql, key, end, rev)
+}
+
+func (d *Generic) PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, error) {
+	sql := d.AfterAllOldValSQL
+	if limit > 0 {
+		sql = sql.Appendf("LIMIT %d", limit)
+	}
+	return d.prepare(ctx, sql)
+}
+
+func (d *Generic) QueryAfter(ctx context.Context, stmt *query.Stmt, rev int64) (*sql.Rows, error) {
+	return d.queryStatement(ctx, stmt, rev)
 }
 
 func (d *Generic) Fill(ctx context.Context, revision int64) error {
