@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/k3s-io/kine/pkg/query"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -48,6 +49,8 @@ type Dialect interface {
 	Count(ctx context.Context, key, end string, revision int64) (int64, int64, int64, error)
 	CurrentRevision(ctx context.Context) (int64, error)
 	After(ctx context.Context, key, end string, rev, limit int64) (*sql.Rows, error)
+	PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, error)
+	QueryAfter(ctx context.Context, stmt *query.Stmt, rev int64) (*sql.Rows, error)
 	//nolint:revive
 	Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value []byte) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error
