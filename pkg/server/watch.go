@@ -306,12 +306,10 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 
 		// send response - note that there are no events if this is a progress notification.
 		// only send with no events if the watcher has requested progress notifications.
-		if revision >= startRevision {
-			events := toEvents(key, end, batch)
-			if progressCh != nil || len(events) > 0 {
-				if err := w.server.Send(id, revision, 0, events, false, false, ""); err != nil {
-					w.Cancel(id, 0, 0, err)
-				}
+		events := toEvents(key, end, startRevision, batch)
+		if progressCh != nil || len(events) > 0 {
+			if err := w.server.Send(id, revision, 0, events, false, false, ""); err != nil {
+				w.Cancel(id, 0, 0, err)
 			}
 		}
 	}
@@ -324,10 +322,10 @@ func (w *watcher) watch(ctx context.Context, key, end string, id, startRevision 
 	}
 }
 
-func toEvents(key, end string, batch EventBatch) []*mvccpb.Event {
+func toEvents(key, end string, revision int64, batch EventBatch) []*mvccpb.Event {
 	var ret []*mvccpb.Event
 	for _, e := range batch.Events {
-		if e.InRange(key, end) {
+		if e.InRange(key, end) && e.KV.ModRevision >= revision {
 			ret = append(ret, toEvent(e))
 		}
 	}
