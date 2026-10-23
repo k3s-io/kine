@@ -295,7 +295,7 @@ func (d *Generic) prepare(ctx context.Context, sql *query.Named) (*query.Stmt, e
 	if err != nil {
 		return nil, err
 	}
-	return &query.Stmt{Named: sql, Stmt: stmt}, nil
+	return &query.Stmt{Named: sql, Conn: conn, Stmt: stmt}, nil
 }
 
 func (d *Generic) queryStatement(ctx context.Context, stmt *query.Stmt, args ...any) (result *sql.Rows, err error) {

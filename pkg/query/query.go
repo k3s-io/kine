@@ -2,6 +2,7 @@ package query
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -91,14 +92,19 @@ func (f *Filled) QueryString() string {
 // Stmt is a wrapper around sql.Stmt that remembers what query it was prepared from
 type Stmt struct {
 	*Named
+	Conn *sql.Conn
 	Stmt *sql.Stmt
 }
 
 func (s *Stmt) Close() error {
+	var serr, cerr error
 	if s.Stmt != nil {
-		return s.Stmt.Close()
+		serr = s.Stmt.Close()
 	}
-	return nil
+	if s.Conn != nil {
+		cerr = s.Conn.Close()
+	}
+	return errors.Join(serr, cerr)
 }
 
 func Strip(s string) string {

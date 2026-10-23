@@ -26,6 +26,7 @@ type SQLLog struct {
 	sync.RWMutex
 
 	d                     server.Dialect
+	wg                    *sync.WaitGroup
 	broadcaster           broadcaster.Broadcaster
 	ctx                   context.Context
 	notify                chan int64
@@ -39,9 +40,10 @@ type SQLLog struct {
 	pollBatchSize         int64
 }
 
-func New(d server.Dialect, cfg *drivers.Config) *SQLLog {
+func New(d server.Dialect, wg *sync.WaitGroup, cfg *drivers.Config) *SQLLog {
 	return &SQLLog{
 		d:                     d,
+		wg:                    wg,
 		notify:                make(chan int64, 1024),
 		compactInterval:       cfg.CompactInterval,
 		compactIntervalJitter: cfg.CompactIntervalJitter,
@@ -255,12 +257,12 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	}
 	defer t.MustRollback()
 
-	currentRev, err := t.CurrentRevision(s.ctx)
+	currentRev, err := t.CurrentRevision(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get current revision: %w", err)
 	}
 
-	dbCompactRev, err := t.GetCompactRevision(s.ctx)
+	dbCompactRev, err := t.GetCompactRevision(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get compact revision: %w", err)
 	}
@@ -288,12 +290,12 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	// out this will get rolled back. Otherwise it is possible for Compact to
 	// succeed within the time limit, but SetCompactRevision occurs too late, and
 	// the work is wasted.
-	if err := t.SetCompactRevision(s.ctx, targetCompactRev); err != nil {
+	if err := t.SetCompactRevision(ctx, targetCompactRev); err != nil {
 		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
 	}
 
 	// compact revisions from old compact revision to new target
-	deletedRows, err := t.Compact(s.ctx, compactRev, targetCompactRev)
+	deletedRows, err := t.Compact(ctx, compactRev, targetCompactRev)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
@@ -525,6 +527,7 @@ func (s *SQLLog) startWatch() (chan server.EventBatch, error) {
 	}
 
 	c := make(chan server.EventBatch)
+	s.wg.Add(1)
 	go s.poll(c, pollStart)
 	return c, nil
 }
@@ -537,17 +540,20 @@ func (s *SQLLog) poll(result chan server.EventBatch, pollStart int64) {
 		waitForMore  = true
 		pollRevision = pollStart
 		trace        = logrus.IsLevelEnabled(logrus.TraceLevel)
+		wait         = time.NewTicker(s.pollInterval)
 	)
 
-	wait := time.NewTicker(s.pollInterval)
 	defer func() {
 		wait.Stop()
 		close(result)
 		if stmt != nil {
 			stmt.Close()
 		}
+		s.wg.Done()
+		logrus.Trace("POLL STOP")
 	}()
 
+	logrus.Tracef("POLL START interval=%s", s.pollInterval)
 	for {
 		if waitForMore {
 			select {
