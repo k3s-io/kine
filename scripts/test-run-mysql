@@ -28,6 +28,7 @@ start-test() {
           $db_status_command" \
     timeout --foreground 1m bash -c "wait-for-db-connection"
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" run-apiserver-tests
+    KINE_IMAGE=$IMAGE KINE_ENDPOINT="split://root:$pass@tcp($ip:$port)/kine?&driver=mysql" KINE_DATASTORE_POLL_INTERVAL=50ms run-apiserver-tests
     KINE_IMAGE=$IMAGE KINE_ENDPOINT="mysql://root:$pass@tcp($ip:$port)/kine" provision-kine
     local kine_url=$(cat $TEST_DIR/kine/*/metadata/url)
     K3S_DATASTORE_ENDPOINT=$kine_url provision-cluster

@@ -146,7 +146,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
-	return true, logstructured.New(sqllog.New(dialect, cfg.CompactInterval, cfg.CompactIntervalJitter, cfg.CompactTimeout, cfg.CompactMinRetain, cfg.CompactBatchSize, cfg.PollBatchSize)), nil
+	return true, logstructured.New(sqllog.New(dialect, wg, cfg)), nil
 }
 
 func setup(db *sql.DB) error {

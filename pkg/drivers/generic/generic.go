@@ -32,11 +32,12 @@ var (
 	WithVal    = Columns + ", value"
 	WithOldVal = WithVal + ", old_value"
 	ListFmt    = `
-		SELECT current_rev, compact_rev, %s
-		FROM (%s) AS current_rev, (%s) AS compact_rev, kine
-		INNER JOIN (%s) AS mkv USING (id)
-		WHERE (deleted = 0 OR ?)
-		ORDER BY name ASC
+		WITH
+		ikv AS (%s),
+		ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+		mkv AS (SELECT %s FROM kine INNER JOIN ikv USING (id) WHERE (deleted = 0 OR ?)),
+		fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+		SELECT * FROM ckv, fkv ORDER BY name ASC
 		`
 	CurrentRevSQL  = `SELECT MAX(id) AS current_rev FROM kine`
 	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
@@ -44,12 +45,12 @@ var (
 	EqualsNameSQL  = `SELECT MAX(id) AS id FROM kine WHERE name = ? %s`
 	AnyNameSQL     = `SELECT MAX(id) AS id FROM kine %s GROUP BY name`
 
-	allSQL     = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, AnyNameSQL)
-	allValSQL  = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, AnyNameSQL)
-	listSQL    = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, BetweenNameSQL)
-	listValSQL = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, BetweenNameSQL)
-	getSQL     = fmt.Sprintf(ListFmt, Columns, CurrentRevSQL, CompactRevSQL, EqualsNameSQL)
-	getValSQL  = fmt.Sprintf(ListFmt, WithVal, CurrentRevSQL, CompactRevSQL, EqualsNameSQL)
+	allSQL     = fmt.Sprintf(ListFmt, AnyNameSQL, CurrentRevSQL, CompactRevSQL, Columns, Nulls(Columns))
+	allValSQL  = fmt.Sprintf(ListFmt, AnyNameSQL, CurrentRevSQL, CompactRevSQL, WithVal, Nulls(WithVal))
+	listSQL    = fmt.Sprintf(ListFmt, BetweenNameSQL, CurrentRevSQL, CompactRevSQL, Columns, Nulls(Columns))
+	listValSQL = fmt.Sprintf(ListFmt, BetweenNameSQL, CurrentRevSQL, CompactRevSQL, WithVal, Nulls(WithVal))
+	getSQL     = fmt.Sprintf(ListFmt, EqualsNameSQL, CurrentRevSQL, CompactRevSQL, Columns, Nulls(Columns))
+	getValSQL  = fmt.Sprintf(ListFmt, EqualsNameSQL, CurrentRevSQL, CompactRevSQL, WithVal, Nulls(WithVal))
 )
 
 type ErrRetry func(error) bool
@@ -187,18 +188,22 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		CompactRevSQL:           query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
-			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
-			WHERE id = (%s)
-			AND (deleted = 0 OR ?)`,
-			Columns, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingle"),
+			WITH
+			ikv AS (%s),
+			ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+			mkv AS (SELECT %s FROM kine WHERE id = (SELECT * FROM ikv) AND (deleted = 0 OR ?)),
+			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+			SELECT * FROM ckv, fkv`,
+			fmt.Sprintf(EqualsNameSQL, ""), CurrentRevSQL, CompactRevSQL, Columns, Nulls(Columns)), paramCharacter, numbered, "GetSingle"),
 
 		GetSingleValSQL: query.New(fmt.Sprintf(`
-			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
-			WHERE id = (%s)
-			AND (deleted = 0 OR ?)`,
-			WithVal, CurrentRevSQL, CompactRevSQL, fmt.Sprintf(EqualsNameSQL, "")), paramCharacter, numbered, "GetSingleVal"),
+			WITH
+			ikv AS (%s),
+			ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+			mkv AS (SELECT %s FROM kine WHERE id = (SELECT * FROM ikv) AND (deleted = 0 OR ?)),
+			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+			SELECT * FROM ckv, fkv`,
+			fmt.Sprintf(EqualsNameSQL, ""), CurrentRevSQL, CompactRevSQL, WithVal, Nulls(WithVal)), paramCharacter, numbered, "GetSingleVal"),
 
 		CountAllCurrentSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), COUNT(id)
@@ -229,27 +234,28 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(BetweenNameSQL, "AND id <= ?")), paramCharacter, numbered, "CountRevision"),
 
 		AfterOldValSQL: query.New(fmt.Sprintf(`
-			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
-			WHERE	name >= ? AND name < ?
-			AND	id > ?
-			ORDER BY id ASC`,
-			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterOldVal"),
+			WITH
+			ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+			mkv AS (SELECT %s FROM kine WHERE name >= ? AND name < ? AND id > ?),
+			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+			SELECT * FROM ckv, fkv ORDER BY id ASC`,
+			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), paramCharacter, numbered, "AfterOldVal"),
 
 		AfterAllOldValSQL: query.New(fmt.Sprintf(`
-			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
-			WHERE id > ?
-			ORDER BY id ASC`,
-			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterAllOldVal"),
+			WITH
+			ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+			mkv AS (SELECT %s FROM kine WHERE id > ?),
+			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+			SELECT * FROM ckv, fkv ORDER BY id ASC`,
+			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), paramCharacter, numbered, "AfterAllOldVal"),
 
 		AfterSingleOldValSQL: query.New(fmt.Sprintf(`
-			SELECT current_rev, compact_rev, %s
-			FROM (%s) AS current_rev, (%s) AS compact_rev, kine
-			WHERE name = ?
-			AND id > ?
-			ORDER BY id ASC`,
-			WithOldVal, CurrentRevSQL, CompactRevSQL), paramCharacter, numbered, "AfterSingleOldVal"),
+			WITH
+			ckv AS (SELECT * FROM (%s) AS current_rev, (%s) AS compact_rev),
+			mkv AS (SELECT %s FROM kine WHERE name = ? AND id > ?),
+			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
+			SELECT * FROM ckv, fkv ORDER BY id ASC`,
+			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), paramCharacter, numbered, "AfterSingleOldVal"),
 
 		DeleteSQL: query.New(`
 			DELETE FROM kine
@@ -277,6 +283,29 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			paramCharacter, numbered, "Fill"),
 	}, err
+}
+
+func (d *Generic) prepare(ctx context.Context, sql *query.Named) (*query.Stmt, error) {
+	logrus.Tracef("PREPARE: %s", sql)
+	conn, err := d.DB.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stmt, err := conn.PrepareContext(ctx, sql.Query)
+	if err != nil {
+		return nil, err
+	}
+	return &query.Stmt{Named: sql, Conn: conn, Stmt: stmt}, nil
+}
+
+func (d *Generic) queryStatement(ctx context.Context, stmt *query.Stmt, args ...any) (result *sql.Rows, err error) {
+	query := stmt.Fill(args)
+	logrus.Tracef("QUERY PREPARED: %s", query)
+	startTime := time.Now()
+	defer func() {
+		metrics.ObserveSQL(startTime, d.ErrCode(err), 0, query)
+	}()
+	return stmt.Stmt.QueryContext(ctx, args...)
 }
 
 func (d *Generic) query(ctx context.Context, sql *query.Named, args ...any) (result *sql.Rows, err error) {
@@ -478,6 +507,18 @@ func (d *Generic) After(ctx context.Context, key, end string, rev, limit int64) 
 	return d.query(ctx, sql, key, end, rev)
 }
 
+func (d *Generic) PrepareAfter(ctx context.Context, limit int64) (*query.Stmt, error) {
+	sql := d.AfterAllOldValSQL
+	if limit > 0 {
+		sql = sql.Appendf("LIMIT %d", limit)
+	}
+	return d.prepare(ctx, sql)
+}
+
+func (d *Generic) QueryAfter(ctx context.Context, stmt *query.Stmt, rev int64) (*sql.Rows, error) {
+	return d.queryStatement(ctx, stmt, rev)
+}
+
 func (d *Generic) Fill(ctx context.Context, revision int64) error {
 	_, err := d.execute(ctx, d.FillSQL, revision, fmt.Sprintf("gap-%d", revision), 0, 1, 0, 0, 0, nil, nil)
 	return err
@@ -568,4 +609,13 @@ func (d *Generic) TranslateStartKey(startKey string) string {
 		return d.TranslateStartKeyFunc(startKey)
 	}
 	return startKey
+}
+
+// make a list of nulls equal to a list of columns
+func Nulls(cols string) string {
+	c := strings.Split(cols, ", ")
+	for i := range c {
+		c[i] = "NULL"
+	}
+	return strings.Join(c, ", ")
 }
