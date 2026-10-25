@@ -86,10 +86,6 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		logrus.Tracef("CREATE %s, size=%d, lease=%d => rev=%d, err=%v", key, len(value), lease, revRet, errRet)
 	}()
 
-	_, prevEvent, err := l.get(ctx, key, 0, true, true)
-	if err != nil {
-		return 0, err
-	}
 	createEvent := &server.Event{
 		Create: true,
 		KV: &server.KeyValue{
@@ -99,15 +95,23 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		},
 		PrevKV: &server.KeyValue{},
 	}
-	if prevEvent != nil {
-		if !prevEvent.Delete {
+
+	rev, err := l.log.Append(ctx, createEvent)
+	if rev == 0 || err != nil {
+		rev, event, err := l.get(ctx, key, 0, true, true)
+		if event == nil || err != nil {
+			return 0, err
+		}
+		if !event.Delete {
 			return 0, server.ErrKeyExists
 		}
-		createEvent.PrevKV.ModRevision = prevEvent.KV.ModRevision
+		createEvent.PrevKV.ModRevision = event.KV.ModRevision
+		rev, err = l.log.Append(ctx, createEvent)
+		if rev == 0 || err != nil {
+			return 0, server.ErrKeyExists
+		}
 	}
-
-	revRet, errRet = l.log.Append(ctx, createEvent)
-	return revRet, errRet
+	return rev, nil
 }
 
 func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) (revRet int64, kvRet *server.KeyValue, deletedRet bool, errRet error) {
@@ -116,39 +120,29 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 		logrus.Tracef("DELETE %s, rev=%d => rev=%d, kv=%v, deleted=%v, err=%v", key, revision, revRet, kvRet != nil, deletedRet, errRet)
 	}()
 
-	rev, event, err := l.get(ctx, key, 0, true, false)
-	if err != nil {
-		return 0, nil, false, err
-	}
-
-	if event == nil {
-		return rev, nil, true, nil
-	}
-
-	if event.Delete {
-		return rev, nil, false, nil
-	}
-
-	if revision != 0 && event.KV.ModRevision != revision {
-		return rev, event.KV, false, nil
-	}
 	deleteEvent := &server.Event{
 		Delete: true,
 		KV:     &server.KeyValue{Key: key},
-		PrevKV: &server.KeyValue{ModRevision: event.KV.ModRevision},
+		PrevKV: &server.KeyValue{ModRevision: revision},
 	}
 
-	rev, err = l.log.Append(ctx, deleteEvent)
-	if err != nil {
-		// If error on Append we assume it's a UNIQUE constraint error, so we fetch the latest (if we can)
-		// and return that the delete failed
-		latestRev, latestEvent, latestErr := l.get(ctx, key, 0, true, false)
-		if latestErr != nil || latestEvent == nil {
-			return rev, event.KV, false, nil
+	rev, err := l.log.Append(ctx, deleteEvent)
+	if rev == 0 || err != nil {
+		rev, event, err := l.get(ctx, key, 0, true, false)
+		if err != nil {
+			return 0, nil, false, err
 		}
-		return latestRev, latestEvent.KV, false, nil
+		if event == nil {
+			return rev, nil, true, nil
+		}
+		if event.Delete {
+			return rev, nil, false, nil
+		}
+		return rev, event.KV, false, nil
 	}
-	return rev, event.KV, true, err
+
+	deleteEvent.KV.ModRevision = rev
+	return rev, deleteEvent.KV, true, nil
 }
 
 func (l *LogStructured) List(ctx context.Context, key, end string, limit, revision int64, keysOnly bool) (revRet int64, kvRet []*server.KeyValue, errRet error) {
@@ -187,40 +181,26 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 		}
 	}()
 
-	rev, event, err := l.get(ctx, key, 0, false, false)
-	if err != nil {
-		return 0, nil, false, err
+	updateEvent := &server.Event{
+		KV: &server.KeyValue{
+			Key:   key,
+			Value: value,
+			Lease: lease,
+		},
+		PrevKV: &server.KeyValue{ModRevision: revision},
 	}
 
-	if event == nil {
-		return 0, nil, false, nil
-	}
-
-	if event.KV.ModRevision != revision {
+	rev, err := l.log.Append(ctx, updateEvent)
+	if rev == 0 || err != nil {
+		rev, event, err := l.get(ctx, key, 0, false, false)
+		if event == nil || err != nil {
+			return rev, nil, false, err
+		}
 		return rev, event.KV, false, nil
 	}
 
-	updateEvent := &server.Event{
-		KV: &server.KeyValue{
-			Key:            key,
-			CreateRevision: event.KV.CreateRevision,
-			Value:          value,
-			Lease:          lease,
-		},
-		PrevKV: &server.KeyValue{ModRevision: event.KV.ModRevision},
-	}
-
-	rev, err = l.log.Append(ctx, updateEvent)
-	if err != nil {
-		rev, event, err := l.get(ctx, key, 0, false, false)
-		if event == nil {
-			return rev, nil, false, err
-		}
-		return rev, event.KV, false, err
-	}
-
 	updateEvent.KV.ModRevision = rev
-	return rev, updateEvent.KV, true, err
+	return rev, updateEvent.KV, true, nil
 }
 
 func (l *LogStructured) Watch(ctx context.Context, revision int64) server.WatchResult {

@@ -39,6 +39,13 @@ var (
 		fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
 		SELECT * FROM ckv, fkv ORDER BY name ASC
 		`
+	insertSQL = `
+		INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+		WITH
+		ikv AS (SELECT id, create_revision, value FROM kine WHERE id = ? AND deleted = 0)
+		SELECT ?, ?, ?, (SELECT COALESCE(NULLIF(create_revision, 0), id) FROM ikv), ?, ?, ?, (SELECT value FROM ikv)
+		WHERE COALESCE((SELECT MAX(id) FROM kine WHERE name = ?), 0) = ?
+		`
 	CurrentRevSQL  = `SELECT MAX(id) AS current_rev FROM kine`
 	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
 	BetweenNameSQL = `SELECT MAX(id) AS id FROM kine WHERE name >= ? AND name < ? %s GROUP BY name`
@@ -57,6 +64,7 @@ type ErrRetry func(error) bool
 type TranslateErr func(error) error
 type ErrCode func(error) string
 type SubstituteFunc func(string) string
+type queryRowFunc func(context.Context, *query.Named, ...any) (result *sql.Row)
 
 type ConnectionPoolConfig struct {
 	MaxIdle     int           // zero means defaultMaxIdleConns; negative means 0
@@ -94,9 +102,9 @@ type Generic struct {
 	CompactSQL              *query.Named
 	UpdateCompactSQL        *query.Named
 	PostCompactSQL          *query.Named
-	InsertSQL               *query.Named
 	FillSQL                 *query.Named
-	InsertLastInsertIDSQL   *query.Named
+	InsertSQL               *query.Named
+	InsertReturningSQL      *query.Named
 	GetSizeSQL              *query.Named
 	Retry                   ErrRetry
 	InsertRetry             ErrRetry
@@ -186,6 +194,8 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
 		CurrentRevSQL:           query.New(CurrentRevSQL, paramCharacter, numbered, "CurrentRev"),
 		CompactRevSQL:           query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
+		InsertSQL:               query.New(insertSQL, paramCharacter, numbered, "Insert"),
+		InsertReturningSQL:      query.New(insertSQL+" RETURNING id", paramCharacter, numbered, "InsertReturning"),
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -267,16 +277,6 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			SET prev_revision = ?
 			WHERE name = 'compact_rev_key'`,
 			paramCharacter, numbered, "UpdateCompact"),
-
-		InsertLastInsertIDSQL: query.New(`
-			INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			SELECT ?, ?, ?, ?, ?, ?, ?, (SELECT value FROM kine WHERE id = ?) AS old_value`,
-			paramCharacter, numbered, "InsertLastInsertID"),
-
-		InsertSQL: query.New(`
-			INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			SELECT ?, ?, ?, ?, ?, ?, ?, (SELECT value FROM kine WHERE id = ?) AS old_value RETURNING id`,
-			paramCharacter, numbered, "Insert"),
 
 		FillSQL: query.New(`
 			INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
@@ -534,8 +534,7 @@ func (d *Generic) IsTxRetry(err error) bool {
 	return d.TxRetry != nil && d.TxRetry(err)
 }
 
-//nolint:revive
-func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, createRevision, previousRevision int64, ttl int64, value []byte) (id int64, err error) {
+func (d *Generic) Insert(ctx context.Context, key string, created, deleted bool, previousRevision, ttl int64, value []byte) (id int64, err error) {
 	if d.TranslateErr != nil {
 		defer func() {
 			if err != nil {
@@ -544,48 +543,24 @@ func (d *Generic) Insert(ctx context.Context, key string, create, delete bool, c
 		}()
 	}
 
-	cVal := 0
-	dVal := 0
-	if create {
-		cVal = 1
-	}
-	if delete {
-		dVal = 1
-	}
+	cols := []any{previousRevision, key, boolToInt(created), boolToInt(deleted), previousRevision, ttl, value, key, previousRevision}
 
 	if d.LastInsertID {
-		row, err := d.execute(ctx, d.InsertLastInsertIDSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, previousRevision)
+		res, err := d.execute(ctx, d.InsertSQL, cols...)
 		if err != nil {
 			return 0, err
 		}
-		return row.LastInsertId()
-	}
-
-	// Drivers without LastInsertID support may conflict on the serial id key when inserting rows,
-	// as the ID is reserved at the beginning of the implicit transaction, but does not become
-	// visible until the transaction completes, at which point we may have already created a gap fill record.
-	// Retry the insert if the driver indicates a retriable insert error, to avoid presenting a spurious
-	// duplicate key error to the client.
-	wait := strategy.Backoff(backoff.Linear(100 * time.Millisecond))
-	for i := uint(0); i < 20; i++ {
-		row := d.queryRow(ctx, d.InsertSQL, key, cVal, dVal, createRevision, previousRevision, ttl, value, previousRevision)
-		err = row.Scan(&id)
-
-		if err != nil && d.InsertRetry != nil && d.InsertRetry(err) {
-			logrus.Warnf("Retriable insert error for key %v: %v", key, err)
-			metrics.InsertErrorsTotal.WithLabelValues("true").Inc()
-			wait(i)
-			continue
-		}
-
+		rows, err := res.RowsAffected()
 		if err != nil {
-			metrics.InsertErrorsTotal.WithLabelValues("false").Inc()
-			logrus.WithField("key", key).WithField("createRevision", createRevision).WithField("previousRevision", previousRevision).Errorf("Insert error for key %v: %v", key, err)
+			return 0, err
 		}
-
-		return id, err
+		if rows == 0 {
+			return 0, nil
+		}
+		return res.LastInsertId()
 	}
-	return
+
+	return retryInsert(ctx, d.queryRow, d.InsertRetry, d.InsertReturningSQL, cols...)
 }
 
 func (d *Generic) GetSize(ctx context.Context) (int64, error) {
@@ -618,4 +593,42 @@ func Nulls(cols string) string {
 		c[i] = "NULL"
 	}
 	return strings.Join(c, ", ")
+}
+
+// retryInsert handles retrying inserts if the driver indicates a retriable insert error, to
+// avoid presenting a spurious duplicate key error to the client. Drivers without LastInsertID
+// support may conflict on the serial id key when inserting rows, as the ID is reserved at the
+// beginning of the implicit transaction, but does not become visible until the transaction
+// completes, at which point we may have already created a gap fill record.
+func retryInsert(ctx context.Context, queryRow queryRowFunc, insertRetry ErrRetry, insertSQL *query.Named, args ...any) (int64, error) {
+	wait := strategy.Backoff(backoff.Linear(100 * time.Millisecond))
+	var id int64
+	var err error
+	for i := range uint(20) {
+		row := queryRow(ctx, insertSQL, args...)
+		err = row.Scan(&id)
+
+		if err == nil {
+			break
+		}
+
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		} else if insertRetry == nil || !insertRetry(err) {
+			metrics.InsertErrorsTotal.WithLabelValues("false").Inc()
+			return 0, err
+		}
+		logrus.Debugf("Retriable insert error for key %v: %v", args[1], err)
+		metrics.InsertErrorsTotal.WithLabelValues("true").Inc()
+		wait(i)
+	}
+
+	return id, err
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
