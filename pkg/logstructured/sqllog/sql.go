@@ -736,14 +736,21 @@ func (s *SQLLog) Append(ctx context.Context, event *server.Event) (int64, error)
 	}
 
 	currentRev := s.currentRev.Load()
-	rev, err := s.d.Insert(ctx, e.KV.Key,
+	tx, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return 0, err
+	}
+	rev, err := tx.Insert(ctx, e.KV.Key,
 		e.Create,
 		e.Delete,
-		e.KV.CreateRevision,
 		e.PrevKV.ModRevision,
 		e.KV.Lease,
 		e.KV.Value,
 	)
+	if err != nil {
+		return 0, errors.Join(err, tx.Rollback())
+	}
+	err = tx.Commit()
 	if err != nil {
 		return 0, err
 	}
