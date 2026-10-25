@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [[ ! -v DIRTY ]]; then
+if [[ -z "${DIRTY+x}" ]]; then
   if [[ -n "$(git status --porcelain --untracked-files=no -z)" ]]; then
     DIRTY="-dirty"
   fi
