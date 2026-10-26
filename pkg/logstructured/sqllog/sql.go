@@ -459,7 +459,12 @@ func (s *SQLLog) ListStream(ctx context.Context, key, end string, limit, revisio
 				errc <- err
 				return
 			}
-			kvc <- event.KV
+			select {
+			case kvc <- event.KV:
+			case <-ctx.Done():
+				errc <- ctx.Err()
+				return
+			}
 		}
 		// Next returns false for a read that ended early exactly as it does for
 		// the last row, so without this a list cut short by a cancelled query or

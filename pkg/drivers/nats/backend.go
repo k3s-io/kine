@@ -442,7 +442,12 @@ func (b *Backend) ListStream(ctx context.Context, key, end string, limit, revisi
 				errc <- err
 				return
 			}
-			kvc <- nd.KV
+			select {
+			case kvc <- nd.KV:
+			case <-ctx.Done():
+				errc <- ctx.Err()
+				return
+			}
 		}
 	}()
 
