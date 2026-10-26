@@ -151,7 +151,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		err error
 	)
 
-	for i := 0; i < 300; i++ {
+	for range 300 {
 		db, err = openAndTest(connector)
 		if err == nil {
 			break
@@ -163,6 +163,10 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			return nil, ctx.Err()
 		case <-time.After(time.Second):
 		}
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	wg.Add(1)
