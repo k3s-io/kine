@@ -394,7 +394,12 @@ func (m *Memory) ListStream(ctx context.Context, key, end string, limit, revisio
 					kv.Value = nil
 				}
 				count++
-				kvc <- kv
+				select {
+				case kvc <- kv:
+				case <-ctx.Done():
+					errc <- ctx.Err()
+					return
+				}
 			}
 
 			if limit > 0 && count >= limit {

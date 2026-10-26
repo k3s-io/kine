@@ -205,7 +205,12 @@ func (b *backend) ListStream(ctx context.Context, key, end string, limit, revisi
 			return
 		}
 		for _, kv := range kvs {
-			kvc <- toServerKV(kv, keysOnly)
+			select {
+			case kvc <- toServerKV(kv, keysOnly):
+			case <-ctx.Done():
+				errc <- ctx.Err()
+				return
+			}
 		}
 	}()
 
