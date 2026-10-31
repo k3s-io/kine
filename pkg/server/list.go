@@ -53,7 +53,16 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 			revision = currentRev
 		}
 
-		currentRev, count, err = l.backend.Count(ctx, key, end, revision)
+		// Count at the same revision as the list, but keep the list's revision
+		// in the header. The count query runs after the list query and can see
+		// newer writes; labelling this page with its revision would claim the
+		// page includes writes it does not, and a client that watches from that
+		// revision would never receive them.
+		var countRev int64
+		countRev, count, err = l.backend.Count(ctx, key, end, revision)
+		if r.CountOnly {
+			currentRev = countRev
+		}
 		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, currentRev, count)
 		if err != nil {
 			return nil, err
