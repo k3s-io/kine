@@ -49,14 +49,20 @@ func (l *LimitedServer) list(ctx context.Context, r *etcdserverpb.RangeRequest) 
 			more = true
 		}
 
+		// Count at revision from List. If List was skipped then currentRev is 0 and revision is unchanged.
+		var countRev int64
 		if revision == 0 {
 			revision = currentRev
 		}
 
-		currentRev, count, err = l.backend.Count(ctx, key, end, revision)
+		countRev, count, err = l.backend.Count(ctx, key, end, revision)
 		logrus.Tracef("LIST COUNT key=%s, end=%s, revision=%d, currentRev=%d count=%d", key, end, revision, currentRev, count)
 		if err != nil {
 			return nil, err
+		}
+		// Only use revision from Count if List was skipped.
+		if r.CountOnly {
+			currentRev = countRev
 		}
 	}
 
