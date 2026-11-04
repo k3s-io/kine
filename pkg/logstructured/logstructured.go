@@ -245,7 +245,13 @@ func (l *LogStructured) Watch(ctx context.Context, revision int64) server.WatchR
 	go func() {
 		// always ensure we fully read the channel
 		for i := range readChan {
-			result <- i.After(rev)
+			select {
+			case result <- i.After(rev):
+			case <-ctx.Done():
+				// the consumer may have stopped reading; don't block forever on a full channel
+				close(result)
+				return
+			}
 		}
 		close(result)
 		cancel()
