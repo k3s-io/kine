@@ -465,18 +465,17 @@ func (m *Memory) Watch(ctx context.Context, revision int64) server.WatchResult {
 
 	rev := wr.CurrentRevision
 	go func() {
+		defer cancel()
+		defer close(result)
 		// always ensure we fully read the channel
 		for i := range readChan {
 			select {
 			case result <- i.After(rev):
 			case <-ctx.Done():
 				// the consumer may have stopped reading; don't block forever on a full channel
-				close(result)
 				return
 			}
 		}
-		close(result)
-		cancel()
 	}()
 
 	return wr
