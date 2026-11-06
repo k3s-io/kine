@@ -217,6 +217,7 @@ export -f wait-for-apiserver
 # ---
 
 build-apiserver-tests() {
+  REPLACEMENTS=$(go list -m --mod=readonly -f '{{ if .Replace }}-replace={{.Path}}={{.Replace.Path}}@{{.Replace.Version}}{{end}}' all | grep '=go.etcd.io')
   TAG_KUBERNETES=$(go list -mod=readonly -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' k8s.io/apiserver)
   KINEPATH=$PWD
   GOPATH=$(go env GOPATH)
@@ -238,7 +239,7 @@ build-apiserver-tests() {
   sed -i 's|NewTooLargeResourceVersionError(uint64(102), 1, 0)|NewTooLargeResourceVersionError(uint64(102), 2, 0)|' pkg/storage/etcd3/watcher_test.go
   # fix too-short test helper timeout that fails under load
   sed -i 's|waitTimeout = 100 \* waitDelay|waitTimeout = 500 \* waitDelay|' pkg/storage/etcd3/compact_test.go
-  go mod edit --replace github.com/k3s-io/kine=$KINEPATH
+  go mod edit --replace github.com/k3s-io/kine=$KINEPATH $REPLACEMENTS
   go mod tidy
   go test -c -o $KINEPATH/bin/ -tags nats ./pkg/storage/etcd3/...
   cd $KINEPATH
