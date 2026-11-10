@@ -17,7 +17,7 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/shengdoushi/base58 v1.0.0
 	github.com/sirupsen/logrus v1.10.2
-	github.com/t4db/t4 v1.1.16
+	github.com/t4db/t4 v1.1.17
 	github.com/tidwall/btree v1.8.2
 	github.com/urfave/cli/v2 v2.27.7
 	go.etcd.io/etcd/api/v3 v3.7.3
@@ -34,6 +34,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/DataDog/zstd v1.4.5 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.8.0 // indirect
