@@ -42,9 +42,11 @@ var (
 	insertSQL = `
 		INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 		WITH
-		ikv AS (SELECT id, create_revision, value FROM kine WHERE id = ? AND deleted = 0)
-		SELECT ?, ?, ?, (SELECT COALESCE(NULLIF(create_revision, 0), id) FROM ikv), ?, ?, ?, (SELECT value FROM ikv)
+		op AS (SELECT CAST(? AS %s) AS bits),
+		ikv AS (SELECT id, deleted, create_revision, value FROM kine WHERE id = ?)
+		SELECT ?, ?, ?, (SELECT COALESCE(NULLIF(create_revision, 0), id) FROM ikv WHERE deleted = 0), ?, ?, ?, (SELECT value FROM ikv WHERE deleted = 0)
 		WHERE COALESCE((SELECT MAX(id) FROM kine WHERE name = ?), 0) = ?
+		  AND (SELECT CASE WHEN COALESCE((SELECT deleted FROM ikv), 1) = 1 THEN (SELECT bits = 2 FROM op) ELSE (SELECT bits < 2 FROM op) END)
 		`
 	CurrentRevSQL  = `SELECT MAX(id) AS current_rev FROM kine`
 	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
@@ -145,7 +147,7 @@ func openAndTest(connector driver.Connector) (*sql.DB, error) {
 	return db, nil
 }
 
-func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connector driver.Connector, connPoolConfig ConnectionPoolConfig, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
+func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connector driver.Connector, connPoolConfig ConnectionPoolConfig, integerType, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
@@ -185,6 +187,10 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		metricsRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
 	}
 
+	if integerType == "" {
+		integerType = "INTEGER"
+	}
+
 	return &Generic{
 		DB: db,
 
@@ -198,8 +204,8 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
 		CurrentRevSQL:           query.New(CurrentRevSQL, paramCharacter, numbered, "CurrentRev"),
 		CompactRevSQL:           query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
-		InsertSQL:               query.New(insertSQL, paramCharacter, numbered, "Insert"),
-		InsertReturningSQL:      query.New(insertSQL+" RETURNING id", paramCharacter, numbered, "InsertReturning"),
+		InsertSQL:               query.New(fmt.Sprintf(insertSQL, integerType), paramCharacter, numbered, "Insert"),
+		InsertReturningSQL:      query.New(fmt.Sprintf(insertSQL, integerType)+" RETURNING id", paramCharacter, numbered, "InsertReturning"),
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -547,7 +553,10 @@ func (d *Generic) Insert(ctx context.Context, key string, created, deleted bool,
 		}()
 	}
 
-	cols := []any{previousRevision, key, boolToInt(created), boolToInt(deleted), previousRevision, ttl, value, key, previousRevision}
+	createInt := boolToInt(created)
+	deleteInt := boolToInt(deleted)
+	opBits := createInt<<1 | deleteInt
+	cols := []any{opBits, previousRevision, key, createInt, deleteInt, previousRevision, ttl, value, key, previousRevision}
 
 	if d.LastInsertID {
 		res, err := d.execute(ctx, d.InsertSQL, cols...)
