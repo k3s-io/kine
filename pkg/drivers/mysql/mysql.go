@@ -83,7 +83,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
-	dialect, err := generic.OpenDB(ctx, wg, "mysql", connector, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.OpenDB(ctx, wg, "mysql", connector, cfg.ConnectionPoolConfig, "UNSIGNED", "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
