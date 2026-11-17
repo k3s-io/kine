@@ -24,8 +24,8 @@ func (l *LimitedServer) Txn(ctx context.Context, txn *etcdserverpb.TxnRequest) (
 	if put := isCreate(txn); put != nil {
 		return l.create(ctx, put)
 	}
-	if rev, key, ok := isDelete(txn); ok {
-		return l.delete(ctx, key, rev)
+	if rev, key, prevKV, ok := isDelete(txn); ok {
+		return l.delete(ctx, key, rev, prevKV)
 	}
 	if rev, key, value, lease, ok := isUpdate(txn); ok {
 		return l.update(ctx, rev, key, value, lease)

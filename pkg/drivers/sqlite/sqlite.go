@@ -83,7 +83,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return nil, nil, err
 	}
 
-	dialect, err := generic.OpenDB(ctx, wg, driverName, connector, cfg.ConnectionPoolConfig, "?", false, cfg.MetricsRegisterer)
+	dialect, err := generic.OpenDB(ctx, wg, driverName, connector, cfg.ConnectionPoolConfig, "INTEGER", "?", false, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
