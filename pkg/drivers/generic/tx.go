@@ -132,7 +132,7 @@ func (t *Tx) Insert(ctx context.Context, key string, created, deleted bool, prev
 		return res.LastInsertId()
 	}
 
-	return retryInsert(ctx, t.d.queryRow, t.d.InsertRetry, t.d.InsertReturningSQL, cols...)
+	return retryInsert(ctx, t.queryRow, t.d.InsertRetry, t.d.InsertReturningSQL, cols...)
 }
 
 func (t *Tx) query(ctx context.Context, sql *query.Named, args ...any) (result *sql.Rows, err error) {
