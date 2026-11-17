@@ -45,6 +45,7 @@ var (
 		ikv AS (SELECT id, create_revision, value FROM kine WHERE id = ? AND deleted = 0)
 		SELECT ?, ?, ?, (SELECT COALESCE(NULLIF(create_revision, 0), id) FROM ikv), ?, ?, ?, (SELECT value FROM ikv)
 		WHERE COALESCE((SELECT MAX(id) FROM kine WHERE name = ?), 0) = ?
+			AND (? = 1 OR EXISTS (SELECT 1 FROM ikv))
 		`
 	CurrentRevSQL  = `SELECT MAX(id) AS current_rev FROM kine`
 	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
@@ -547,7 +548,7 @@ func (d *Generic) Insert(ctx context.Context, key string, created, deleted bool,
 		}()
 	}
 
-	cols := []any{previousRevision, key, boolToInt(created), boolToInt(deleted), previousRevision, ttl, value, key, previousRevision}
+	cols := []any{previousRevision, key, boolToInt(created), boolToInt(deleted), previousRevision, ttl, value, key, previousRevision, boolToInt(created)}
 
 	if d.LastInsertID {
 		res, err := d.execute(ctx, d.InsertSQL, cols...)

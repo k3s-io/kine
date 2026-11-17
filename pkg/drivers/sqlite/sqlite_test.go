@@ -3,7 +3,11 @@ package sqlite
 import (
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/k3s-io/kine/pkg/drivers"
 )
 
 // createBloatedDB creates a temporary SQLite database in WAL mode with the kine
@@ -147,4 +151,52 @@ func TestSetupVacuumDisabledPreservesFileSize(t *testing.T) {
 	}
 
 	t.Logf("No VACUUM: freelist pages before=%d, after=%d", freelistBefore, freelistAfter)
+}
+
+// A deleted key has no mod revision, so a compare against the revision of
+// the delete must fail, as it does in etcd.
+func TestTxnAtDeleteRevision(t *testing.T) {
+	ctx := t.Context()
+	wg := &sync.WaitGroup{}
+	t.Cleanup(wg.Wait)
+	b, _, err := NewVariant(ctx, wg, "sqlite3", &drivers.Config{
+		DataSourceName:   filepath.Join(t.TempDir(), "state.db") + "?" + DefaultParams,
+		PollInterval:     time.Second,
+		CompactMinRetain: 1000,
+		CompactBatchSize: 1000,
+		PollBatchSize:    500,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create backend: %v", err)
+	}
+	if err := b.Start(ctx); err != nil {
+		t.Fatalf("Failed to start backend: %v", err)
+	}
+
+	for _, op := range []string{"update", "delete"} {
+		key := "/test/" + op
+		rev, err := b.Create(ctx, key, []byte("v1"), 0)
+		if err != nil {
+			t.Fatalf("Create failed: %v", err)
+		}
+		deleteRev, _, ok, err := b.Delete(ctx, key, rev)
+		if err != nil || !ok {
+			t.Fatalf("Delete failed: ok=%v, err=%v", ok, err)
+		}
+
+		if op == "update" {
+			_, _, ok, err = b.Update(ctx, key, []byte("v2"), deleteRev, 0)
+		} else {
+			_, _, ok, err = b.Delete(ctx, key, deleteRev)
+		}
+		if err != nil || ok {
+			t.Errorf("%s at delete revision: expected ok=false, got ok=%v, err=%v", op, ok, err)
+		}
+		if _, kv, err := b.Get(ctx, key, 0, false); err != nil || kv != nil {
+			t.Errorf("%s at delete revision: expected no key, got kv=%+v, err=%v", op, kv, err)
+		}
+		if rev, err := b.CurrentRevision(ctx); err != nil || rev != deleteRev {
+			t.Errorf("%s at delete revision: expected current revision %d, got %d, err=%v", op, deleteRev, rev, err)
+		}
+	}
 }

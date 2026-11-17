@@ -112,7 +112,7 @@ func (t *Tx) Insert(ctx context.Context, key string, created, deleted bool, prev
 		}()
 	}
 
-	cols := []any{previousRevision, key, boolToInt(created), boolToInt(deleted), previousRevision, ttl, value, key, previousRevision}
+	cols := []any{previousRevision, key, boolToInt(created), boolToInt(deleted), previousRevision, ttl, value, key, previousRevision, boolToInt(created)}
 
 	if t.d.LastInsertID {
 		res, err := t.execute(ctx, t.d.InsertSQL, cols...)
