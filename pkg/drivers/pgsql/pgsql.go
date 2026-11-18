@@ -95,12 +95,18 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
-	dialect, err := generic.OpenDB(ctx, wg, "pgx", connector, cfg.ConnectionPoolConfig, "INTEGER", "$", true, cfg.MetricsRegisterer)
+	opts := query.Options{
+		ParamCharacter: "$",
+		Numbered:       true,
+		IntegerType:    "INTEGER",
+		ConflictPost:   "ON CONFLICT DO NOTHING",
+	}
+	dialect, err := generic.OpenDB(ctx, wg, "pgx", connector, cfg.ConnectionPoolConfig, opts, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
 
-	dialect.GetSizeSQL = query.New(`SELECT pg_total_relation_size('kine')`, "$", true, "GetSize")
+	dialect.GetSizeSQL = query.New(`SELECT pg_total_relation_size('kine')`, opts, "GetSize")
 	dialect.CompactSQL = query.New(`
 		DELETE FROM kine AS kv
 		USING	(
@@ -119,12 +125,12 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.id > $3 AND
 				kd.id <= $4
 		) AS ks
-		WHERE kv.id = ks.id`, "$", true, "Compact")
+		WHERE kv.id = ks.id`, opts, "Compact")
 	// Push the row limit into the key selection; see listFmt.
-	dialect.ListCurrentSQL = query.New(fmt.Sprintf(listSQL, ""), "$", true, "ListCurrent")
-	dialect.ListCurrentValSQL = query.New(fmt.Sprintf(listValSQL, ""), "$", true, "ListCurrentVal")
-	dialect.GetRevisionAfterSQL = query.New(fmt.Sprintf(listSQL, "AND id <= ?"), "$", true, "GetRevisionAfter")
-	dialect.GetRevisionAfterValSQL = query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), "$", true, "GetRevisionAfterVal")
+	dialect.ListCurrentSQL = query.New(fmt.Sprintf(listSQL, ""), opts, "ListCurrent")
+	dialect.ListCurrentValSQL = query.New(fmt.Sprintf(listValSQL, ""), opts, "ListCurrentVal")
+	dialect.GetRevisionAfterSQL = query.New(fmt.Sprintf(listSQL, "AND id <= ?"), opts, "GetRevisionAfter")
+	dialect.GetRevisionAfterValSQL = query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), opts, "GetRevisionAfterVal")
 	dialect.FillRetryDuration = time.Millisecond + 5
 	dialect.InsertRetry = func(err error) bool {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
