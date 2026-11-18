@@ -18,6 +18,14 @@ var whitespace = regexp.MustCompile(`[\n\t ]+`)
 
 var params = regexp.MustCompile(`\?|\$[0-9]+`)
 
+type Options struct {
+	ParamCharacter string
+	Numbered       bool
+	IntegerType    string
+	ConflictPre    string
+	ConflictPost   string
+}
+
 // Named is a named SQL query string that formats nicely when stringed.
 // The name should be used for tracking in metrics, and printed in error logs.
 type Named struct {
@@ -27,16 +35,16 @@ type Named struct {
 
 // New returns a new named query, and handles replacing `?` parameters
 // with whatever parameter characters the driver requires.
-func New(query, param string, numbered bool, name string) *Named {
-	if param != "?" || numbered {
+func New(query string, opts Options, name string) *Named {
+	if opts.ParamCharacter != "?" || opts.Numbered {
 		n := 0
 		regex := regexp.MustCompile(`\?`)
 		query = regex.ReplaceAllStringFunc(query, func(string) string {
-			if numbered {
+			if opts.Numbered {
 				n++
-				return param + strconv.Itoa(n)
+				return opts.ParamCharacter + strconv.Itoa(n)
 			}
-			return param
+			return opts.ParamCharacter
 		})
 	}
 	return &Named{Name: name, Query: Strip(query)}

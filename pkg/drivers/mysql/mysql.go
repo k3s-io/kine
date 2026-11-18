@@ -82,8 +82,12 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	if err := createDBIfNotExist(ctx, config, connector); err != nil {
 		return false, nil, err
 	}
-
-	dialect, err := generic.OpenDB(ctx, wg, "mysql", connector, cfg.ConnectionPoolConfig, "UNSIGNED", "?", false, cfg.MetricsRegisterer)
+	opts := query.Options{
+		ParamCharacter: "?",
+		IntegerType:    "UNSIGNED",
+		ConflictPre:    "IGNORE",
+	}
+	dialect, err := generic.OpenDB(ctx, wg, "mysql", connector, cfg.ConnectionPoolConfig, opts, cfg.MetricsRegisterer)
 	if err != nil {
 		return false, nil, err
 	}
@@ -93,7 +97,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		SELECT SUM(data_length + index_length)
 		FROM information_schema.TABLES
 		WHERE table_schema = DATABASE() AND table_name = 'kine'`,
-		"?", false, "GetSize")
+		opts, "GetSize")
 	dialect.CompactSQL = query.New(`
 		DELETE kv FROM kine AS kv
 		INNER JOIN (
@@ -113,7 +117,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 				kd.id <= ?
 		) AS ks
 		ON kv.id = ks.id`,
-		"?", false, "Compact")
+		opts, "Compact")
 	dialect.TranslateErr = func(err error) error {
 		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1062 {
 			return server.ErrKeyExists
