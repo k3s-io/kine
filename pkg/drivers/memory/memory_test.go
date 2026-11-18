@@ -413,8 +413,8 @@ func TestCompactDropsTombstones(t *testing.T) {
 
 	// /test/a's tombstone at rev 3 is at-or-below the compact boundary,
 	// so the entire history should be removed.
-	if _, ok := b.keys.Get("/test/a"); ok {
-		t.Fatal("expected /test/a to be removed after compacting tombstone")
+	if _, ok := b.keys.Get("/test/a"); !ok {
+		t.Fatal("expected /test/a to be retained after compacting tombstone")
 	}
 	// /test/b's floor is its create at rev 2, kept in m.keys.
 	histB, ok := b.keys.Get("/test/b")
@@ -440,6 +440,22 @@ func TestCompactStraddlesBoundary(t *testing.T) {
 		t.Fatalf("log length before compact: got %d, want 5", got)
 	}
 
+	if got, _ := b.logIndexAfter(1); got != 1 {
+		t.Fatalf("logIndexAfter(1): got %d, want 1", got)
+	}
+
+	if _, err := b.Compact(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := len(b.log); got != 5 {
+		t.Fatalf("log length after compact(1): got %d, want 5", got)
+	}
+
+	if got, _ := b.logIndexAfter(1); got != 1 {
+		t.Fatalf("logIndexAfter(3): got %d, want 1", got)
+	}
+
 	if _, err := b.Compact(ctx, 3); err != nil {
 		t.Fatal(err)
 	}
@@ -458,15 +474,15 @@ func TestCompactStraddlesBoundary(t *testing.T) {
 		t.Fatalf("log[2].revision: got %d, want 5", got)
 	}
 
-	// logIndexAfter math is anchored at compactRev+1 = 4.
-	if got := b.logIndexAfter(3); got != 0 {
-		t.Fatalf("logIndexAfter(3): got %d, want 0", got)
+	// logIndexAfter math is anchored at compactRev+1 if compactRev is nonzero
+	if got, _ := b.logIndexAfter(3); got != 1 {
+		t.Fatalf("logIndexAfter(3): got %d, want 1", got)
 	}
-	if got := b.logIndexAfter(4); got != 1 {
-		t.Fatalf("logIndexAfter(4): got %d, want 1", got)
+	if got, _ := b.logIndexAfter(4); got != 2 {
+		t.Fatalf("logIndexAfter(4): got %d, want 2", got)
 	}
-	if got := b.logIndexAfter(5); got != 2 {
-		t.Fatalf("logIndexAfter(5): got %d, want 2", got)
+	if got, _ := b.logIndexAfter(5); got != 3 {
+		t.Fatalf("logIndexAfter(5): got %d, want 3", got)
 	}
 }
 
