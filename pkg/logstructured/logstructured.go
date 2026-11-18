@@ -97,7 +97,10 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 	}
 
 	rev, err := l.log.Append(ctx, createEvent)
-	if rev == 0 || err != nil {
+	if err != nil {
+		return 0, server.NewErrSQLInsertFailed(err)
+	}
+	if rev == 0 {
 		rev, event, err := l.get(ctx, key, 0, true, true)
 		if event == nil || err != nil {
 			return 0, err
@@ -107,7 +110,10 @@ func (l *LogStructured) Create(ctx context.Context, key string, value []byte, le
 		}
 		createEvent.PrevKV.ModRevision = event.KV.ModRevision
 		rev, err = l.log.Append(ctx, createEvent)
-		if rev == 0 || err != nil {
+		if err != nil {
+			return 0, server.NewErrSQLInsertFailed(err)
+		}
+		if rev == 0 {
 			return 0, server.ErrKeyExists
 		}
 	}
@@ -127,7 +133,10 @@ func (l *LogStructured) Delete(ctx context.Context, key string, revision int64) 
 	}
 
 	rev, err := l.log.Append(ctx, deleteEvent)
-	if rev == 0 || err != nil {
+	if err != nil {
+		return 0, nil, false, server.NewErrSQLInsertFailed(err)
+	}
+	if rev == 0 {
 		rev, event, err := l.get(ctx, key, 0, true, false)
 		if err != nil {
 			return 0, nil, false, err
@@ -191,7 +200,10 @@ func (l *LogStructured) Update(ctx context.Context, key string, value []byte, re
 	}
 
 	rev, err := l.log.Append(ctx, updateEvent)
-	if rev == 0 || err != nil {
+	if err != nil {
+		return 0, nil, false, server.NewErrSQLInsertFailed(err)
+	}
+	if rev == 0 {
 		rev, event, err := l.get(ctx, key, 0, false, false)
 		if event == nil || err != nil {
 			return rev, nil, false, err
