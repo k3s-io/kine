@@ -40,13 +40,13 @@ var (
 		SELECT * FROM ckv, fkv ORDER BY name ASC
 		`
 	insertSQL = `
-		INSERT INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+		INSERT %s INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 		WITH
 		op AS (SELECT CAST(? AS %s) AS bits),
 		ikv AS (SELECT id, deleted, create_revision, value FROM kine WHERE id = ?)
 		SELECT ?, ?, ?, (SELECT COALESCE(NULLIF(create_revision, 0), id) FROM ikv WHERE deleted = 0), ?, ?, ?, (SELECT value FROM ikv WHERE deleted = 0)
 		WHERE COALESCE((SELECT MAX(id) FROM kine WHERE name = ?), 0) = ?
-		  AND (SELECT CASE WHEN COALESCE((SELECT deleted FROM ikv), 1) = 1 THEN (SELECT bits = 2 FROM op) ELSE (SELECT bits < 2 FROM op) END)
+		  AND (SELECT CASE WHEN COALESCE((SELECT deleted FROM ikv), 1) = 1 THEN (SELECT bits = 2 FROM op) ELSE (SELECT bits < 2 FROM op) END) %s
 		`
 	CurrentRevSQL  = `SELECT MAX(id) AS current_rev FROM kine`
 	CompactRevSQL  = `SELECT MAX(prev_revision) AS compact_rev FROM kine WHERE name = 'compact_rev_key'`
@@ -147,11 +147,15 @@ func openAndTest(connector driver.Connector) (*sql.DB, error) {
 	return db, nil
 }
 
-func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connector driver.Connector, connPoolConfig ConnectionPoolConfig, integerType, paramCharacter string, numbered bool, metricsRegisterer prometheus.Registerer) (*Generic, error) {
+func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connector driver.Connector, connPoolConfig ConnectionPoolConfig, opts query.Options, metricsRegisterer prometheus.Registerer) (*Generic, error) {
 	var (
 		db  *sql.DB
 		err error
 	)
+
+	if opts.IntegerType == "" || opts.ParamCharacter == "" {
+		return nil, errors.New("invalid driver-specific query options")
+	}
 
 	for range 300 {
 		db, err = openAndTest(connector)
@@ -187,25 +191,21 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		metricsRegisterer.MustRegister(collectors.NewDBStatsCollector(db, "kine"))
 	}
 
-	if integerType == "" {
-		integerType = "INTEGER"
-	}
-
 	return &Generic{
 		DB: db,
 
-		AllCurrentSQL:           query.New(fmt.Sprintf(allSQL, ""), paramCharacter, numbered, "AllCurrent"),
-		AllCurrentValSQL:        query.New(fmt.Sprintf(allValSQL, ""), paramCharacter, numbered, "AllCurrentVal"),
-		ListCurrentSQL:          query.New(fmt.Sprintf(listSQL, ""), paramCharacter, numbered, "ListCurrent"),
-		ListCurrentValSQL:       query.New(fmt.Sprintf(listValSQL, ""), paramCharacter, numbered, "ListCurrentVal"),
-		ListRevisionStartSQL:    query.New(fmt.Sprintf(getSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStart"),
-		ListRevisionStartValSQL: query.New(fmt.Sprintf(getValSQL, "AND id <= ?"), paramCharacter, numbered, "ListRevisionStartVal"),
-		GetRevisionAfterSQL:     query.New(fmt.Sprintf(listSQL, "AND id <= ?"), paramCharacter, numbered, "GetRevisionAfter"),
-		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), paramCharacter, numbered, "GetRevisionAfterVal"),
-		CurrentRevSQL:           query.New(CurrentRevSQL, paramCharacter, numbered, "CurrentRev"),
-		CompactRevSQL:           query.New(CompactRevSQL, paramCharacter, numbered, "CompactRev"),
-		InsertSQL:               query.New(fmt.Sprintf(insertSQL, integerType), paramCharacter, numbered, "Insert"),
-		InsertReturningSQL:      query.New(fmt.Sprintf(insertSQL, integerType)+" RETURNING id", paramCharacter, numbered, "InsertReturning"),
+		AllCurrentSQL:           query.New(fmt.Sprintf(allSQL, ""), opts, "AllCurrent"),
+		AllCurrentValSQL:        query.New(fmt.Sprintf(allValSQL, ""), opts, "AllCurrentVal"),
+		ListCurrentSQL:          query.New(fmt.Sprintf(listSQL, ""), opts, "ListCurrent"),
+		ListCurrentValSQL:       query.New(fmt.Sprintf(listValSQL, ""), opts, "ListCurrentVal"),
+		ListRevisionStartSQL:    query.New(fmt.Sprintf(getSQL, "AND id <= ?"), opts, "ListRevisionStart"),
+		ListRevisionStartValSQL: query.New(fmt.Sprintf(getValSQL, "AND id <= ?"), opts, "ListRevisionStartVal"),
+		GetRevisionAfterSQL:     query.New(fmt.Sprintf(listSQL, "AND id <= ?"), opts, "GetRevisionAfter"),
+		GetRevisionAfterValSQL:  query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), opts, "GetRevisionAfterVal"),
+		CurrentRevSQL:           query.New(CurrentRevSQL, opts, "CurrentRev"),
+		CompactRevSQL:           query.New(CompactRevSQL, opts, "CompactRev"),
+		InsertSQL:               query.New(fmt.Sprintf(insertSQL, opts.ConflictPre, opts.IntegerType, opts.ConflictPost), opts, "Insert"),
+		InsertReturningSQL:      query.New(fmt.Sprintf(insertSQL, opts.ConflictPre, opts.IntegerType, opts.ConflictPost)+" RETURNING id", opts, "InsertReturning"),
 
 		GetSingleSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -214,7 +214,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			mkv AS (SELECT %s FROM kine WHERE id = (SELECT * FROM ikv) AND (deleted = 0 OR ?)),
 			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
 			SELECT * FROM ckv, fkv`,
-			fmt.Sprintf(EqualsNameSQL, ""), CurrentRevSQL, CompactRevSQL, Columns, Nulls(Columns)), paramCharacter, numbered, "GetSingle"),
+			fmt.Sprintf(EqualsNameSQL, ""), CurrentRevSQL, CompactRevSQL, Columns, Nulls(Columns)), opts, "GetSingle"),
 
 		GetSingleValSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -223,35 +223,35 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			mkv AS (SELECT %s FROM kine WHERE id = (SELECT * FROM ikv) AND (deleted = 0 OR ?)),
 			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
 			SELECT * FROM ckv, fkv`,
-			fmt.Sprintf(EqualsNameSQL, ""), CurrentRevSQL, CompactRevSQL, WithVal, Nulls(WithVal)), paramCharacter, numbered, "GetSingleVal"),
+			fmt.Sprintf(EqualsNameSQL, ""), CurrentRevSQL, CompactRevSQL, WithVal, Nulls(WithVal)), opts, "GetSingleVal"),
 
 		CountAllCurrentSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
-			CurrentRevSQL, fmt.Sprintf(AnyNameSQL, "")), paramCharacter, numbered, "CountAllCurrent"),
+			CurrentRevSQL, fmt.Sprintf(AnyNameSQL, "")), opts, "CountAllCurrent"),
 
 		CountCurrentSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
-			CurrentRevSQL, fmt.Sprintf(BetweenNameSQL, "")), paramCharacter, numbered, "CountCurrent"),
+			CurrentRevSQL, fmt.Sprintf(BetweenNameSQL, "")), opts, "CountCurrent"),
 
 		CountAllRevisionSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
-			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(AnyNameSQL, "WHERE id <= ?")), paramCharacter, numbered, "CountAllRevision"),
+			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(AnyNameSQL, "WHERE id <= ?")), opts, "CountAllRevision"),
 
 		CountRevisionSQL: query.New(fmt.Sprintf(`
 			SELECT (%s), (%s), COUNT(id)
 			FROM kine
 			INNER JOIN (%s) AS mkv USING (id)
 			WHERE (deleted = 0 OR ?)`,
-			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(BetweenNameSQL, "AND id <= ?")), paramCharacter, numbered, "CountRevision"),
+			CurrentRevSQL, CompactRevSQL, fmt.Sprintf(BetweenNameSQL, "AND id <= ?")), opts, "CountRevision"),
 
 		AfterOldValSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -259,7 +259,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			mkv AS (SELECT %s FROM kine WHERE name >= ? AND name < ? AND id > ?),
 			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
 			SELECT * FROM ckv, fkv ORDER BY id ASC`,
-			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), paramCharacter, numbered, "AfterOldVal"),
+			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), opts, "AfterOldVal"),
 
 		AfterAllOldValSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -267,7 +267,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			mkv AS (SELECT %s FROM kine WHERE id > ?),
 			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
 			SELECT * FROM ckv, fkv ORDER BY id ASC`,
-			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), paramCharacter, numbered, "AfterAllOldVal"),
+			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), opts, "AfterAllOldVal"),
 
 		AfterSingleOldValSQL: query.New(fmt.Sprintf(`
 			WITH
@@ -275,23 +275,23 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			mkv AS (SELECT %s FROM kine WHERE name = ? AND id > ?),
 			fkv AS (SELECT * FROM mkv UNION ALL SELECT %s WHERE NOT EXISTS (SELECT * FROM mkv))
 			SELECT * FROM ckv, fkv ORDER BY id ASC`,
-			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), paramCharacter, numbered, "AfterSingleOldVal"),
+			CurrentRevSQL, CompactRevSQL, WithOldVal, Nulls(WithOldVal)), opts, "AfterSingleOldVal"),
 
 		DeleteSQL: query.New(`
 			DELETE FROM kine
 			WHERE id = ?`,
-			paramCharacter, numbered, "Delete"),
+			opts, "Delete"),
 
 		UpdateCompactSQL: query.New(`
 			UPDATE kine
 			SET prev_revision = ?
 			WHERE name = 'compact_rev_key'`,
-			paramCharacter, numbered, "UpdateCompact"),
+			opts, "UpdateCompact"),
 
-		FillSQL: query.New(`
-			INSERT INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			paramCharacter, numbered, "Fill"),
+		FillSQL: query.New(fmt.Sprintf(`
+			INSERT %s INTO kine(id, name, created, deleted, create_revision, prev_revision, lease, value, old_value)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) %s`, opts.ConflictPre, opts.ConflictPost),
+			opts, "Fill"),
 	}, err
 }
 

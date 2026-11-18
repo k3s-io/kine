@@ -83,7 +83,12 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 		return nil, nil, err
 	}
 
-	dialect, err := generic.OpenDB(ctx, wg, driverName, connector, cfg.ConnectionPoolConfig, "INTEGER", "?", false, cfg.MetricsRegisterer)
+	opts := query.Options{
+		ParamCharacter: "?",
+		IntegerType:    "INTEGER",
+		ConflictPost:   "ON CONFLICT DO NOTHING",
+	}
+	dialect, err := generic.OpenDB(ctx, wg, driverName, connector, cfg.ConnectionPoolConfig, opts, cfg.MetricsRegisterer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -92,7 +97,7 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 	dialect.GetSizeSQL = query.New(`
 		SELECT (page_count - freelist_count) * page_size
 		FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()`,
-		"?", false, "GetSize")
+		opts, "GetSize")
 	dialect.CompactSQL = query.New(`
 		DELETE FROM kine AS kv
 		WHERE kv.id IN (
@@ -110,11 +115,11 @@ func NewVariant(ctx context.Context, wg *sync.WaitGroup, driverName string, cfg 
 					kd.deleted != 0 AND
 					kd.id > ? AND
 					kd.id <= ?)`,
-		"?", false, "Compact")
+		opts, "Compact")
 	if noCompactCheckpoint {
 		logrus.Infof("WAL checkpoint on compact is disabled")
 	} else {
-		dialect.PostCompactSQL = postCompact()
+		dialect.PostCompactSQL = query.New(`PRAGMA wal_checkpoint(FULL)`, opts, "PostCompactSQL")
 	}
 	dialect.TranslateErr = translateErr
 	dialect.ErrCode = errCode
@@ -185,10 +190,6 @@ func init() {
 	drivers.Register("sqlite", New)
 	drivers.Register("litestream", NewWithLitestream)
 	drivers.SetDefault("sqlite")
-}
-
-func postCompact() *query.Named {
-	return query.New(`PRAGMA wal_checkpoint(FULL)`, "?", false, "PostCompactSQL")
 }
 
 // sqliteConnector wraps SQLiteDriver and a DSN with methods to satisfy the driver.Connector interface
