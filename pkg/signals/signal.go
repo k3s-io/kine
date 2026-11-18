@@ -17,6 +17,8 @@ import (
 	"context"
 	"os"
 	"os/signal"
+
+	"github.com/sirupsen/logrus"
 )
 
 var onlyOneSignalHandler = make(chan struct{})
@@ -43,6 +45,7 @@ func SetupSignalContext() context.Context {
 	signal.Notify(shutdownHandler, shutdownSignals...)
 	go func() {
 		<-shutdownHandler
+		logrus.Info("Shutting down...")
 		cancel()
 		<-shutdownHandler
 		//revive:disable-next-line:deep-exit
