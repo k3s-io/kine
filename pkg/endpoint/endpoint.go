@@ -66,12 +66,28 @@ type ETCDConfig struct {
 }
 
 func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
-	wg := waitGroup(config)
+	var (
+		err        error
+		grpcServer *grpc.Server
+	)
+
+	wg := getOrCreateWaitGroup(config)
 	bctx, bcancel := context.WithCancel(context.Background())
 	defer func() {
 		if rerr != nil {
 			bcancel()
 		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		if grpcServer != nil {
+			logrus.Infof("Waiting up to %s for graceful shutdown of Kine GRPC server...", GracefulStopTimeout)
+			timer := time.AfterFunc(GracefulStopTimeout, grpcServer.Stop)
+			defer timer.Stop()
+			grpcServer.GracefulStop()
+		}
+		bcancel()
 	}()
 
 	leaderElect, backend, err := drivers.New(bctx, wg, &drivers.Config{
@@ -119,19 +135,10 @@ func Listen(ctx context.Context, config Config) (etcd ETCDConfig, rerr error) {
 		)
 	}
 
-	grpcServer, err := grpcServer(config)
+	grpcServer, err = getOrCreateGRPCServer(config)
 	if err != nil {
 		return ETCDConfig{}, fmt.Errorf("creating GRPC server: %w", err)
 	}
-
-	go func() {
-		<-ctx.Done()
-		logrus.Infof("Waiting up to %s for graceful shutdown of Kine GRPC server...", GracefulStopTimeout)
-		timer := time.AfterFunc(GracefulStopTimeout, grpcServer.Stop)
-		defer timer.Stop()
-		grpcServer.GracefulStop()
-		bcancel()
-	}()
 
 	if err := backend.Start(bctx); err != nil {
 		return ETCDConfig{}, fmt.Errorf("starting kine backend: %w", err)
@@ -227,17 +234,17 @@ func createListener(ctx context.Context, config Config) (ret net.Listener, rerr 
 	return lc.Listen(ctx, scheme, address)
 }
 
-// waitGroup returns either the provided WaitGroup, or creates a new one
-func waitGroup(config Config) *sync.WaitGroup {
+// getOrCreateWaitGroup returns either the provided WaitGroup, or creates a new one
+func getOrCreateWaitGroup(config Config) *sync.WaitGroup {
 	if config.WaitGroup != nil {
 		return config.WaitGroup
 	}
 	return &sync.WaitGroup{}
 }
 
-// grpcServer returns either a preconfigured GRPC server, or builds a new GRPC
+// getOrCreateGRPCServer returns either a preconfigured GRPC server, or builds a new GRPC
 // server using upstream keepalive defaults plus the local Server TLS configuration.
-func grpcServer(config Config) (*grpc.Server, error) {
+func getOrCreateGRPCServer(config Config) (*grpc.Server, error) {
 	if config.GRPCServer != nil {
 		return config.GRPCServer, nil
 	}
