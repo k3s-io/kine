@@ -33,7 +33,6 @@ type entry struct {
 	value          []byte
 	createRevision int64
 	version        int64
-	prevRevision   int64
 	lease          int64
 	created        bool
 	deleted        bool
@@ -61,6 +60,7 @@ type Memory struct {
 	mu              sync.RWMutex
 	currentRevision atomic.Int64
 	compactRevision int64
+	polledRevision  int64
 	broadcaster     broadcaster.Broadcaster
 	ctx             context.Context
 
@@ -175,19 +175,17 @@ func (m *Memory) atRevision(key string, revision int64) *entry {
 
 // logIndexAfter returns the index of the first log entry with revision > rev.
 // The log is dense and ordered, with m.log[0].revision == m.compactRevision+1,
-// so the index is just rev - m.compactRevision (clamped). For rev values at or
-// below m.compactRevision the result is 0; for rev at or above the highest
-// stored revision the result is len(m.log).
+// It is not an error to ask for a future revision, but the returned index will not be valid.
+// It is an error to ask for a revision below compactRevision.
 // Caller must hold m.mu (read or write).
-func (m *Memory) logIndexAfter(rev int64) int {
-	i := rev - m.compactRevision
-	if i < 0 {
-		i = 0
+func (m *Memory) logIndexAfter(rev int64) (int, error) {
+	if m.compactRevision != 0 {
+		rev -= m.compactRevision - 1
 	}
-	if i > int64(len(m.log)) {
-		i = int64(len(m.log))
+	if rev < 0 {
+		return 0, server.ErrCompacted
 	}
-	return int(i)
+	return int(rev), nil
 }
 
 // Get returns the current revision and the KeyValue for the given key.
@@ -212,18 +210,12 @@ func (m *Memory) Create(ctx context.Context, key string, value []byte, lease int
 	}
 
 	rev := m.nextRevision()
-	var prevRev int64
-	if latest != nil {
-		prevRev = latest.revision
-	}
-
 	m.appendEntry(&entry{
 		revision:       rev,
 		key:            key,
 		value:          value,
 		createRevision: rev,
 		version:        1,
-		prevRevision:   prevRev,
 		lease:          lease,
 		created:        true,
 	})
@@ -249,7 +241,6 @@ func (m *Memory) Update(ctx context.Context, key string, value []byte, revision,
 		value:          value,
 		createRevision: latest.createRevision,
 		version:        latest.version + 1,
-		prevRevision:   latest.revision,
 		lease:          lease,
 	}
 	m.appendEntry(e)
@@ -272,10 +263,8 @@ func (m *Memory) Delete(ctx context.Context, key string, revision int64) (int64,
 	m.appendEntry(&entry{
 		revision:       rev,
 		key:            key,
-		value:          latest.value,
 		createRevision: latest.createRevision,
 		version:        latest.version,
-		prevRevision:   latest.revision,
 		lease:          latest.lease,
 		deleted:        true,
 	})
@@ -485,23 +474,29 @@ func (m *Memory) startWatch() (chan server.EventBatch, error) {
 	events := make(chan server.EventBatch)
 	go func() {
 		defer close(events)
-		var batch server.EventBatch
 		for {
 			notifyCh := m.getNotifyCh()
-			batch, _ = m.after(m.ctx, batch.CurrentRev)
-
-			if batch.CurrentRev != 0 {
-				select {
-				case events <- batch:
-				case <-m.ctx.Done():
-					return
-				}
-			}
 
 			select {
 			case <-notifyCh:
 			case <-m.ctx.Done():
 				return
+			}
+
+			batch, err := m.after(m.ctx, m.polledRevision)
+
+			if err != nil {
+				logrus.Errorf("Failed to list latest changes: %v", err)
+				continue
+			}
+
+			if m.polledRevision != batch.CurrentRev {
+				m.polledRevision = batch.CurrentRev
+				select {
+				case events <- batch:
+				case <-m.ctx.Done():
+					return
+				}
 			}
 		}
 	}()
@@ -519,16 +514,19 @@ func (m *Memory) after(ctx context.Context, revision int64) (server.EventBatch, 
 		return batch, server.ErrCompacted
 	}
 
-	for i := m.logIndexAfter(revision); i < len(m.log); i++ {
+	for i, err := m.logIndexAfter(revision); i < len(m.log); i++ {
+		if err != nil {
+			return batch, err
+		}
 		e := m.log[i]
 		event := &server.Event{
 			Create: e.created,
 			Delete: e.deleted,
 			KV:     e.toKeyValue(),
 		}
-		// PrevKV should be nil if revision has been compacted; ref:
+		// PrevKV should be nil if key revision is below the compact boundary; ref:
 		// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
-		if e.prev != nil && e.prev.revision >= m.compactRevision {
+		if e.prev != nil {
 			event.PrevKV = e.prev.toKeyValue()
 		}
 		batch.Events = append(batch.Events, event)
@@ -573,10 +571,6 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 		case floorIdx < 0:
 			// No entry at or below the compact boundary; keep everything.
 			newHist = hist
-		case hist[floorIdx].deleted:
-			// Floor is a tombstone — drop it and everything before; readers
-			// at the compact boundary correctly see the key as absent.
-			newHist = hist[floorIdx+1:]
 		default:
 			newHist = hist[floorIdx:]
 		}
@@ -586,7 +580,10 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 		} else if len(newHist) != len(hist) {
 			// The new first entry's predecessor is being dropped; clear the
 			// pointer so the dropped entry can be garbage collected.
-			newHist[0].prev = nil
+			if newHist[0].prev != nil {
+				newHist[0].prev = nil
+				newHist[0].created = !newHist[0].deleted
+			}
 			m.keys.Set(key, newHist)
 		}
 		return true
@@ -601,11 +598,14 @@ func (m *Memory) Compact(ctx context.Context, revision int64) (int64, error) {
 	// revision < the target and is no longer reachable via Watch.
 	// We know that revision must be > currentRevision and <= compactRevision,
 	// but guard against cutting out of bounds or removing all entries.
-	if cut := int(revision-m.compactRevision) - 1; cut > 0 {
+	idx, err := m.logIndexAfter(revision)
+	if err != nil {
+		return 0, err
+	}
+	if cut := idx - 1; cut > 0 && cut <= len(m.log) {
 		// use slices.Delete to bulk-zero deleted elements from the backing array for GC
 		m.log = slices.Delete(m.log, 0, cut)
+		m.compactRevision = revision
 	}
-
-	m.compactRevision = revision
 	return rev, nil
 }
