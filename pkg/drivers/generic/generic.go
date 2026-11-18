@@ -382,7 +382,7 @@ func (d *Generic) SetCompactRevision(ctx context.Context, revision int64) error 
 
 func (d *Generic) Compact(ctx context.Context, from, to int64) (int64, error) {
 	logrus.Tracef("COMPACT %v => %v", from, to)
-	res, err := d.execute(ctx, d.CompactSQL, from, to, from, to)
+	res, err := d.execute(ctx, d.CompactSQL, from, to, from, to-1)
 	if err != nil {
 		return 0, err
 	}

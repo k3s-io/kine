@@ -578,10 +578,10 @@ func (b *Backend) startWatch() (chan server.EventBatch, error) {
 					KV:     nd.KV,
 				}
 
-				// PrevKV should be nil if revision has been compacted; ref:
+				// PrevKV should be nil if key revision is below the compact boundary; ref:
 				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
-				if nd.PrevRevision > b.kv.compactRev.Load() {
-					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
+				if nd.KV.ModRevision-1 >= b.kv.compactRev.Load() {
+					_, pnd, err := b.get(b.ctx, key, nd.KV.ModRevision-1, false, false)
 					if err == nil && pnd != nil {
 						event.PrevKV = pnd.KV
 					}
@@ -634,10 +634,10 @@ func (b *Backend) after(ctx context.Context, revision int64) (server.EventBatch,
 					KV:     nd.KV,
 				}
 
-				// PrevKV should be nil if revision has been compacted; ref:
+				// PrevKV should be nil if key revision is below the compact boundary; ref:
 				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
-				if nd.PrevRevision > compactRev {
-					_, pnd, err := b.get(b.ctx, key, nd.PrevRevision, false, false)
+				if nd.KV.ModRevision-1 >= compactRev {
+					_, pnd, err := b.get(b.ctx, key, nd.KV.ModRevision-1, false, false)
 					if err == nil && pnd != nil {
 						event.PrevKV = pnd.KV
 					}

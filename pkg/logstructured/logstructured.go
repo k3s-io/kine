@@ -243,12 +243,20 @@ func (l *LogStructured) Watch(ctx context.Context, revision int64) server.WatchR
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			if err == server.ErrCompacted {
-				wr.CompactRevision, _ = l.log.CompactRevision(ctx)
+				compact, _ := l.log.CompactRevision(ctx)
+				if compact == revision+1 {
+					// ignore ErrCompact if it was caused by decrementing the revision above
+					err = nil
+				} else {
+					wr.CompactRevision = compact
+				}
 			} else {
 				errc <- err
 			}
 		}
-		cancel()
+		if err != nil {
+			cancel()
+		}
 	}
 
 	result <- batch
