@@ -356,14 +356,6 @@ func (s *SQLLog) After(ctx context.Context, key, end string, revision, limit int
 		return batch, err
 	}
 
-	// PrevKV should be nil if revision has been compacted; ref:
-	// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
-	for _, event := range batch.Events {
-		if event.PrevKV != nil && event.PrevKV.ModRevision < compact {
-			event.PrevKV = nil
-		}
-	}
-
 	return batch, nil
 }
 
@@ -495,6 +487,7 @@ func RowsToEvents(rows *sql.Rows, val, prev bool) (server.EventBatch, int64, err
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return batch, 0, err
 		}
+
 		if event != nil {
 			batch.Events = append(batch.Events, event)
 		}
@@ -842,7 +835,9 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.E
 
 		if event.Create {
 			event.KV.CreateRevision = r.id.Int64
-		} else {
+		} else if event.KV.ModRevision-1 >= *compact {
+			// PrevKV should be nil if key revision is below the compact boundary; ref:
+			// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
 			event.PrevKV = &server.KeyValue{
 				Key:            r.name.String,
 				Value:          r.oldValue,

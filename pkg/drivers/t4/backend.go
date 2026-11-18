@@ -371,9 +371,9 @@ func (b *backend) after(ctx context.Context, revision int64) (kserver.EventBatch
 		select {
 		case ev, ok := <-ch:
 			if ok {
-				// PrevKV should be nil if revision has been compacted; ref:
+				// PrevKV should be nil if key revision is below the compact boundary; ref:
 				// https://github.com/kubernetes/kubernetes/blob/v1.37.0/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go#L66-L67
-				if ev.PrevKV != nil && ev.PrevKV.Version < compactRev {
+				if ev.Revision-1 < compactRev {
 					ev.PrevKV = nil
 				}
 				batch.Events = append(batch.Events, toServerEvent(&ev))
