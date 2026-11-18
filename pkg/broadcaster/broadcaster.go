@@ -20,7 +20,11 @@ func (b *Broadcaster) Watch(ctx context.Context, connect ConnectFunc) <-chan ser
 	eventCh, err := b.subscribe(ctx, connect)
 	if err != nil {
 		logrus.Errorf("Failed to subscribe to broadcaster: %v", err)
-		return nil
+		// Return a closed channel rather than nil so that callers ranging over
+		// it end the watch instead of blocking forever.
+		closed := make(chan server.EventBatch)
+		close(closed)
+		return closed
 	}
 	return eventCh
 }
