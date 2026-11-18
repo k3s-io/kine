@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	ErrNotSupported = status.New(codes.InvalidArgument, "etcdserver: unsupported operations in txn request").Err()
-	ErrInvalidWatch = status.New(codes.InvalidArgument, "etcdserver: unsupported options in watch request").Err()
+	ErrNotSupported = status.Error(codes.InvalidArgument, "etcdserver: unsupported operations in txn request")
+	ErrInvalidWatch = status.Error(codes.InvalidArgument, "etcdserver: unsupported options in watch request")
 
 	ErrKeyExists     = rpctypes.ErrGRPCDuplicateKey
 	ErrCompacted     = rpctypes.ErrGRPCCompacted
@@ -21,6 +21,10 @@ var (
 	ErrNoLeader      = rpctypes.ErrGRPCNoLeader
 	ErrGRPCUnhealthy = rpctypes.ErrGRPCUnhealthy
 )
+
+func NewErrSQLInsertFailed(err error) error {
+	return status.Error(codes.Unavailable, "etcdserver: failed to insert row: "+err.Error())
+}
 
 const (
 	HealthKey = `/registry/health`
