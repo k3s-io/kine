@@ -157,19 +157,33 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (in
 	// run against a database where compaction has stalled (see rancher/k3s#1311) it may take a long time
 	// (several hundred ms) just for the database to execute the subquery to select the revisions to delete.
 
-	resultLabel := metrics.ResultSuccess
-	iterStart := time.Now()
-	compactedRev := compactRev
-	iterCount := 0
-	var err error
-	for compactedRev < targetCompactRev {
-		batchTarget := compactedRev + min(s.compactBatchSize, targetCompactRev-compactedRev)
-		compactedRev, err = s.compactRetry(compactedRev, batchTarget, currentRev)
+	var (
+		resultLabel    string
+		iterCompactRev int64
+		iterStart      time.Time
+		iterCount      int64
+		compactedRev   int64
+		err            error
+	)
+
+	resultLabel = metrics.ResultSuccess
+	iterCompactRev = compactRev
+	compactedRev = compactRev
+	iterStart = time.Now()
+	iterCount = 0
+
+	for iterCompactRev < targetCompactRev {
+		// Set move iteration target compactBatchSize revisions forward, or
+		// just as far as we need to hit the compaction target if that would
+		// overshoot it.
+		iterCompactRev += min(s.compactBatchSize, targetCompactRev-iterCompactRev)
+
+		compactedRev, err = s.compactRetry(compactedRev, iterCompactRev, currentRev)
 		if err != nil {
 			break
 		}
 		iterCount++
-		if compactedRev < batchTarget {
+		if compactedRev < iterCompactRev {
 			// The retention window limited the last batch.
 			break
 		}
