@@ -269,11 +269,9 @@ func (s *SQLLog) compact(compactRev, targetCompactRev, currentRev int64) (int64,
 		return compactRev, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
 
-	// A serialization failure can first surface at commit. Return it to
-	// compactRetry so the marker check and deletes run in a fresh transaction.
-	if err := t.Commit(); err != nil {
-		return compactRev, fmt.Errorf("failed to commit compaction: %w", err)
-	}
+	// Two compactors can read the same marker and race to advance it.
+	// A serialization failure at commit is fatal here.
+	t.MustCommit()
 	logrus.Infof("COMPACT deleted %d rows from %d revisions in %s - compacted to %d/%d", deletedRows, (targetCompactRev - compactRev), time.Since(start), targetCompactRev, currentRev)
 
 	return targetCompactRev, nil
