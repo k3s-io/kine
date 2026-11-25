@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -106,6 +107,11 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
+	// MAX(id) reads the end of the index, where writers append. On CockroachDB,
+	// an append there can force a serializable compaction transaction to retry.
+	// Scan forward from the retention threshold so a batch far behind the head
+	// can stop at the first qualifying revision.
+	dialect.RevisionAtLeastSQL = query.New("SELECT id FROM kine WHERE id >= ? ORDER BY id ASC LIMIT 1", opts, "RevisionAtLeast")
 	dialect.GetSizeSQL = query.New(`SELECT pg_total_relation_size('kine')`, opts, "GetSize")
 	dialect.CompactSQL = query.New(`
 		DELETE FROM kine AS kv
@@ -132,6 +138,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	dialect.GetRevisionAfterSQL = query.New(fmt.Sprintf(listSQL, "AND id <= ?"), opts, "GetRevisionAfter")
 	dialect.GetRevisionAfterValSQL = query.New(fmt.Sprintf(listValSQL, "AND id <= ?"), opts, "GetRevisionAfterVal")
 	dialect.FillRetryDuration = time.Millisecond + 5
+	dialect.TxRetry = isSerializationFailure
 	dialect.InsertRetry = func(err error) bool {
 		if err, ok := err.(*pgconn.PgError); ok && err.Code == pgerrcode.UniqueViolation && err.ConstraintName == "kine_pkey" {
 			return true
@@ -165,6 +172,11 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 	}
 
 	return true, logstructured.New(sqllog.New(dialect, wg, cfg)), nil
+}
+
+func isSerializationFailure(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgerrcode.SerializationFailure
 }
 
 func setup(db *sql.DB) error {

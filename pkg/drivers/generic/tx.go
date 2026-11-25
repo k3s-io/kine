@@ -3,6 +3,7 @@ package generic
 import (
 	"context"
 	"database/sql"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -91,6 +92,29 @@ func (t *Tx) DeleteRevision(ctx context.Context, revision int64) error {
 	logrus.Tracef("TX DELETEREVISION %v", revision)
 	_, err := t.execute(ctx, t.d.DeleteSQL, revision)
 	return err
+}
+
+// CompactTarget caps target at the highest revision allowed by retention.
+func (t *Tx) CompactTarget(ctx context.Context, target, retain int64) (int64, error) {
+	if t.d.RevisionAtLeastSQL != nil && retain >= 0 && target <= math.MaxInt64-retain {
+		// Any id >= target+retain proves head-retain >= target, even if
+		// the revision at the threshold itself has been deleted.
+		var witness int64
+		err := t.queryRow(ctx, t.d.RevisionAtLeastSQL, target+retain).Scan(&witness)
+		switch err {
+		case nil:
+			return target, nil
+		case sql.ErrNoRows:
+			// Near the head, use the exact revision to size the final batch.
+		default:
+			return 0, err
+		}
+	}
+	head, err := t.CurrentRevision(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return max(0, min(target, head-retain)), nil
 }
 
 func (t *Tx) CurrentRevision(ctx context.Context) (int64, error) {
