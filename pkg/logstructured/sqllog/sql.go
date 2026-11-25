@@ -181,8 +181,12 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (in
 			iterCompactRev = targetCompactRev
 		}
 
-		compactedRev, err = s.compactRetry(compactedRev, iterCompactRev, currentRev)
-		if err != nil {
+		compacted, cerr := s.compactRetry(compactedRev, iterCompactRev, currentRev)
+		if cerr == nil || cerr == server.ErrCompacted {
+			compactedRev = compacted
+		}
+		if cerr != nil {
+			err = cerr
 			break
 		}
 		iterCount++
@@ -233,8 +237,8 @@ func (s *SQLLog) compactRetry(compactRev, targetCompactRev, currentRev int64) (c
 // If compactRev does not match what's in the database, we know that someone else has compacted and we don't need to do it.
 // Deletion of rows and update of the compact rev key is done within a single transaction. The transaction is rolled back on any error.
 //
-// Return the last known compact revision on failure so a partially completed
-// pass can resume from the most recent successful batch.
+// On ErrCompacted, the returned revision is the database's compact revision.
+// On any other error, the returned revision is zero.
 //
 // This logic is cribbed from k8s.io/apiserver/pkg/storage/etcd3/compact.go
 func (s *SQLLog) compact(compactRev, targetCompactRev, currentRev int64) (int64, error) {
@@ -243,13 +247,13 @@ func (s *SQLLog) compact(compactRev, targetCompactRev, currentRev int64) (int64,
 
 	t, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return compactRev, fmt.Errorf("failed to begin transaction: %w", err)
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer t.MustRollback()
 
 	dbCompactRev, err := t.GetCompactRevision(ctx)
 	if err != nil {
-		return compactRev, fmt.Errorf("failed to get compact revision: %w", err)
+		return 0, fmt.Errorf("failed to get compact revision: %w", err)
 	}
 
 	// Check to see if another node already compacted. This is normal on a multi-server cluster.
@@ -277,13 +281,13 @@ func (s *SQLLog) compact(compactRev, targetCompactRev, currentRev int64) (int64,
 	// succeed within the time limit, but SetCompactRevision occurs too late, and
 	// the work is wasted.
 	if err := t.SetCompactRevision(ctx, targetCompactRev); err != nil {
-		return compactRev, fmt.Errorf("failed to record compact revision: %w", err)
+		return 0, fmt.Errorf("failed to record compact revision: %w", err)
 	}
 
 	// compact revisions from old compact revision to new target
 	deletedRows, err := t.Compact(ctx, compactRev, targetCompactRev)
 	if err != nil {
-		return compactRev, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
+		return 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
 
 	// Two compactors can read the same marker and race to advance it.
