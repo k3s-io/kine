@@ -31,9 +31,6 @@ import (
 
 const (
 	defaultDSN = "postgres://postgres:postgres@localhost/"
-	// Startup repair can delete a duplicate compact marker, even when it
-	// has the highest id. Only use committed event revisions as a bound.
-	compactionHeadSQL = "SELECT COALESCE(MAX(id), 0) FROM kine WHERE name != 'compact_rev_key'"
 )
 
 var (
@@ -169,13 +166,7 @@ func New(ctx context.Context, wg *sync.WaitGroup, cfg *drivers.Config) (bool, se
 		return false, nil, err
 	}
 
-	sqlLog := sqllog.New(dialect, wg, cfg)
-	sqlLog.ReadCompactionHead = func(ctx context.Context) (int64, error) {
-		var head int64
-		err := dialect.DB.QueryRowContext(ctx, compactionHeadSQL).Scan(&head)
-		return head, err
-	}
-	return true, logstructured.New(sqlLog), nil
+	return true, logstructured.New(sqllog.New(dialect, wg, cfg)), nil
 }
 
 func isSerializationFailure(err error) bool {
