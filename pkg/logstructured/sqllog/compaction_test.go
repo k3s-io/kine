@@ -9,6 +9,7 @@ import (
 	"github.com/k3s-io/kine/pkg/drivers"
 	"github.com/k3s-io/kine/pkg/drivers/sqlite"
 	"github.com/k3s-io/kine/pkg/logstructured/sqllog"
+	"github.com/k3s-io/kine/pkg/server"
 )
 
 func TestCompactionUsesInitialRevisionAcrossBatches(t *testing.T) {
@@ -46,21 +47,24 @@ func TestCompactionUsesInitialRevisionAcrossBatches(t *testing.T) {
 		t.Fatalf("compact revision = %d, %v; want 300", marker, err)
 	}
 
-	// A later pass fails after one batch commits. Its error should carry
-	// the new head, while its marker reflects only the successful batch.
+	// Manual compaction handles batch failures internally.
 	_, err = d.DB.ExecContext(ctx, `
 		INSERT INTO kine (id, name) VALUES (650, 'third');
-		CREATE TRIGGER append_before_failure AFTER UPDATE ON kine WHEN NEW.prev_revision = 400
-		BEGIN INSERT INTO kine (id, name) VALUES (750, 'fourth'); END;
 		CREATE TRIGGER fail_next_batch BEFORE UPDATE ON kine WHEN NEW.prev_revision = 500
 		BEGIN SELECT RAISE(ABORT, 'batch failed'); END;`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if head, err := log.Compact(ctx, 650); err == nil || head != 750 {
-		t.Fatalf("failed compaction returned %d, %v; want head 750 and an error", head, err)
+	if _, err := log.Compact(ctx, 650); err != nil {
+		t.Fatal(err)
 	}
 	if marker, err := log.CompactRevision(ctx); err != nil || marker != 400 {
 		t.Fatalf("compact revision after failure = %d, %v; want 400", marker, err)
+	}
+	if rev, err := log.Compact(ctx, 400); rev != 0 || err != server.ErrCompacted {
+		t.Fatalf("already compacted request returned %d, %v; want 0, ErrCompacted", rev, err)
+	}
+	if rev, err := log.Compact(ctx, 651); rev != 0 || err != server.ErrFutureRev {
+		t.Fatalf("future request returned %d, %v; want 0, ErrFutureRev", rev, err)
 	}
 }

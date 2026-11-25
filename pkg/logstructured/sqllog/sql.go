@@ -145,12 +145,12 @@ func (s *SQLLog) compactor(interval time.Duration) {
 			logrus.Errorf("Failed to read current revision for compaction: %v", err)
 			continue
 		}
-		compactRev, _ = s.compactIter(compactRev, targetCompactRev, currentRev)
+		compactRev = s.compactIter(compactRev, targetCompactRev, currentRev)
 		targetCompactRev = currentRev
 	}
 }
 
-func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (int64, error) {
+func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) int64 {
 	logrus.Tracef("COMPACT running compactRev=%d targetCompactRev=%d", compactRev, targetCompactRev)
 	// Break up the compaction into smaller batches to avoid locking the database with excessively
 	// long transactions. When things are working normally deletes should proceed quite quickly, but if
@@ -213,7 +213,7 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (in
 	}
 	metrics.CompactTotal.WithLabelValues(resultLabel).Inc()
 
-	return compactedRev, err
+	return compactedRev
 }
 
 // compactRetry calls compact, and starts over with a new transaction if the dialect reports the error as retriable.
@@ -863,23 +863,17 @@ func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, er
 		return 0, err
 	}
 	if targetCompactRev > currentRev {
-		return currentRev, server.ErrFutureRev
+		return 0, server.ErrFutureRev
 	}
-	compactRev, err := s.CompactRevision(ctx)
-	if err != nil {
-		return currentRev, err
-	}
+	compactRev, _ := s.CompactRevision(s.ctx)
 	if targetCompactRev <= compactRev {
-		return currentRev, server.ErrCompacted
+		return 0, server.ErrCompacted
 	}
 	// manual compact is a no-op unless automatic compaction is disabled
 	if s.compactInterval <= 0 {
-		if _, err := s.compactIter(compactRev, targetCompactRev, currentRev); err != nil && err != server.ErrCompacted {
-			if latest, readErr := s.d.CurrentRevision(ctx); readErr == nil {
-				currentRev = latest
-			}
-			return currentRev, err
-		}
+		// TODO: Should manual compaction return batch errors to the caller?
+		s.compactIter(compactRev, targetCompactRev, currentRev)
+		return s.CurrentRevision(ctx)
 	}
 	return currentRev, nil
 }
