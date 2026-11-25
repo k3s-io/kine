@@ -30,31 +30,43 @@ func TestCompactionUsesInitialRevisionAcrossBatches(t *testing.T) {
 	if err := log.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
+	appendKey := func(key string) {
+		t.Helper()
+		if _, err := log.Append(ctx, &server.Event{Create: true, KV: &server.KeyValue{Key: key}}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Advance the head from 350 to 450 with the first batch. The remaining
 	// batches must still leave 50 revisions behind the original head.
 	_, err = d.DB.ExecContext(ctx, `
-		INSERT INTO kine (id, name) VALUES (350, 'first');
+		INSERT INTO kine (id, name) VALUES (349, 'seed');
 		CREATE TRIGGER append_during_compaction AFTER UPDATE ON kine
 		WHEN NEW.name = 'compact_rev_key' AND NEW.prev_revision = 100
 		BEGIN INSERT INTO kine (id, name) VALUES (450, 'second'); END;`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	appendKey("first") // Kine observes revision 350.
 	if _, err := log.Compact(ctx, 350); err != nil {
 		t.Fatal(err)
 	}
 	if marker, err := log.CompactRevision(ctx); err != nil || marker != 300 {
 		t.Fatalf("compact revision = %d, %v; want 300", marker, err)
 	}
+	// The database has revision 450, but this Kine process still sees 350.
+	if rev, err := log.Compact(ctx, 450); rev != 0 || err != server.ErrFutureRev {
+		t.Fatalf("request beyond cached revision returned %d, %v; want 0, ErrFutureRev", rev, err)
+	}
 
 	// Manual compaction handles batch failures internally.
 	_, err = d.DB.ExecContext(ctx, `
-		INSERT INTO kine (id, name) VALUES (650, 'third');
+		INSERT INTO kine (id, name) VALUES (649, 'later');
 		CREATE TRIGGER fail_next_batch BEFORE UPDATE ON kine WHEN NEW.prev_revision = 500
 		BEGIN SELECT RAISE(ABORT, 'batch failed'); END;`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	appendKey("third")
 	if _, err := log.Compact(ctx, 650); err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +75,5 @@ func TestCompactionUsesInitialRevisionAcrossBatches(t *testing.T) {
 	}
 	if rev, err := log.Compact(ctx, 400); rev != 0 || err != server.ErrCompacted {
 		t.Fatalf("already compacted request returned %d, %v; want 0, ErrCompacted", rev, err)
-	}
-	if rev, err := log.Compact(ctx, 651); rev != 0 || err != server.ErrFutureRev {
-		t.Fatalf("future request returned %d, %v; want 0, ErrFutureRev", rev, err)
 	}
 }

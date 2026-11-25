@@ -140,7 +140,7 @@ func (s *SQLLog) compactor(interval time.Duration) {
 			return
 		case <-t.C:
 		}
-		currentRev, err := s.d.CurrentRevision(s.ctx)
+		currentRev, err := s.CurrentRevision(s.ctx)
 		if err != nil {
 			logrus.Errorf("Failed to read current revision for compaction: %v", err)
 			continue
@@ -858,7 +858,7 @@ func (s *SQLLog) DbSize(ctx context.Context) (int64, error) {
 }
 
 func (s *SQLLog) Compact(ctx context.Context, targetCompactRev int64) (int64, error) {
-	currentRev, err := s.d.CurrentRevision(ctx)
+	currentRev, err := s.CurrentRevision(ctx)
 	if err != nil {
 		return 0, err
 	}
