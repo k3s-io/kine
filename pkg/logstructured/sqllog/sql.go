@@ -182,7 +182,7 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) int
 		}
 
 		compacted, cerr := s.compactRetry(compactedRev, iterCompactRev, currentRev)
-		if cerr == nil || cerr == server.ErrCompacted {
+		if compacted != 0 && currentRev != 0 {
 			compactedRev = compacted
 		}
 		if cerr != nil {
@@ -290,7 +290,9 @@ func (s *SQLLog) compact(compactRev, targetCompactRev, currentRev int64) (int64,
 		return 0, fmt.Errorf("failed to compact to revision %d: %w", targetCompactRev, err)
 	}
 
-	// Two compactors can read the same marker and race to advance it.
+	// API servers coordinate through compact_rev_key_apiserver. Kine's handler
+	// treats a stale Update (updated=false, err=nil) as successful, so two API
+	// servers can both request compaction and race to advance the compact marker.
 	// A serialization failure at commit is fatal here.
 	t.MustCommit()
 	logrus.Infof("COMPACT deleted %d rows from %d revisions in %s - compacted to %d/%d", deletedRows, (targetCompactRev - compactRev), time.Since(start), targetCompactRev, currentRev)
