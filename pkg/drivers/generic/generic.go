@@ -98,7 +98,6 @@ type Generic struct {
 	AfterOldValSQL          *query.Named
 	AfterAllOldValSQL       *query.Named
 	AfterSingleOldValSQL    *query.Named
-	RevisionAtLeastSQL      *query.Named
 	CurrentRevSQL           *query.Named
 	CompactRevSQL           *query.Named
 	DeleteSQL               *query.Named

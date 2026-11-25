@@ -75,7 +75,6 @@ type Transaction interface {
 	MustCommit()
 	Rollback() error
 	MustRollback()
-	CompactTarget(ctx context.Context, target, retain int64) (int64, error)
 	GetCompactRevision(ctx context.Context) (int64, error)
 	SetCompactRevision(ctx context.Context, revision int64) error
 	Compact(ctx context.Context, from, to int64) (int64, error)
