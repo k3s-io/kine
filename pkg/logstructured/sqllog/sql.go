@@ -176,7 +176,10 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (in
 		// Set move iteration target compactBatchSize revisions forward, or
 		// just as far as we need to hit the compaction target if that would
 		// overshoot it.
-		iterCompactRev += min(s.compactBatchSize, targetCompactRev-iterCompactRev)
+		iterCompactRev += s.compactBatchSize
+		if iterCompactRev > targetCompactRev {
+			iterCompactRev = targetCompactRev
+		}
 
 		compactedRev, err = s.compactRetry(compactedRev, iterCompactRev, currentRev)
 		if err != nil {
