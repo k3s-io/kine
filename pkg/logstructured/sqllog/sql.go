@@ -145,12 +145,11 @@ func (s *SQLLog) compactor(interval time.Duration) {
 			logrus.Errorf("Failed to read current revision for compaction: %v", err)
 			continue
 		}
-		compactRev = s.compactIter(compactRev, targetCompactRev, currentRev)
-		targetCompactRev = currentRev
+		compactRev, targetCompactRev = s.compactIter(compactRev, targetCompactRev, currentRev)
 	}
 }
 
-func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) int64 {
+func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (int64, int64) {
 	logrus.Tracef("COMPACT running compactRev=%d targetCompactRev=%d", compactRev, targetCompactRev)
 	// Break up the compaction into smaller batches to avoid locking the database with excessively
 	// long transactions. When things are working normally deletes should proceed quite quickly, but if
@@ -190,10 +189,6 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) int
 			break
 		}
 		iterCount++
-		if compactedRev < iterCompactRev {
-			// The retention window limited the last batch.
-			break
-		}
 	}
 
 	if iterCount > 0 {
@@ -205,6 +200,15 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) int
 		}
 	}
 
+	// Only store the final results for this compact interval if the sampled current revision is valid.
+	//
+	// Note that one or more of the small-batch compact transactions may have
+	// succeeded and moved the compact revision forward, even if err is non-nil.
+	if currentRev > 0 {
+		compactRev = compactedRev
+		targetCompactRev = currentRev
+	}
+
 	// ErrCompacted indicates that no further work is necessary - either compactRev changed since the
 	// last iteration because another client has compacted, or the requested revision has already been compacted.
 	if err != nil && err != server.ErrCompacted {
@@ -213,7 +217,7 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) int
 	}
 	metrics.CompactTotal.WithLabelValues(resultLabel).Inc()
 
-	return compactedRev
+	return compactRev, targetCompactRev
 }
 
 // compactRetry calls compact, and starts over with a new transaction if the dialect reports the error as retriable.
