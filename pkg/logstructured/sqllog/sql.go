@@ -181,7 +181,7 @@ func (s *SQLLog) compactIter(compactRev, targetCompactRev, currentRev int64) (in
 		}
 
 		compacted, cerr := s.compactRetry(compactedRev, iterCompactRev, currentRev)
-		if compacted != 0 && currentRev != 0 {
+		if compacted != 0 {
 			compactedRev = compacted
 		}
 		if cerr != nil {
