@@ -33,5 +33,5 @@ VERSION_LIST="\
     cockroachdb v24.3"
 
 while read ENGINE VERSION; do
-    LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/$ENGINE/cockroach:latest-$VERSION DB_ARGS="start-single-node --insecure" run-test
+    (LABEL=$ENGINE-$VERSION DB_PASSWORD_ENV=POSTGRES_PASSWORD DB_IMAGE=docker.io/$ENGINE/cockroach:latest-$VERSION DB_ARGS="start-single-node --insecure" run-test)
 done <<< $VERSION_LIST

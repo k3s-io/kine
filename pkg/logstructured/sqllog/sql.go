@@ -781,12 +781,30 @@ type row struct {
 	lease          sql.NullInt64
 	value          []byte
 	oldValue       []byte
+	dests          [11]any
+}
+
+var rowPool = sync.Pool{
+	New: func() any {
+		r := new(row)
+		r.dests[0] = &r.currentRev
+		r.dests[1] = &r.compactRev
+		r.dests[2] = &r.id
+		r.dests[3] = &r.name
+		r.dests[4] = &r.created
+		r.dests[5] = &r.deleted
+		r.dests[6] = &r.createRevision
+		r.dests[7] = &r.prevRevision
+		r.dests[8] = &r.lease
+		r.dests[9] = &r.value
+		r.dests[10] = &r.oldValue
+		return r
+	},
 }
 
 // scan scans the current row's columns into a server.Event struct.
 // If a valid event is scanned, the passed rev and compact vars are also updated.
 func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.Event, error) {
-	r := row{}
 	colCount := 9
 	if val {
 		colCount++
@@ -794,25 +812,16 @@ func scan(rows *sql.Rows, rev *int64, compact *int64, val, prev bool) (*server.E
 			colCount++
 		}
 	}
-
-	dests := make([]any, colCount)
-	dests[0] = &r.currentRev
-	dests[1] = &r.compactRev
-	dests[2] = &r.id
-	dests[3] = &r.name
-	dests[4] = &r.created
-	dests[5] = &r.deleted
-	dests[6] = &r.createRevision
-	dests[7] = &r.prevRevision
-	dests[8] = &r.lease
-	if val {
-		dests[9] = &r.value
-		if prev {
-			dests[10] = &r.oldValue
-		}
+	r, ok := rowPool.Get().(*row)
+	if !ok {
+		return nil, errors.New("failed to get row from pool")
 	}
-
-	err := rows.Scan(dests...)
+	defer func() {
+		r.value = nil
+		r.oldValue = nil
+		rowPool.Put(r)
+	}()
+	err := rows.Scan(r.dests[:colCount]...)
 	if err != nil {
 		return nil, err
 	}
