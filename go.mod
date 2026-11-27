@@ -20,10 +20,10 @@ require (
 	github.com/t4db/t4 v1.1.16
 	github.com/tidwall/btree v1.8.2
 	github.com/urfave/cli/v2 v2.27.7
-	go.etcd.io/etcd/api/v3 v3.7.3
-	go.etcd.io/etcd/client/pkg/v3 v3.7.3
-	go.etcd.io/etcd/client/v3 v3.7.3
-	go.etcd.io/etcd/server/v3 v3.7.3
+	go.etcd.io/etcd/api/v3 v3.7.4
+	go.etcd.io/etcd/client/pkg/v3 v3.7.4
+	go.etcd.io/etcd/client/v3 v3.7.4
+	go.etcd.io/etcd/server/v3 v3.7.4
 	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
@@ -125,7 +125,7 @@ require (
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
-	go.etcd.io/etcd/pkg/v3 v3.7.3 // indirect
+	go.etcd.io/etcd/pkg/v3 v3.7.4 // indirect
 	go.etcd.io/raft/v3 v3.7.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.71.0 // indirect
