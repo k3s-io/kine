@@ -285,7 +285,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 		UpdateCompactSQL: query.New(`
 			UPDATE kine
 			SET prev_revision = ?
-			WHERE name = 'compact_rev_key'`,
+			WHERE name = 'compact_rev_key' AND prev_revision = ?`,
 			opts, "UpdateCompact"),
 
 		FillSQL: query.New(fmt.Sprintf(`
@@ -372,12 +372,6 @@ func (d *Generic) GetCompactRevision(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 	return id, err
-}
-
-func (d *Generic) SetCompactRevision(ctx context.Context, revision int64) error {
-	logrus.Tracef("SETCOMPACTREVISION %v", revision)
-	_, err := d.execute(ctx, d.UpdateCompactSQL, revision)
-	return err
 }
 
 func (d *Generic) Compact(ctx context.Context, from, to int64) (int64, error) {

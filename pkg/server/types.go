@@ -58,7 +58,6 @@ type Dialect interface {
 	Insert(ctx context.Context, key string, created, deleted bool, previousRevision int64, ttl int64, value []byte) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
-	SetCompactRevision(ctx context.Context, revision int64) error
 	Compact(ctx context.Context, from, to int64) (int64, error)
 	PostCompact(ctx context.Context) error
 	Fill(ctx context.Context, revision int64) error
@@ -76,7 +75,9 @@ type Transaction interface {
 	Rollback() error
 	MustRollback()
 	GetCompactRevision(ctx context.Context) (int64, error)
-	SetCompactRevision(ctx context.Context, revision int64) error
+	// SetCompactRevision updates the marker only if it still equals expected.
+	// It returns true when the update succeeds.
+	SetCompactRevision(ctx context.Context, expected, target int64) (bool, error)
 	Compact(ctx context.Context, from, to int64) (int64, error)
 	Insert(ctx context.Context, key string, created, deleted bool, previousRevision int64, ttl int64, value []byte) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error
