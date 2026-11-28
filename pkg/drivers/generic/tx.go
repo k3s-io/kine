@@ -73,7 +73,7 @@ func (t *Tx) GetCompactRevision(ctx context.Context) (int64, error) {
 }
 
 func (t *Tx) SetCompactRevision(ctx context.Context, expected, target int64) (bool, error) {
-	result, err := t.execute(ctx, t.d.AdvanceCompactSQL, target, expected)
+	result, err := t.execute(ctx, t.d.UpdateCompactSQL, target, expected)
 	if err != nil {
 		return false, err
 	}

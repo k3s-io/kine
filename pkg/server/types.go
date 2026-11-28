@@ -58,7 +58,6 @@ type Dialect interface {
 	Insert(ctx context.Context, key string, created, deleted bool, previousRevision int64, ttl int64, value []byte) (int64, error)
 	DeleteRevision(ctx context.Context, revision int64) error
 	GetCompactRevision(ctx context.Context) (int64, error)
-	SetCompactRevision(ctx context.Context, revision int64) error
 	Compact(ctx context.Context, from, to int64) (int64, error)
 	PostCompact(ctx context.Context) error
 	Fill(ctx context.Context, revision int64) error
