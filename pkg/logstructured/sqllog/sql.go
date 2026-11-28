@@ -292,15 +292,15 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	// the work is wasted.
 	advanced, err := t.SetCompactRevision(ctx, compactRev, targetCompactRev)
 	if err != nil {
-		return 0, fmt.Errorf("failed to record compact revision: %w", err)
+		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
 	}
 
 	if !advanced {
-		current, err := t.GetCompactRevision(ctx)
+		latestCompactRev, err := t.GetCompactRevision(ctx)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
-		return current, server.ErrCompacted
+		return latestCompactRev, currentRev, server.ErrCompacted
 	}
 
 	// compact revisions from old compact revision to new target
