@@ -251,7 +251,7 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	ctx, cancel := context.WithTimeout(s.ctx, s.compactTimeout)
 	defer cancel()
 
-	t, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	t, err := s.d.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -290,8 +290,17 @@ func (s *SQLLog) compact(compactRev int64, targetCompactRev int64) (int64, int64
 	// out this will get rolled back. Otherwise it is possible for Compact to
 	// succeed within the time limit, but SetCompactRevision occurs too late, and
 	// the work is wasted.
-	if err := t.SetCompactRevision(ctx, targetCompactRev); err != nil {
-		return 0, 0, fmt.Errorf("failed to record compact revision: %w", err)
+	advanced, err := t.SetCompactRevision(ctx, compactRev, targetCompactRev)
+	if err != nil {
+		return 0, fmt.Errorf("failed to record compact revision: %w", err)
+	}
+
+	if !advanced {
+		current, err := t.GetCompactRevision(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return current, server.ErrCompacted
 	}
 
 	// compact revisions from old compact revision to new target

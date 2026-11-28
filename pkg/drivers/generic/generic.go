@@ -102,6 +102,7 @@ type Generic struct {
 	CompactRevSQL           *query.Named
 	DeleteSQL               *query.Named
 	CompactSQL              *query.Named
+	AdvanceCompactSQL       *query.Named
 	UpdateCompactSQL        *query.Named
 	PostCompactSQL          *query.Named
 	FillSQL                 *query.Named
@@ -282,6 +283,7 @@ func OpenDB(ctx context.Context, wg *sync.WaitGroup, driverName string, connecto
 			WHERE id = ?`,
 			opts, "Delete"),
 
+		AdvanceCompactSQL: query.New(`UPDATE kine SET prev_revision = ? WHERE name = 'compact_rev_key' AND prev_revision = ?`, opts, "AdvanceCompact"),
 		UpdateCompactSQL: query.New(`
 			UPDATE kine
 			SET prev_revision = ?
