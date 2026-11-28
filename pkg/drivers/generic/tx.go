@@ -72,7 +72,7 @@ func (t *Tx) GetCompactRevision(ctx context.Context) (int64, error) {
 	return id, err
 }
 
-func (t *Tx) AdvanceCompactRevision(ctx context.Context, expected, target int64) (bool, error) {
+func (t *Tx) SetCompactRevision(ctx context.Context, expected, target int64) (bool, error) {
 	result, err := t.execute(ctx, t.d.AdvanceCompactSQL, target, expected)
 	if err != nil {
 		return false, err
