@@ -43,8 +43,9 @@ var (
 		INSERT %s INTO kine(name, created, deleted, create_revision, prev_revision, lease, value, old_value)
 		WITH
 		op AS (SELECT CAST(? AS %s) AS bits),
-		ikv AS (SELECT id, deleted, create_revision, value FROM kine WHERE id = ?)
-		SELECT ?, ?, ?, (SELECT COALESCE(NULLIF(create_revision, 0), id) FROM ikv WHERE deleted = 0), ?, ?, ?, (SELECT value FROM ikv WHERE deleted = 0)
+		ikv AS (SELECT id, deleted, COALESCE(NULLIF(create_revision, 0), id) AS create_revision, value FROM kine WHERE id = ?),
+		dkv AS (SELECT create_revision, value FROM ikv WHERE deleted = 0)
+		SELECT ?, ?, ?, COALESCE((SELECT create_revision FROM dkv), 0), ?, ?, ?, (SELECT value FROM dkv)
 		WHERE COALESCE((SELECT MAX(id) FROM kine WHERE name = ?), 0) = ?
 		  AND (SELECT CASE WHEN COALESCE((SELECT deleted FROM ikv), 1) = 1 THEN (SELECT bits = 2 FROM op) ELSE (SELECT bits < 2 FROM op) END) %s
 		`
